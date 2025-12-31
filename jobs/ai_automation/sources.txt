@@ -1,0 +1,5 @@
+https://habr.com/ru/rss/hubs/artificial_intelligence/
+https://venturebeat.com/category/ai/feed/
+https://www.analyticsvidhya.com/feed/
+https://ai.googleblog.com/feeds/posts/default
+https://openai.com/blog/rss

@@ -1,0 +1,5 @@
+https://habr.com/ru/rss/hubs/finance/
+https://banki.ru/xml/news.rss
+https://journal.tinkoff.ru/rss/
+https://vc.ru/rss
+https://lifehacker.ru/rss/

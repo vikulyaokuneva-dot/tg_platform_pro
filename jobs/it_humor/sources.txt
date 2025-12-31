@@ -1,0 +1,5 @@
+https://bash.im/rss/
+https://ithappens.me/rss
+https://devhumor.com/rss
+https://pikabu.ru/rss/tag/программирование
+https://habr.com/ru/rss/hub/юмор/
