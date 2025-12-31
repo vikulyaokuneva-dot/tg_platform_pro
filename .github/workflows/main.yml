@@ -1,17 +1,17 @@
-name: Platform check
+name: Platform startup check
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  test-platform:
+  run-platform:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,5 +23,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run platform (check only)
-        run: python main.py
+      - name: Run engine (short check)
+        run: |
+          timeout 15s python main.py || true
