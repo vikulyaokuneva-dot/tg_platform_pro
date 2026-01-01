@@ -2,7 +2,7 @@ import os, time, importlib, json
 from datetime import datetime
 from core.context import JobContext
 
-JOB_DELAY_SECONDS = int(os.getenv("JOB_DELAY_SECONDS", "180"))
+JOB_DELAY_SECONDS = int(os.getenv("JOB_DELAY_SECONDS", "30"))
 DRY_RUN = os.getenv("DRY_RUN") == "1"
 JOBS_DIR = "jobs"
 
