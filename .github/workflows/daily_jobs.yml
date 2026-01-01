@@ -2,9 +2,9 @@ name: Daily jobs
 
 on:
   schedule:
-    - cron: "0 6 * * *"    # 06:00 МСК
-    - cron: "0 14 * * *"   # 14:00 МСК
-    - cron: "0 22 * * *"   # 22:00 МСК
+    - cron: "0 6 * * *"
+    - cron: "0 14 * * *"
+    - cron: "0 22 * * *"
   workflow_dispatch:
 
 jobs:
@@ -12,7 +12,25 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      DRY_RUN: 0  # Добавлено для установки DRY_RUN в 0
+      DRY_RUN: 0
+
+      AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
+      AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
+
+      ANEKDOTY_BOT_TOKEN: ${{ secrets.ANEKDOTY_BOT_TOKEN }}
+      ANEKDOTY_CHAT_ID: ${{ secrets.ANEKDOTY_CHAT_ID }}
+
+      CRYPTO_AIRDROPS_BOT_TOKEN: ${{ secrets.CRYPTO_AIRDROPS_BOT_TOKEN }}
+      CRYPTO_AIRDROPS_CHAT_ID: ${{ secrets.CRYPTO_AIRDROPS_CHAT_ID }}
+
+      CRYPTO_NEWS_BOT_TOKEN: ${{ secrets.CRYPTO_NEWS_BOT_TOKEN }}
+      CRYPTO_NEWS_CHAT_ID: ${{ secrets.CRYPTO_NEWS_CHAT_ID }}
+
+      IT_HUMOR_BOT_TOKEN: ${{ secrets.IT_HUMOR_BOT_TOKEN }}
+      IT_HUMOR_CHAT_ID: ${{ secrets.IT_HUMOR_CHAT_ID }}
+
+      PERSONAL_FINANCE_BOT_TOKEN: ${{ secrets.PERSONAL_FINANCE_BOT_TOKEN }}
+      PERSONAL_FINANCE_CHAT_ID: ${{ secrets.PERSONAL_FINANCE_CHAT_ID }}
 
     steps:
       - name: Checkout repo
