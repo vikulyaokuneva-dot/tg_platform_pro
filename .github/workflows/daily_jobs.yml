@@ -10,8 +10,10 @@ on:
 jobs:
   run-jobs:
     runs-on: ubuntu-latest
-  env:
-      DRY_RUN: 0  # Добавьте эту строку, чтобы DRY_RUN был в 0
+
+    env:
+      DRY_RUN: 0  # Добавлено для установки DRY_RUN в 0
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
