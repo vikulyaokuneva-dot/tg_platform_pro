@@ -1,0 +1,40 @@
+name: Telegram Content Platform
+
+on:
+  schedule:
+    # пример: 3 раза в день
+    - cron: "0 9,13,18 * * *"
+  workflow_dispatch: # ручной запуск
+
+jobs:
+  run-platform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🚀 Run Telegram platform
+        env:
+          POSTER_BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
+
+          # === CHANNELS ===
+          IT_HUMOR_CHAT_ID: ${{ secrets.IT_HUMOR_CHAT_ID }}
+          CRYPTO_NEWS_CHAT_ID: ${{ secrets.CRYPTO_NEWS_CHAT_ID }}
+          CRYPTO_AIRDROPS_CHAT_ID: ${{ secrets.CRYPTO_AIRDROPS_CHAT_ID }}
+          AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
+          PERSONAL_FINANCE_CHAT_ID: ${{ secrets.PERSONAL_FINANCE_CHAT_ID }}
+          STOCKS_INVESTING_CHAT_ID: ${{ secrets.STOCKS_INVESTING_CHAT_ID }}
+
+        run: |
+          python -m app
