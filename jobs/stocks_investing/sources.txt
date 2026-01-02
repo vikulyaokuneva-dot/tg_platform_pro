@@ -1,5 +1,0 @@
-https://www.investing.com/rss/news.rss
-https://www.marketwatch.com/rss/topstories
-https://finance.yahoo.com/news/rssindex
-https://www.bloomberg.com/feed/podcast/etf-report.xml
-https://www.ft.com/rss/home
