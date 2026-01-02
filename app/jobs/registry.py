@@ -2,10 +2,10 @@ from app.jobs.templates import build_simple_post
 
 JOBS = {
     "it_humor": {
-        "channel": "it_humor",
-        "builder": build_simple_post,
-        "prefix": "😂 ",
-        "source": "IT юмор"
+    "channel": "it_humor",
+    "builder": build_simple_post,
+    "prefix": "😂 ",
+    "source": "IT юмор",
     },
     "anekdoty": {
         "channel": "anekdoty",
