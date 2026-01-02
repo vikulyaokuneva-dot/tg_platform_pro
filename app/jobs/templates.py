@@ -1,3 +1,9 @@
+def build_simple_post(job):
+    prefix = job.get("prefix", "")
+    source = job.get("source", "")
+    return f"{prefix}{source}"
+
+
 def build_it_humor_navigation(job):
     return (
         "📌 Навигация\n\n"
@@ -16,4 +22,3 @@ def build_it_humor_navigation(job):
         "@crypto_news_channel\n"
         "@ai_automation_channel"
     )
-
