@@ -35,6 +35,9 @@ jobs:
           AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
           PERSONAL_FINANCE_CHAT_ID: ${{ secrets.PERSONAL_FINANCE_CHAT_ID }}
           STOCKS_INVESTING_CHAT_ID: ${{ secrets.STOCKS_INVESTING_CHAT_ID }}
-
+          ANEKDOTY_CHAT_ID: ${{ secrets.ANEKDOTY_CHAT_ID }}
+          STARTUPS_VC_CHAT_ID: ${{ secrets.STARTUPS_VC_CHAT_ID }}
+          PRODUCT_GROWTH_CHAT_ID: ${{ secrets.PRODUCT_GROWTH_CHAT_ID }}
+          PROGRAMMING_DEV_CHAT_ID: ${{ secrets.PROGRAMMING_DEV_CHAT_ID }}
         run: |
           python -m app
