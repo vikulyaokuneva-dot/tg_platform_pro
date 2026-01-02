@@ -61,5 +61,10 @@ JOBS = {
         "prefix": "👨‍💻 ",
         "source": "Programming & Dev"
     },
+    "it_humor_navigation": {
+    "channel": "it_humor",
+    "builder": build_it_humor_navigation,
+    }
+
 }
 
