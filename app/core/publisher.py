@@ -1,4 +1,4 @@
-from app.core.telegram import send_message
+from app.core.telegram import send_post
 from app.core.state import load_state, save_state
 from app.core.scheduler import mark_published
 
