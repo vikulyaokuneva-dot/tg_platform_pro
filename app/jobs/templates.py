@@ -24,4 +24,33 @@ def build_it_humor_navigation(job):
 
         "Нажмите на нужный хештег, чтобы увидеть все посты по теме 👇"
     )
+from app.sources import memes, programming, bugs, startups, dev_thoughts
+
+def build_it_humor_post(job):
+    source = job["source"]
+
+    if source == "memes":
+        text = memes.get_post()
+        tags = ["it", "memes", "юмор"]
+
+    elif source == "programming":
+        text = programming.get_post()
+        tags = ["dev", "programming", "код"]
+
+    elif source == "bugs":
+        text = bugs.get_post()
+        tags = ["bugs", "fail", "debug"]
+
+    elif source == "startups":
+        text = startups.get_post()
+        tags = ["startup", "itlife"]
+
+    elif source == "thoughts":
+        text = dev_thoughts.get_post()
+        tags = ["devlife", "айти"]
+
+    else:
+        return None
+
+    return with_hashtags(text, tags)
 
