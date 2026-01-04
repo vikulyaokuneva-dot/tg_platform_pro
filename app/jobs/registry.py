@@ -66,9 +66,11 @@ JOBS = {
         "source": "Programming & Dev"
     },
     "it_humor_navigation": {
-    "channel": "it_humor",
     "builder": build_it_humor_navigation,
+    "channels": ["IT_HUMOR"],
+    "pin": True,
     }
+
 
 }
 
