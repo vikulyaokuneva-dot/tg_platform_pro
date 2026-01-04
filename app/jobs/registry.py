@@ -1,4 +1,8 @@
-from app.jobs.templates import build_simple_post
+from app.jobs.templates import (
+    build_simple_post,
+    build_it_humor_navigation
+)
+
 
 JOBS = {
     "it_humor": {
