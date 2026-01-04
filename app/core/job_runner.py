@@ -6,18 +6,15 @@ from app.core.scheduler import should_run_now, pick_random_job
 
 
 def run_all_jobs():
-    """
-    Главная точка входа контент-платформы
-    """
-
-    # 1️⃣ Навигация — публикуется при старте (закреп)
+    # 1️⃣ Навигация (однократно)
     for job_name, job in JOBS.items():
         if job.get("pin"):
             publish_job(job_name, job)
 
-    # 2️⃣ Контент — строго по расписанию
+    # 2️⃣ Контент по расписанию
     if not should_run_now():
         return
 
     job = pick_random_job(JOBS)
-    publish_job("scheduled_content", job)
+    if job:
+        publish_job("scheduled_content", job)
