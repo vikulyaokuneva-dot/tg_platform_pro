@@ -6,19 +6,19 @@ def build_simple_post(job):
 
 def build_it_humor_navigation(job):
     return (
-        "📌 Навигация\n\n"
-        "😂 IT Юмор | Dev Life\n"
-        "Лучшие шутки и мемы про программистов\n\n"
-        "🕒 Частота\n"
-        "3–5 постов в день\n\n"
-        "🧠 Темы\n"
-        "• программирование\n"
-        "• баги и фиксы\n"
-        "• дедлайны\n"
-        "• работа в IT\n\n"
-        "📩 Связь / реклама\n"
-        "@your_username\n\n"
-        "🔗 Другие проекты\n"
-        "@crypto_news_channel\n"
-        "@ai_automation_channel"
+        "📌 Навигация по каналу «IT юмор»\n\n"
+
+        "😂 Мемы и шутки — #itюмор #мемы\n"
+        "💻 Программирование — #код #programming\n"
+        "🧠 Мысли разработчика — #dev #айти\n"
+        "🐞 Баги и фейлы — #bugs\n"
+        "🚀 Стартапы и IT-жизнь — #startup #itlife\n\n"
+
+        "🔗 Полезные ресурсы:\n"
+        "• GitHub — https://github.com\n"
+        "• Stack Overflow — https://stackoverflow.com\n"
+        "• Habr — https://habr.com\n\n"
+
+        "Нажмите на нужный хештег, чтобы увидеть все посты по теме 👇"
     )
+
