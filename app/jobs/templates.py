@@ -1,8 +1,10 @@
 # app/jobs/templates.py
 
-def build_simple_post(job, content: str) -> str:
+def build_simple_post(job) -> str:
     prefix = job.get("prefix", "")
-    return f"{prefix}{content}"
+    source = job.get("source", "")
+    return f"{prefix}{source}"
+
 
 
 # ==============================
