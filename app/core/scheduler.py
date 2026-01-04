@@ -3,23 +3,26 @@
 import random
 from datetime import datetime
 
-POST_TIMES = [9, 14, 20]  # часы публикаций
+POST_HOURS = [9, 14, 20]
 
 
 def should_run_now() -> bool:
-    """
-    Проверяет, нужно ли публиковать пост сейчас
-    """
     now = datetime.now()
-    return now.hour in POST_TIMES and now.minute < 5
+    return now.hour in POST_HOURS and now.minute < 5
 
 
 def pick_random_job(jobs: dict) -> dict:
     """
-    Выбирает случайный job, который является контентным
+    Выбирает случайный контентный job с учётом весов
     """
-    content_jobs = [
-        job for job in jobs.values()
-        if job.get("source") and not job.get("pin")
-    ]
-    return random.choice(content_jobs)
+    weighted_jobs = []
+
+    for job in jobs.values():
+        if job.get("source") and not job.get("pin"):
+            weight = job.get("weight", 1)
+            weighted_jobs.extend([job] * weight)
+
+    if not weighted_jobs:
+        return None
+
+    return random.choice(weighted_jobs)
