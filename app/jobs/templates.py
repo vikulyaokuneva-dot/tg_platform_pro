@@ -3,6 +3,9 @@ def build_simple_post(job):
     source = job.get("source", "")
     return f"{prefix}{source}"
 
+def with_hashtags(text: str, hashtags: list[str]) -> str:
+    tags = " ".join(f"#{tag}" for tag in hashtags)
+    return f"{text}\n\n{tags}"
 
 def build_it_humor_navigation(job):
     return (
