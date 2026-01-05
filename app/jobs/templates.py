@@ -11,15 +11,15 @@ from app.content.static import get_random
 def build_simple_post(job) -> str | None:
     prefix = job.get("prefix", "")
     source = job.get("source")
+    hashtags = job.get("hashtags", [])
 
+    from app.content.static import get_random
     text = get_random(source)
     if not text:
         return None
 
-    return f"{prefix}{text}"
-
-
-
+    tags = " ".join(f"#{t}" for t in hashtags)
+    return f"{prefix}{text}\n\n{tags}"
 
 # ==============================
 # IT HUMOR
