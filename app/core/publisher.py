@@ -1,44 +1,37 @@
 # app/core/publisher.py
 
-from app.core.telegram import send_post, send_photo
-
-def publish_job(job_name: str, job: dict):
-    ...
-    result = builder(job)
-
-    if isinstance(result, dict) and result.get("image"):
-        send_photo(channel, result["image"], result["text"])
-    else:
-        send_post(channel, result)
-
+from app.core.telegram import send_post, send_photo, pin_message
 from app.core.state import load_state, save_state
-from app.core.scheduler import mark_published
+from app.content.fallback import get_fallback_image
 
 
-def publish_job(job_name: str, job: dict):
-    state = load_state()
+def publish_job(channel: str, builder):
+    """
+    Публикация поста в канал.
+    Автоматически:
+    - добавляет закреп, если его ещё нет
+    - всегда публикует картинку (rss или fallback)
+    """
 
-    channel = job.get("channel")
-    builder = job.get("builder")
+    state = load_state(channel)
+    is_pinned = state.get("pinned", False)
 
-    if not channel or not builder:
-        return
+    result = builder()
 
-    text = builder(job)
-    if not text:
-        return
+    text = result.get("text", "")
+    image = result.get("image") or get_fallback_image(channel)
 
-    # 📌 НАВИГАЦИЯ (один раз, без pin API)
-    if job.get("pin"):
-        key = f"navigation_sent::{channel}"
-        if state.get(key):
-            return
+    # 1. Отправляем пост с фото
+    message = send_photo(
+        channel=channel,
+        image=image,
+        caption=text
+    )
 
-        send_post(channel, text)
-        state[key] = True
-        save_state(state)
-        return
+    # 2. Если закрепа ещё не было — закрепляем этот пост
+    if not is_pinned:
+        pin_message(channel=channel, message_id=message.message_id)
+        state["pinned"] = True
+        save_state(channel, state)
 
-    # 📨 ОБЫЧНЫЙ ПОСТ
-    send_post(channel, text)
-    mark_published(channel)
+    return message
