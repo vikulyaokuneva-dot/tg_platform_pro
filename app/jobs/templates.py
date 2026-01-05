@@ -5,6 +5,26 @@ from app.content.wisdom import get_wisdom
 def build_wisdom_post(job) -> str:
     return get_wisdom()
 
+from app.content.rss import fetch
+
+
+def build_rss_post(job) -> str | None:
+    feed_url = job.get("feed_url")
+    hashtags = job.get("hashtags", [])
+
+    data = fetch(feed_url)
+    if not data:
+        return None
+
+    tags = " ".join(f"#{t}" for t in hashtags)
+
+    text = (
+        f"<b>{data['title']}</b>\n\n"
+        f"{data['text'][:700]}...\n\n"
+        f"{data['link']}\n\n"
+        f"{tags}"
+    )
+    return text
 
 from app.content.static import get_random
 
