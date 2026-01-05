@@ -19,9 +19,10 @@ def publish_job(name: str, job: dict):
     state = load_state()
     is_pinned = state.get("pinned", False)
 
+    # вызываем builder правильно
     result = builder(job)
 
-    # result может быть строкой или dict
+    # отправка поста
     if isinstance(result, dict):
         text = result.get("text", "")
         image = result.get("image") or get_fallback_image(channel)
@@ -29,20 +30,18 @@ def publish_job(name: str, job: dict):
     else:
         message = send_post(channel, result)
 
-   # Автозакреп
-if not is_pinned and channel:
+    # безопасное извлечение message_id
     message_id = None
-
     if isinstance(message, dict):
         if "result" in message and isinstance(message["result"], dict):
             message_id = message["result"].get("message_id")
         else:
             message_id = message.get("message_id")
 
-    if message_id:
+    # автозакреп
+    if not is_pinned and channel and message_id:
         pin_message(channel=channel, message_id=message_id)
         state["pinned"] = True
         save_state(state)
-
 
     return message
