@@ -1,18 +1,26 @@
-# app/content/rss.py
+import feedparser
+from bs4 import BeautifulSoup
+import random
 
-"""
-RSS content source.
 
-This module will be responsible for:
-- fetching RSS feeds
-- parsing items
-- returning clean text content
-"""
+def fetch(feed_url: str) -> dict | None:
+    feed = feedparser.parse(feed_url)
+    if not feed.entries:
+        return None
 
-def fetch(feed_url: str) -> list[str]:
-    """
-    Fetch and parse RSS feed.
-    Currently not implemented.
-    """
-    return []
+    entry = random.choice(feed.entries)
 
+    html = entry.get("summary", "")
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text().strip()
+
+    image = None
+    if "media_content" in entry:
+        image = entry.media_content[0].get("url")
+
+    return {
+        "title": entry.get("title", ""),
+        "text": text,
+        "image": image,
+        "link": entry.get("link"),
+    }
