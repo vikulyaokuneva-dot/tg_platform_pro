@@ -13,7 +13,7 @@ def publish_job(channel: str, builder):
     - всегда публикует картинку (rss или fallback)
     """
 
-    state = load_state(channel)
+    state = load_state()
     is_pinned = state.get("pinned", False)
 
     result = builder()
@@ -32,6 +32,6 @@ def publish_job(channel: str, builder):
     if not is_pinned:
         pin_message(channel=channel, message_id=message.message_id)
         state["pinned"] = True
-        save_state(channel, state)
+        save_state(state)
 
     return message
