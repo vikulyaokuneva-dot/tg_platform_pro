@@ -26,6 +26,18 @@ def build_rss_post(job) -> str | None:
     )
     return text
 
+def send_photo(channel_key: str, photo_url: str, caption: str, parse_mode="HTML"):
+    chat_id = CHANNELS.get(channel_key)
+    if not chat_id:
+        return None
+
+    return _bot.send_photo(
+        chat_id=chat_id,
+        photo=photo_url,
+        caption=caption,
+        parse_mode=parse_mode,
+    )
+
 from app.content.static import get_random
 
 def build_simple_post(job) -> str | None:
