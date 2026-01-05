@@ -1,53 +1,51 @@
 # app/core/telegram.py
 
-from telegram import Bot
-from app.core.config import POSTER_BOT_TOKEN, CHANNELS
-
-_bot = Bot(token=POSTER_BOT_TOKEN)
+import requests
+from app.core.config import TELEGRAM_TOKEN
 
 
-def send_post(channel_key: str, text: str, parse_mode="HTML"):
-    chat_id = CHANNELS.get(channel_key)
-
-    if not chat_id:
-        print(f"[SKIP] Channel '{channel_key}' has no CHAT_ID")
-        return None
-
-    msg = _bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        parse_mode=parse_mode,
-        disable_web_page_preview=False,
-    )
-
-    return msg.message_id
+BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 
-def send_photo(
-    channel_key: str,
-    photo: str,
-    caption: str,
-    parse_mode="HTML",
-):
-    chat_id = CHANNELS.get(channel_key)
-    if not chat_id:
-        return None
+def send_post(channel: str, text: str):
+    """
+    Отправка текстового сообщения
+    """
+    url = f"{BASE_URL}/sendMessage"
+    payload = {
+        "chat_id": channel,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    response = requests.post(url, json=payload)
+    return response.json()
 
-    # Локальный файл
-    if photo.startswith("/") or photo.startswith("app/"):
-        with open(photo, "rb") as f:
-            return _bot.send_photo(
-                chat_id=chat_id,
-                photo=f,
-                caption=caption,
-                parse_mode=parse_mode,
-            )
 
-    # URL
-    return _bot.send_photo(
-        chat_id=chat_id,
-        photo=photo,
-        caption=caption,
-        parse_mode=parse_mode,
-    )
+def send_photo(channel: str, image: str, caption: str):
+    """
+    Отправка изображения с подписью
+    """
+    url = f"{BASE_URL}/sendPhoto"
+    payload = {
+        "chat_id": channel,
+        "photo": image,
+        "caption": caption,
+        "parse_mode": "HTML",
+    }
+    response = requests.post(url, json=payload)
+    return response.json()
 
+
+def pin_message(channel: str, message_id: int):
+    """
+    Закрепляет сообщение в канале
+    """
+    url = f"{BASE_URL}/pinChatMessage"
+    payload = {
+        "chat_id": channel,
+        "message_id": message_id,
+        "disable_notification": True,
+    }
+    response = requests.post(url, json=payload)
+    return response.json()
