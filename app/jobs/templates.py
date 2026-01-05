@@ -1,6 +1,7 @@
 # app/jobs/templates.py
 
-from app.core.state import was_used_recently, mark_used
+from app.content.static import get_all_items
+from app.content.cycle import pick_from_cycle
 from app.content.wisdom import get_wisdom
 from app.content.rss import fetch
 from app.content.editor import shorten
@@ -11,18 +12,25 @@ from app.content.fallback import get_fallback_image
 # SIMPLE POSTS (STATIC)
 # ==============================
 
-def build_simple_post(job):
+def build_simple_post(job) -> str | None:
+    prefix = job.get("prefix", "")
     source = job.get("source")
-    items = get_all_items(source)  # см. ниже
+    hashtags = job.get("hashtags", [])
 
-    for text in random.shuffle(items):
-        if not was_used_recently(f"last::{source}", text):
-            mark_used(f"last::{source}", text)
-            return text
+    if not source:
+        return None
 
-    return None
+    items = get_all_items(source)
+    if not items:
+        return None
+
+    # 🔁 анти-повторы / длинный цикл
+    text = pick_from_cycle(source, items)
+    if not text:
+        return None
 
     tags = " ".join(f"#{t}" for t in hashtags)
+
     return f"{prefix}{text}\n\n{tags}"
 
 
