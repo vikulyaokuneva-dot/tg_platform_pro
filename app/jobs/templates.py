@@ -1,8 +1,10 @@
 # app/jobs/templates.py
 from app.content.wisdom import get_wisdom
 
+
 def build_wisdom_post(job) -> str:
     return get_wisdom()
+
 
 from app.content.static import get_random
 
