@@ -2,6 +2,7 @@
 
 from app.jobs.templates import (
     build_simple_post,
+    build_wisdom_post,
 
     build_it_humor_navigation,
     build_anekdoty_navigation,
