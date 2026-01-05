@@ -16,6 +16,17 @@ from app.jobs.templates import (
     build_programming_dev_navigation,
 )
 
+from app.jobs.templates import build_rss_post
+
+
+"it_rss": {
+    "channel": "it_humor",
+    "builder": build_rss_post,
+    "feed_url": "https://habr.com/ru/rss/all/all/",
+    "hashtags": ["programming", "itnews"],
+    "posts_per_day": 2,
+    "weight": 2,
+}
 
 JOBS = {
 
