@@ -14,3 +14,13 @@ def save_state(state: dict):
 
 def get_today_key(channel: str) -> str:
     return f"{channel}::{date.today().isoformat()}"
+
+def was_used_recently(key: str, value: str) -> bool:
+    state = load_state()
+    return state.get(key) == value
+
+
+def mark_used(key: str, value: str):
+    state = load_state()
+    state[key] = value
+    save_state(state)
