@@ -25,24 +25,17 @@ def build_simple_post(job) -> str | None:
 # IT HUMOR
 # ==============================
 
-def build_it_humor_navigation(job=None):
+def build_it_humor_navigation(job):
     return (
         "📌 Навигация по каналу «IT юмор»\n\n"
-
-        "😂 Мемы и шутки — #itюмор #memes\n"
-        "💻 Программирование — #programming #dev\n"
-        "🐞 Баги и фейлы — #bugs #fail\n"
-        "🚀 Стартапы — #startup #itlife\n"
-        "🧠 Мысли разработчиков — #devlife\n\n"
-
-        "🔗 Внешние ресурсы:\n"
-        "• GitHub — https://github.com\n"
-        "• Stack Overflow — https://stackoverflow.com\n"
-        "• Habr — https://habr.com\n"
-        "• Reddit r/programming — https://reddit.com/r/programming\n\n"
-
-        "Нажмите на хештег, чтобы увидеть все посты по теме 👇"
+        "😂 Юмор — #humor\n"
+        "🐞 Баги — #bugs\n"
+        "💻 Программирование — #programming\n"
+        "⏰ Дедлайны — #deadlines\n"
+        "👨‍💻 Работа в IT — #itjob\n\n"
+        "Нажмите на тег, чтобы увидеть все посты 👇"
     )
+
 
 
 # ==============================
