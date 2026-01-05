@@ -34,6 +34,9 @@ JOBS = {
         "builder": build_simple_post,
         "prefix": "🤣 ",
         "source": "Анекдот дня",
+        "posts_per_day": 10,
+        "special_post_every": 10,
+        "wisdom_builder": build_wisdom_post,
     },
 
     "crypto_news": {
