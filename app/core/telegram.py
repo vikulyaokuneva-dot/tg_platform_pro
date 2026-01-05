@@ -1,10 +1,10 @@
 # app/core/telegram.py
 
 import requests
-from app.core.config import TELEGRAM_TOKEN
+from app.core.config import POSTER_BOT_TOKEN
 
 
-BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+BASE_URL = f"https://api.telegram.org/bot{POSTER_BOT_TOKEN}"
 
 
 def send_post(channel: str, text: str):
