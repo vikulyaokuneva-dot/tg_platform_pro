@@ -1,19 +1,47 @@
 # app/content/rss.py
 
-from app.content.fallback import get_fallback_image
+import feedparser
+from app.content.editor import shorten
 
 
-def build_rss_post(channel: str, item: dict) -> dict:
+def fetch(feed_url: str) -> dict | None:
     """
-    Собирает пост из RSS.
-    Если в RSS нет картинки — берём fallback.
+    Загружает RSS и возвращает один элемент в виде dict:
+    {
+        title,
+        text,
+        link,
+        image (optional)
+    }
     """
 
-    text = item.get("title", "")
-    link = item.get("link", "")
-    image = item.get("image") or get_fallback_image(channel)
+    feed = feedparser.parse(feed_url)
+    if not feed.entries:
+        return None
+
+    entry = feed.entries[0]
+
+    title = entry.get("title", "")
+    text = entry.get("summary", "") or entry.get("description", "")
+    link = entry.get("link", "")
+
+    image = None
+
+    # Пытаемся достать картинку
+    if "media_content" in entry:
+        media = entry.media_content
+        if media and isinstance(media, list):
+            image = media[0].get("url")
+
+    if not image and "links" in entry:
+        for link_item in entry.links:
+            if link_item.get("type", "").startswith("image"):
+                image = link_item.get("href")
+                break
 
     return {
-        "text": f"{text}\n\n{link}",
-        "image": image
+        "title": title,
+        "text": text,
+        "link": link,
+        "image": image,
     }
