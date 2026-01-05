@@ -3,6 +3,7 @@
 from app.jobs.templates import (
     build_simple_post,
     build_wisdom_post,
+    build_rss_editorial_post,
 
     build_it_humor_navigation,
     build_anekdoty_navigation,
@@ -16,22 +17,11 @@ from app.jobs.templates import (
     build_programming_dev_navigation,
 )
 
-from app.jobs.templates import build_rss_post
-
-
-"it_rss": {
-    "channel": "it_humor",
-    "builder": build_rss_post,
-    "feed_url": "https://habr.com/ru/rss/all/all/",
-    "hashtags": ["programming", "itnews"],
-    "posts_per_day": 2,
-    "weight": 2,
-}
 
 JOBS = {
 
     # ==============================
-    # POSTING JOBS
+    # CONTENT
     # ==============================
 
     "it_humor": {
@@ -39,6 +29,7 @@ JOBS = {
         "builder": build_simple_post,
         "prefix": "😂 ",
         "source": "IT юмор",
+        "hashtags": ["humor", "it"],
     },
 
     "anekdoty": {
@@ -46,65 +37,19 @@ JOBS = {
         "builder": build_simple_post,
         "prefix": "🤣 ",
         "source": "Анекдот дня",
+        "hashtags": ["юмор", "анекдоты"],
         "posts_per_day": 10,
         "special_post_every": 10,
         "wisdom_builder": build_wisdom_post,
     },
 
-    "crypto_news": {
-        "channel": "crypto_news",
-        "builder": build_simple_post,
-        "prefix": "📈 ",
-        "source": "Crypto News",
-    },
-
-    "crypto_airdrops": {
-        "channel": "crypto_airdrops",
-        "builder": build_simple_post,
-        "prefix": "🎁 ",
-        "source": "Airdrops",
-    },
-
-    "ai_automation": {
-        "channel": "ai_automation",
-        "builder": build_simple_post,
-        "prefix": "🤖 ",
-        "source": "AI Automation",
-    },
-
-    "personal_finance": {
-        "channel": "personal_finance",
-        "builder": build_simple_post,
-        "prefix": "💰 ",
-        "source": "Personal Finance",
-    },
-
-    "stocks_investing": {
-        "channel": "stocks_investing",
-        "builder": build_simple_post,
-        "prefix": "📊 ",
-        "source": "Stocks & Investing",
-    },
-
-    "startups_vc": {
-        "channel": "startups_vc",
-        "builder": build_simple_post,
-        "prefix": "🚀 ",
-        "source": "Startups & VC",
-    },
-
-    "product_growth": {
-        "channel": "product_growth",
-        "builder": build_simple_post,
-        "prefix": "📈 ",
-        "source": "Product Growth",
-    },
-
-    "programming_dev": {
-        "channel": "programming_dev",
-        "builder": build_simple_post,
-        "prefix": "👨‍💻 ",
-        "source": "Programming & Dev",
+    "it_rss": {
+        "channel": "it_humor",
+        "builder": build_rss_editorial_post,
+        "feed_url": "https://habr.com/ru/rss/all/all/",
+        "hashtags": ["programming", "itnews"],
+        "posts_per_day": 2,
+        "weight": 2,
     },
 
 
