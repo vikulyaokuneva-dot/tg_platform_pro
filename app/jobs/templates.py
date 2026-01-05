@@ -1,6 +1,6 @@
 # app/jobs/templates.py
 
-from app.content.static import get_random
+from app.core.state import was_used_recently, mark_used
 from app.content.wisdom import get_wisdom
 from app.content.rss import fetch
 from app.content.editor import shorten
@@ -11,14 +11,16 @@ from app.content.fallback import get_fallback_image
 # SIMPLE POSTS (STATIC)
 # ==============================
 
-def build_simple_post(job) -> str | None:
-    prefix = job.get("prefix", "")
+def build_simple_post(job):
     source = job.get("source")
-    hashtags = job.get("hashtags", [])
+    items = get_all_items(source)  # см. ниже
 
-    text = get_random(source)
-    if not text:
-        return None
+    for text in random.shuffle(items):
+        if not was_used_recently(f"last::{source}", text):
+            mark_used(f"last::{source}", text)
+            return text
+
+    return None
 
     tags = " ".join(f"#{t}" for t in hashtags)
     return f"{prefix}{text}\n\n{tags}"
