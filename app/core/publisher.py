@@ -1,6 +1,16 @@
 # app/core/publisher.py
 
-from app.core.telegram import send_post
+from app.core.telegram import send_post, send_photo
+
+def publish_job(job_name: str, job: dict):
+    ...
+    result = builder(job)
+
+    if isinstance(result, dict) and result.get("image"):
+        send_photo(channel, result["image"], result["text"])
+    else:
+        send_post(channel, result)
+
 from app.core.state import load_state, save_state
 from app.core.scheduler import mark_published
 
