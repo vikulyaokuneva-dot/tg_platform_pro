@@ -9,6 +9,55 @@ from app.content.fallback import get_fallback_image
 
 
 # ==============================
+# HASHTAGS (RU NORMALIZED)
+# ==============================
+
+HASHTAGS_RU = {
+    "humor": "юмор",
+    "bugs": "баги",
+    "programming": "программирование",
+    "deadlines": "дедлайны",
+    "itjob": "работаВIT",
+
+    "ai": "ии",
+    "automation": "автоматизация",
+    "llm": "llm",
+
+    "crypto": "крипта",
+    "market": "рынок",
+    "bitcoin": "биткоин",
+    "analysis": "аналитика",
+    "news": "новости",
+    "airdrop": "аирдроп",
+    "active": "активные",
+    "upcoming": "скоро",
+    "scam": "скам",
+
+    "finance": "финансы",
+    "investing": "инвестиции",
+    "taxes": "налоги",
+
+    "stocks": "акции",
+    "etf": "etf",
+
+    "startup": "стартапы",
+    "vc": "венчур",
+
+    "growth": "рост",
+    "experiments": "эксперименты",
+
+    "backend": "бэкенд",
+    "frontend": "фронтенд",
+}
+
+
+def build_tags(hashtags: list[str]) -> str:
+    if not hashtags:
+        return ""
+    return " ".join(f"#{HASHTAGS_RU.get(t, t)}" for t in hashtags)
+
+
+# ==============================
 # SIMPLE POSTS (STATIC)
 # ==============================
 
@@ -24,14 +73,12 @@ def build_simple_post(job) -> str | None:
     if not items:
         return None
 
-    # 🔁 анти-повторы / длинный цикл
     text = pick_from_cycle(source, items)
     if not text:
         return None
 
-    tags = " ".join(f"#{t}" for t in hashtags)
-
-    return f"{prefix}{text}\n\n{tags}"
+    tags = build_tags(hashtags)
+    return f"{prefix}{text}\n\n{tags}".strip()
 
 
 # ==============================
@@ -43,7 +90,7 @@ def build_wisdom_post(job) -> str:
 
 
 # ==============================
-# RSS → EDITORIAL (САД БЕЗ ХЛОПОТ)
+# RSS → EDITORIAL
 # ==============================
 
 def build_rss_editorial_post(job):
@@ -56,11 +103,9 @@ def build_rss_editorial_post(job):
         return None
 
     short = shorten(data["text"], 2)
-    tags = " ".join(f"#{t}" for t in hashtags)
+    tags = build_tags(hashtags)
 
-    image = data.get("image")
-    if not image:
-        image = get_fallback_image(channel)
+    image = data.get("image") or get_fallback_image(channel)
 
     return {
         "text": (
@@ -74,17 +119,17 @@ def build_rss_editorial_post(job):
 
 
 # ==============================
-# NAVIGATION BUILDERS
+# NAVIGATION BUILDERS (RU)
 # ==============================
 
 def build_it_humor_navigation(job=None):
     return (
         "📌 Навигация по каналу «IT юмор»\n\n"
-        "😂 Юмор — #humor\n"
-        "🐞 Баги — #bugs\n"
-        "💻 Программирование — #programming\n"
-        "⏰ Дедлайны — #deadlines\n"
-        "👨‍💻 Работа в IT — #itjob\n\n"
+        "😂 Юмор — #юмор\n"
+        "🐞 Баги — #баги\n"
+        "💻 Программирование — #программирование\n"
+        "⏰ Дедлайны — #дедлайны\n"
+        "👨‍💻 Работа в IT — #работаВIT\n\n"
         "Нажмите на тег, чтобы увидеть все посты 👇"
     )
 
@@ -102,10 +147,10 @@ def build_anekdoty_navigation(job=None):
 def build_crypto_news_navigation(job=None):
     return (
         "📌 Навигация по каналу «Crypto News»\n\n"
-        "📈 Рынок — #crypto #market\n"
-        "🪙 Биткоин — #bitcoin\n"
-        "🧠 Аналитика — #analysis\n"
-        "⚡️ Новости — #news\n\n"
+        "📈 Рынок — #рынок\n"
+        "🪙 Биткоин — #биткоин\n"
+        "🧠 Аналитика — #аналитика\n"
+        "⚡️ Новости — #новости\n\n"
         "Нажмите на хештег, чтобы открыть все посты 👇"
     )
 
@@ -113,10 +158,10 @@ def build_crypto_news_navigation(job=None):
 def build_crypto_airdrops_navigation(job=None):
     return (
         "📌 Навигация по каналу «Crypto Airdrops»\n\n"
-        "🎁 Аирдропы — #airdrop\n"
-        "🪂 Активные — #active\n"
-        "⏳ Скоро — #upcoming\n"
-        "⚠️ Скам — #scam\n\n"
+        "🎁 Аирдропы — #аирдроп\n"
+        "🪂 Активные — #активные\n"
+        "⏳ Скоро — #скоро\n"
+        "⚠️ Скам — #скам\n\n"
         "Нажмите на хештег для просмотра 👇"
     )
 
@@ -124,8 +169,8 @@ def build_crypto_airdrops_navigation(job=None):
 def build_ai_automation_navigation(job=None):
     return (
         "📌 Навигация по каналу «AI Automation»\n\n"
-        "🤖 AI — #ai\n"
-        "⚙️ Автоматизация — #automation\n"
+        "🤖 AI — #ии\n"
+        "⚙️ Автоматизация — #автоматизация\n"
         "🧠 LLM — #llm\n\n"
         "Нажмите на хештег для навигации 👇"
     )
@@ -134,9 +179,9 @@ def build_ai_automation_navigation(job=None):
 def build_personal_finance_navigation(job=None):
     return (
         "📌 Навигация по каналу «Personal Finance»\n\n"
-        "💰 Финансы — #finance\n"
-        "📊 Инвестиции — #investing\n"
-        "🧾 Налоги — #taxes\n\n"
+        "💰 Финансы — #финансы\n"
+        "📊 Инвестиции — #инвестиции\n"
+        "🧾 Налоги — #налоги\n\n"
         "Нажмите на хештег для просмотра 👇"
     )
 
@@ -144,8 +189,8 @@ def build_personal_finance_navigation(job=None):
 def build_stocks_investing_navigation(job=None):
     return (
         "📌 Навигация по каналу «Stocks & Investing»\n\n"
-        "📊 Акции — #stocks\n"
-        "📈 Рынок — #market\n"
+        "📊 Акции — #акции\n"
+        "📈 Рынок — #рынок\n"
         "🏦 ETF — #etf\n\n"
         "Нажмите на хештег для навигации 👇"
     )
@@ -154,8 +199,8 @@ def build_stocks_investing_navigation(job=None):
 def build_startups_vc_navigation(job=None):
     return (
         "📌 Навигация по каналу «Startups & VC»\n\n"
-        "🚀 Стартапы — #startup\n"
-        "💼 Венчур — #vc\n\n"
+        "🚀 Стартапы — #стартапы\n"
+        "💼 Венчур — #венчур\n\n"
         "Нажмите на хештег для просмотра 👇"
     )
 
@@ -163,8 +208,8 @@ def build_startups_vc_navigation(job=None):
 def build_product_growth_navigation(job=None):
     return (
         "📌 Навигация по каналу «Product Growth»\n\n"
-        "📈 Рост — #growth\n"
-        "🧪 Эксперименты — #experiments\n\n"
+        "📈 Рост — #рост\n"
+        "🧪 Эксперименты — #эксперименты\n\n"
         "Нажмите на хештег для навигации 👇"
     )
 
@@ -172,8 +217,8 @@ def build_product_growth_navigation(job=None):
 def build_programming_dev_navigation(job=None):
     return (
         "📌 Навигация по каналу «Programming & Dev»\n\n"
-        "👨‍💻 Код — #programming\n"
-        "⚙️ Backend — #backend\n"
-        "🎨 Frontend — #frontend\n\n"
+        "👨‍💻 Код — #программирование\n"
+        "⚙️ Backend — #бэкенд\n"
+        "🎨 Frontend — #фронтенд\n\n"
         "Нажмите на хештег для просмотра 👇"
     )
