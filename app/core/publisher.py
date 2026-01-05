@@ -5,32 +5,33 @@ from app.core.state import load_state, save_state
 from app.content.fallback import get_fallback_image
 
 
-def publish_job(channel: str, builder):
+def publish_job(name: str, job: dict):
     """
-    Публикация поста в канал.
-    Автоматически:
-    - добавляет закреп, если его ещё нет
-    - всегда публикует картинку (rss или fallback)
+    Публикует один job в канал
     """
+
+    channel = job.get("channel")
+    builder = job.get("builder")
+
+    if not callable(builder):
+        raise TypeError(f"Builder for job '{name}' is not callable")
 
     state = load_state()
     is_pinned = state.get("pinned", False)
 
-    result = builder()
+    result = builder(job)
 
-    text = result.get("text", "")
-    image = result.get("image") or get_fallback_image(channel)
+    # result может быть строкой или dict
+    if isinstance(result, dict):
+        text = result.get("text", "")
+        image = result.get("image") or get_fallback_image(channel)
+        message = send_photo(channel, image, text)
+    else:
+        message = send_post(channel, result)
 
-    # 1. Отправляем пост с фото
-    message = send_photo(
-        channel=channel,
-        image=image,
-        caption=text
-    )
-
-    # 2. Если закрепа ещё не было — закрепляем этот пост
-    if not is_pinned:
-        pin_message(channel=channel, message_id=message.message_id)
+    # Автозакреп
+    if not is_pinned and channel:
+        pin_message(channel=channel, message_id=message["result"]["message_id"])
         state["pinned"] = True
         save_state(state)
 
