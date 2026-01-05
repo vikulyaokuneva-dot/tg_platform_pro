@@ -1,9 +1,17 @@
 # app/jobs/templates.py
 
-def build_simple_post(job) -> str:
+from app.content.static import get_random
+
+def build_simple_post(job) -> str | None:
     prefix = job.get("prefix", "")
-    source = job.get("source", "")
-    return f"{prefix}{source}"
+    source = job.get("source")
+
+    text = get_random(source)
+    if not text:
+        return None
+
+    return f"{prefix}{text}"
+
 
 
 
