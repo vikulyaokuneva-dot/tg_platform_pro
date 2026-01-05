@@ -29,10 +29,20 @@ def publish_job(name: str, job: dict):
     else:
         message = send_post(channel, result)
 
-    # Автозакреп
-    if not is_pinned and channel:
-        pin_message(channel=channel, message_id=message["result"]["message_id"])
+   # Автозакреп
+if not is_pinned and channel:
+    message_id = None
+
+    if isinstance(message, dict):
+        if "result" in message and isinstance(message["result"], dict):
+            message_id = message["result"].get("message_id")
+        else:
+            message_id = message.get("message_id")
+
+    if message_id:
+        pin_message(channel=channel, message_id=message_id)
         state["pinned"] = True
         save_state(state)
+
 
     return message
