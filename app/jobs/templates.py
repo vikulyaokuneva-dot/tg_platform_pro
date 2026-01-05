@@ -4,6 +4,7 @@ from app.content.static import get_random
 from app.content.wisdom import get_wisdom
 from app.content.rss import fetch
 from app.content.editor import shorten
+from app.content.fallback import get_fallback_image
 
 
 # ==============================
@@ -38,6 +39,7 @@ def build_wisdom_post(job) -> str:
 def build_rss_editorial_post(job):
     feed_url = job.get("feed_url")
     hashtags = job.get("hashtags", [])
+    channel = job.get("channel")
 
     data = fetch(feed_url)
     if not data:
@@ -46,6 +48,10 @@ def build_rss_editorial_post(job):
     short = shorten(data["text"], 2)
     tags = " ".join(f"#{t}" for t in hashtags)
 
+    image = data.get("image")
+    if not image:
+        image = get_fallback_image(channel)
+
     return {
         "text": (
             f"<b>{data['title']}</b>\n\n"
@@ -53,7 +59,7 @@ def build_rss_editorial_post(job):
             f"{data['link']}\n\n"
             f"{tags}"
         ),
-        "image": data.get("image"),
+        "image": image,
     }
 
 
