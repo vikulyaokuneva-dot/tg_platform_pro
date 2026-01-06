@@ -8,18 +8,14 @@ BASE_URL = f"https://api.telegram.org/bot{POSTER_BOT_TOKEN}"
 
 
 def send_post(channel: str, text: str):
-    """
-    Отправка текстового сообщения
-    """
-    url = f"{BASE_URL}/sendMessage"
-    payload = {
-        "chat_id": channel,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
     response = requests.post(url, json=payload)
-    return response.json()
+    data = response.json()
+
+    if not data.get("ok"):
+        print("TG ERROR send_post:", data)
+
+    return data
+
 
 
 def send_photo(channel: str, image: str, caption: str):
@@ -38,14 +34,17 @@ def send_photo(channel: str, image: str, caption: str):
 
 
 def pin_message(channel: str, message_id: int):
-    """
-    Закрепляет сообщение в канале
-    """
     url = f"{BASE_URL}/pinChatMessage"
     payload = {
         "chat_id": channel,
         "message_id": message_id,
         "disable_notification": True,
     }
+    if not is_pinned and channel and message_id:
+    pin_message(channel=channel, message_id=message_id)
+    state["pinned"] = True
+    save_state(state)
     response = requests.post(url, json=payload)
     return response.json()
+   
+    
