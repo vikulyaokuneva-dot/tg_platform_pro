@@ -1,64 +1,21 @@
-# app/core/telegram.py
+from telegram import Bot
+from app.core.config import POSTER_BOT_TOKEN, CHANNELS
 
-import requests
-from app.core.config import POSTER_BOT_TOKEN
-
-
-BASE_URL = f"https://api.telegram.org/bot{POSTER_BOT_TOKEN}"
+_bot = Bot(token=POSTER_BOT_TOKEN)
 
 
-def send_post(channel: str, text: str):
-    url = f"{BASE_URL}/sendMessage"
-    payload = {
-        "chat_id": channel,
-        "text": text,
-        "parse_mode": "HTML",
-    }
+def send_post(channel_key: str, text: str, parse_mode="HTML"):
+    chat_id = CHANNELS.get(channel_key)
 
-    response = requests.post(url, json=payload)
-    data = response.json()
+    if not chat_id:
+        print(f"[SKIP] Channel '{channel_key}' has no CHAT_ID")
+        return None
 
-    if not data.get("ok"):
-        print("TG ERROR send_post:", data)
+    msg = _bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode=parse_mode,
+        disable_web_page_preview=False,
+    )
 
-    return data
-
-
-
-
-def send_photo(channel: str, image: str, caption: str):
-    url = f"{BASE_URL}/sendPhoto"
-    payload = {
-        "chat_id": channel,
-        "photo": image,
-        "caption": caption,
-        "parse_mode": "HTML",
-    }
-
-    response = requests.post(url, json=payload)
-    data = response.json()
-
-    if not data.get("ok"):
-        print("TG ERROR send_photo:", data)
-
-    return data
-
-
-
-def pin_message(channel: str, message_id: int):
-    url = f"{BASE_URL}/pinChatMessage"
-    payload = {
-        "chat_id": channel,
-        "message_id": message_id,
-        "disable_notification": True,
-    }
-
-    response = requests.post(url, json=payload)
-    data = response.json()
-
-    if not data.get("ok"):
-        print("TG ERROR pin_message:", data)
-
-    return data
-
-    
+    return msg.message_id
