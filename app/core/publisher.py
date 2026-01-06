@@ -1,47 +1,20 @@
-# app/core/publisher.py
-
-from app.core.telegram import send_post, send_photo, pin_message
+from app.telegram.client import send_message
 from app.core.state import load_state, save_state
-from app.content.fallback import get_fallback_image
+from app.core.scheduler import mark_published
 
-
-def publish_job(name: str, job: dict):
-    """
-    Публикует один job в канал
-    """
-
-    channel = job.get("channel")
-    builder = job.get("builder")
-
-    if not callable(builder):
-        raise TypeError(f"Builder for job '{name}' is not callable")
-
+def publish_job(job_name: str, job: dict):
     state = load_state()
-    is_pinned = state.get("pinned", False)
+    channel = job.get("channel")
+    text = job["builder"](job)
 
-    # вызываем builder правильно
-    result = builder(job)
-
-    # отправка поста
-    if isinstance(result, dict):
-        text = result.get("text", "")
-        image = result.get("image") or get_fallback_image(channel)
-        message = send_photo(channel, image, text)
-    else:
-        message = send_post(channel, result)
-
-    # безопасное извлечение message_id
-    message_id = None
-    if isinstance(message, dict):
-        if "result" in message and isinstance(message["result"], dict):
-            message_id = message["result"].get("message_id")
-        else:
-            message_id = message.get("message_id")
-
-    # автозакреп
-    if not is_pinned and channel and message_id:
-        pin_message(channel=channel, message_id=message_id)
-        state["pinned"] = True
+    if job.get("pin"):
+        key = f"pinned::{channel}"
+        if state.get(key):
+            return
+        send_message(channel, text, pin=True)
+        state[key] = True
         save_state(state)
+        return
 
-    return message
+    send_message(channel, text)
+    mark_published(channel)
