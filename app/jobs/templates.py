@@ -1,224 +1,220 @@
 # app/jobs/templates.py
 
-from app.content.static import get_all_items
-from app.content.cycle import pick_from_cycle
-from app.content.wisdom import get_wisdom
-from app.content.rss import fetch
-from app.content.editor import shorten
-from app.content.fallback import get_fallback_image
-
-
-# ==============================
-# HASHTAGS (RU NORMALIZED)
-# ==============================
-
-HASHTAGS_RU = {
-    "humor": "юмор",
-    "bugs": "баги",
-    "programming": "программирование",
-    "deadlines": "дедлайны",
-    "itjob": "работаВIT",
-
-    "ai": "ии",
-    "automation": "автоматизация",
-    "llm": "llm",
-
-    "crypto": "крипта",
-    "market": "рынок",
-    "bitcoin": "биткоин",
-    "analysis": "аналитика",
-    "news": "новости",
-    "airdrop": "аирдроп",
-    "active": "активные",
-    "upcoming": "скоро",
-    "scam": "скам",
-
-    "finance": "финансы",
-    "investing": "инвестиции",
-    "taxes": "налоги",
-
-    "stocks": "акции",
-    "etf": "etf",
-
-    "startup": "стартапы",
-    "vc": "венчур",
-
-    "growth": "рост",
-    "experiments": "эксперименты",
-
-    "backend": "бэкенд",
-    "frontend": "фронтенд",
-}
-
-
-def build_tags(hashtags: list[str]) -> str:
-    if not hashtags:
-        return ""
-    return " ".join(f"#{HASHTAGS_RU.get(t, t)}" for t in hashtags)
-
-
-# ==============================
-# SIMPLE POSTS (STATIC)
-# ==============================
-
-def build_simple_post(job) -> str | None:
+def build_simple_post(job, content: str) -> str:
     prefix = job.get("prefix", "")
-    source = job.get("source")
-    hashtags = job.get("hashtags", [])
-
-    if not source:
-        return None
-
-    items = get_all_items(source)
-    if not items:
-        return None
-
-    text = pick_from_cycle(source, items)
-    if not text:
-        return None
-
-    tags = build_tags(hashtags)
-    return f"{prefix}{text}\n\n{tags}".strip()
+    return f"{prefix}{content}"
 
 
 # ==============================
-# WISDOM / SPECIAL POST
-# ==============================
-
-def build_wisdom_post(job) -> str:
-    return get_wisdom()
-
-
-# ==============================
-# RSS → EDITORIAL
-# ==============================
-
-def build_rss_editorial_post(job):
-    feed_url = job.get("feed_url")
-    hashtags = job.get("hashtags", [])
-    channel = job.get("channel")
-
-    data = fetch(feed_url)
-    if not data:
-        return None
-
-    short = shorten(data["text"], 2)
-    tags = build_tags(hashtags)
-
-    image = data.get("image") or get_fallback_image(channel)
-
-    return {
-        "text": (
-            f"<b>{data['title']}</b>\n\n"
-            f"{short}\n\n"
-            f"{data['link']}\n\n"
-            f"{tags}"
-        ),
-        "image": image,
-    }
-
-
-# ==============================
-# NAVIGATION BUILDERS (RU)
+# IT HUMOR
 # ==============================
 
 def build_it_humor_navigation(job=None):
     return (
         "📌 Навигация по каналу «IT юмор»\n\n"
-        "😂 Юмор — #юмор\n"
-        "🐞 Баги — #баги\n"
-        "💻 Программирование — #программирование\n"
-        "⏰ Дедлайны — #дедлайны\n"
-        "👨‍💻 Работа в IT — #работаВIT\n\n"
-        "Нажмите на тег, чтобы увидеть все посты 👇"
+
+        "😂 Мемы и шутки — #itюмор #memes\n"
+        "💻 Программирование — #programming #dev\n"
+        "🐞 Баги и фейлы — #bugs #fail\n"
+        "🚀 Стартапы — #startup #itlife\n"
+        "🧠 Мысли разработчиков — #devlife\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• GitHub — https://github.com\n"
+        "• Stack Overflow — https://stackoverflow.com\n"
+        "• Habr — https://habr.com\n"
+        "• Reddit r/programming — https://reddit.com/r/programming\n\n"
+
+        "Нажмите на хештег, чтобы увидеть все посты по теме 👇"
     )
 
+
+# ==============================
+# ANEKDOTY
+# ==============================
 
 def build_anekdoty_navigation(job=None):
     return (
         "📌 Навигация по каналу «Анекдот дня»\n\n"
-        "🤣 Анекдоты — #анекдоты\n"
-        "😂 Юмор — #юмор\n"
+
+        "🤣 Лучшие анекдоты — #анекдоты\n"
+        "😂 Короткие шутки — #юмор\n"
         "😄 Классика — #classic\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• anekdot.ru — https://anekdot.ru\n"
+        "• bash.im — https://bash.im\n\n"
+
         "Нажмите на хештег, чтобы посмотреть все шутки 👇"
     )
 
 
+# ==============================
+# CRYPTO NEWS
+# ==============================
+
 def build_crypto_news_navigation(job=None):
     return (
         "📌 Навигация по каналу «Crypto News»\n\n"
-        "📈 Рынок — #рынок\n"
-        "🪙 Биткоин — #биткоин\n"
-        "🧠 Аналитика — #аналитика\n"
-        "⚡️ Новости — #новости\n\n"
+
+        "📈 Рынок — #crypto #market\n"
+        "🪙 Биткоин — #bitcoin\n"
+        "🧠 Аналитика — #analysis\n"
+        "⚡️ Новости — #news\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• CoinMarketCap — https://coinmarketcap.com\n"
+        "• CoinDesk — https://coindesk.com\n"
+        "• CoinTelegraph — https://cointelegraph.com\n\n"
+
         "Нажмите на хештег, чтобы открыть все посты 👇"
     )
 
 
+# ==============================
+# CRYPTO AIRDROPS
+# ==============================
+
 def build_crypto_airdrops_navigation(job=None):
     return (
         "📌 Навигация по каналу «Crypto Airdrops»\n\n"
-        "🎁 Аирдропы — #аирдроп\n"
-        "🪂 Активные — #активные\n"
-        "⏳ Скоро — #скоро\n"
-        "⚠️ Скам — #скам\n\n"
+
+        "🎁 Аирдропы — #airdrop\n"
+        "🪂 Активные — #active\n"
+        "⏳ Скоро — #upcoming\n"
+        "⚠️ Скам — #scam\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• Airdrops.io — https://airdrops.io\n"
+        "• CoinMarketCap Airdrops — https://coinmarketcap.com/airdrop\n\n"
+
         "Нажмите на хештег для просмотра 👇"
     )
 
+
+# ==============================
+# AI AUTOMATION
+# ==============================
 
 def build_ai_automation_navigation(job=None):
     return (
         "📌 Навигация по каналу «AI Automation»\n\n"
-        "🤖 AI — #ии\n"
-        "⚙️ Автоматизация — #автоматизация\n"
-        "🧠 LLM — #llm\n\n"
+
+        "🤖 AI инструменты — #ai #tools\n"
+        "⚙️ Автоматизация — #automation\n"
+        "🧠 ML / LLM — #ml #llm\n"
+        "📦 Кейсы — #cases\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• OpenAI — https://openai.com\n"
+        "• Hugging Face — https://huggingface.co\n"
+        "• LangChain — https://langchain.com\n\n"
+
         "Нажмите на хештег для навигации 👇"
     )
 
+
+# ==============================
+# PERSONAL FINANCE
+# ==============================
 
 def build_personal_finance_navigation(job=None):
     return (
         "📌 Навигация по каналу «Personal Finance»\n\n"
-        "💰 Финансы — #финансы\n"
-        "📊 Инвестиции — #инвестиции\n"
-        "🧾 Налоги — #налоги\n\n"
+
+        "💰 Экономия — #finance\n"
+        "📊 Инвестиции — #investing\n"
+        "🏦 Банки — #banking\n"
+        "🧾 Налоги — #taxes\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• Investopedia — https://investopedia.com\n"
+        "• NerdWallet — https://nerdwallet.com\n\n"
+
         "Нажмите на хештег для просмотра 👇"
     )
 
+
+# ==============================
+# STOCKS & INVESTING
+# ==============================
 
 def build_stocks_investing_navigation(job=None):
     return (
         "📌 Навигация по каналу «Stocks & Investing»\n\n"
-        "📊 Акции — #акции\n"
-        "📈 Рынок — #рынок\n"
-        "🏦 ETF — #etf\n\n"
+
+        "📊 Акции — #stocks\n"
+        "📈 Рынок — #market\n"
+        "🏦 ETF — #etf\n"
+        "🧠 Аналитика — #analysis\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• Yahoo Finance — https://finance.yahoo.com\n"
+        "• Seeking Alpha — https://seekingalpha.com\n\n"
+
         "Нажмите на хештег для навигации 👇"
     )
 
+
+# ==============================
+# STARTUPS & VC
+# ==============================
 
 def build_startups_vc_navigation(job=None):
     return (
         "📌 Навигация по каналу «Startups & VC»\n\n"
-        "🚀 Стартапы — #стартапы\n"
-        "💼 Венчур — #венчур\n\n"
+
+        "🚀 Стартапы — #startup\n"
+        "💼 Венчур — #vc\n"
+        "📉 Питчи — #pitch\n"
+        "🧠 Кейсы — #cases\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• Y Combinator — https://ycombinator.com\n"
+        "• Crunchbase — https://crunchbase.com\n\n"
+
         "Нажмите на хештег для просмотра 👇"
     )
 
 
+# ==============================
+# PRODUCT GROWTH
+# ==============================
+
 def build_product_growth_navigation(job=None):
     return (
         "📌 Навигация по каналу «Product Growth»\n\n"
-        "📈 Рост — #рост\n"
-        "🧪 Эксперименты — #эксперименты\n\n"
+
+        "📈 Рост — #growth\n"
+        "🧪 Эксперименты — #experiments\n"
+        "📊 Метрики — #metrics\n"
+        "🎯 UX — #ux\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• Reforge — https://reforge.com\n"
+        "• GrowthHackers — https://growthhackers.com\n\n"
+
         "Нажмите на хештег для навигации 👇"
     )
 
 
+# ==============================
+# PROGRAMMING & DEV
+# ==============================
+
 def build_programming_dev_navigation(job=None):
     return (
         "📌 Навигация по каналу «Programming & Dev»\n\n"
-        "👨‍💻 Код — #программирование\n"
-        "⚙️ Backend — #бэкенд\n"
-        "🎨 Frontend — #фронтенд\n\n"
+
+        "👨‍💻 Код — #programming\n"
+        "⚙️ Backend — #backend\n"
+        "🎨 Frontend — #frontend\n"
+        "🧠 Архитектура — #architecture\n\n"
+
+        "🔗 Внешние ресурсы:\n"
+        "• GitHub — https://github.com\n"
+        "• Stack Overflow — https://stackoverflow.com\n"
+        "• Dev.to — https://dev.to\n\n"
+
         "Нажмите на хештег для просмотра 👇"
     )
