@@ -1,8 +1,12 @@
 # app/jobs/templates.py
 
-def build_simple_post(job, content: str) -> str:
-    prefix = job.get("prefix", "")
-    return f"{prefix}{content}"
+def build_simple_post(job):
+    content = job["content"]
+    title = content.get("title", "")
+    text = content.get("text", "")
+
+    return f"{title}\n\n{text}"
+
 
 
 # ==============================
