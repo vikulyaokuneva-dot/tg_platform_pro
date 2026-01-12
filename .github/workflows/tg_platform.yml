@@ -1,9 +1,11 @@
 name: Telegram Content Platform
 
 on:
+  on:
   schedule:
-    # пример: 3 раза в день
-    - cron: "0 9,13,18 * * *"
+    - cron: "0 9 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 18 * * *"
   workflow_dispatch: # ручной запуск
 
 jobs:
