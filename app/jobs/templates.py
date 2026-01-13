@@ -1,8 +1,13 @@
-def build_article_post(job):
-    c = job["content"]
+def build_article_post(content: dict) -> dict:
+    title = content.get("title", "").strip()
+    text = content.get("text", "").strip()
+    image = content.get("image")
 
-    text = f"<b>{c['title']}</b>\n\n{c['text']}"
+    if not title and not text:
+        return {}
+
     return {
+        "title": title,
         "text": text,
-        "image": c.get("image"),
+        "image": image,
     }
