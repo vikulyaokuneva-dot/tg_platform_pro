@@ -3,25 +3,29 @@ from app.extractors.common import clean_text, shorten
 
 
 def parse_automation_ai(soup: BeautifulSoup) -> dict:
-    """
-    Парсер статей automation-ai.pro
-    """
-    title_tag = soup.find("h1")
-    content_block = soup.find("article") or soup.find("div", class_="entry-content")
+    title = soup.find("h1")
 
-    paragraphs = content_block.find_all("p") if content_block else []
-    image_tag = content_block.find("img") if content_block else None
+    article = soup.find("article")
+    if not article:
+        return {}
 
-    text = "\n".join(
-        p.get_text(strip=True)
-        for p in paragraphs
-        if len(p.get_text(strip=True)) > 70
-    )
+    paragraphs = []
+    for p in article.find_all("p"):
+        text = p.get_text(strip=True)
+        if len(text) > 120:
+            paragraphs.append(text)
+        if len(paragraphs) >= 3:
+            break
 
-    text = shorten(clean_text(text))
+    image = article.find("img")
+    image_url = None
+    if image:
+        image_url = image.get("src") or image.get("data-src")
+
+    text = shorten(clean_text("\n\n".join(paragraphs)))
 
     return {
-        "title": title_tag.get_text(strip=True) if title_tag else "",
+        "title": title.get_text(strip=True) if title else "",
         "text": text,
-        "image": image_tag["src"] if image_tag and image_tag.get("src") else None,
+        "image": image_url,
     }
