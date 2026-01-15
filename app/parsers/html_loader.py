@@ -3,9 +3,6 @@ from bs4 import BeautifulSoup
 
 
 def load(url: str) -> BeautifulSoup:
-    response = requests.get(url, timeout=15)
-
-    # 🔥 принудительно нормализуем кодировку
-    response.encoding = response.apparent_encoding
-
-    return BeautifulSoup(response.text, "html.parser")
+    r = requests.get(url, timeout=15)
+    r.encoding = r.apparent_encoding
+    return BeautifulSoup(r.text, "html.parser")
