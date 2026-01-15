@@ -1,33 +1,49 @@
 from app.parsers.html_loader import load
 from app.parsers.qudata import parse_qudata
 from app.parsers.automation_ai import parse_automation_ai
-from app.jobs.templates import build_article_post
-from app.core.telegram import send_post
-from app.core.state import is_duplicate, mark_sent
+from app.core.publisher import publish
 
 
 URLS = [
-    ("https://qudata.com/ru/news-ai/tags/automation/", "qudata"),
-    ("https://automation-ai.pro/", "automation"),
+    "https://qudata.com/ru/news-ai/tags/automation/",
+    "https://automation-ai.pro/",
 ]
 
 
 def run_all_jobs():
-    for url, source in URLS:
-        if is_duplicate(url):
+    print("[START] Job runner started")
+
+    for url in URLS:
+        print(f"[LOAD] {url}")
+
+        try:
+            soup = load(url)
+        except Exception as e:
+            print(f"[ERROR] failed to load {url}: {e}")
             continue
 
-        soup = load(url)
+        content = {}
 
-        if source == "qudata":
+        if "qudata.com" in url:
             content = parse_qudata(soup)
-        if source == "automation":
+        elif "automation-ai.pro" in url:
             content = parse_automation_ai(soup)
-        else:
+
+        if not content:
+            print(f"[SKIP] no content extracted from {url}")
             continue
 
-        payload = build_article_post(content)
+        print(
+            "[CONTENT]",
+            "title:", content.get("title"),
+            "| text length:", len(content.get("text", "")),
+            "| image:", bool(content.get("image")),
+        )
 
-        if payload:
-            send_post(payload)
-            mark_sent(url)
+        try:
+            publish(content)
+            print(f"[OK] published from {url}")
+        except Exception as e:
+            print(f"[ERROR] publish failed for {url}: {e}")
+
+    print("[DONE] Job runner finished")
