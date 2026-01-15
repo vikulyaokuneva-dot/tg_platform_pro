@@ -21,7 +21,7 @@ def run_all_jobs():
 
         if source == "qudata":
             content = parse_qudata(soup)
-        elif source == "automation":
+        if source == "automation":
             content = parse_automation_ai(soup)
         else:
             continue
