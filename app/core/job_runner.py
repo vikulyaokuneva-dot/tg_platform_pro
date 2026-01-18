@@ -2,6 +2,17 @@ from app.parsers.html_loader import load
 from app.parsers.qudata import parse_qudata
 from app.parsers.automation_ai import parse_automation_ai
 from app.core.publisher import publish
+from app.parsers.medium_links import extract_medium_links
+from app.parsers.hackernoon_links import extract_hackernoon_links
+
+soup = load("https://towardsdatascience.com/tagged/automation")
+links = extract_medium_links(soup)
+print("MEDIUM LINKS:", links[:5])
+
+soup = load("https://hackernoon.com/tagged/automation")
+links = extract_hackernoon_links(soup)
+print("HN LINKS:", links[:5])
+
 
 
 URLS = [
