@@ -4,7 +4,7 @@ import os
 import sys
 
 # Импортируем компоненты из твоих файлов
-from config import POSTER_BOT_TOKEN, CHANNELS_CONFIG_FILE
+from config import BOT_TOKEN, CHANNELS_CONFIG_FILE
 from telegram_bot import TelegramBot
 from parser import ArticleParser
 from processor import ContentProcessor
