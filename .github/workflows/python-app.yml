@@ -1,0 +1,56 @@
+name: Python Bot CI
+
+# Запускать workflow при push или pull request в ветку main
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Клонируем репозиторий
+    - uses: actions/checkout@v4
+
+    # 2. Настраиваем Python (версия 3.10 подходит для aiogram 3.x)
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    # 3. Кэшируем pip модули, чтобы ускорить сборку
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    # 4. Устанавливаем зависимости
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Дополнительно ставим flake8 для проверки стиля кода
+        pip install flake8
+
+    # 5. Проверка кода линтером (поиск синтаксических ошибок)
+    - name: Lint with flake8
+      run: |
+        # E9,F63,F7,F82 - критические ошибки
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Остальные ошибки как предупреждения
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    # 6. Запуск твоего скрипта проверки системы
+    # Это проверит работу хэштегов и загрузку конфигов
+    - name: Run System Check
+      run: |
+        python check_system.py
