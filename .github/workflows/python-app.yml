@@ -1,27 +1,28 @@
-name: Python Bot CI
+name: News Poster Bot
 
 on:
-  # Запуск при пуше в main
-  push:
-    branches: [ "main" ]
-  # Запуск при пулл-реквесте в main
-  pull_request:
-    branches: [ "main" ]
-  
-  # 🔥 ЭТА СТРОЧКА ДОБАВЛЯЕТ КНОПКУ РУЧНОГО ЗАПУСКА
+  # Ручной запуск (кнопка)
   workflow_dispatch:
+  # Запуск по расписанию (каждые 6 часов)
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
+    
+    # Права на запись в репозиторий (нужны для сохранения базы данных)
+    permissions:
+      contents: write
 
-    # Подключаем секреты
     env:
       BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
       AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref }}
 
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
@@ -40,13 +41,15 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        pip install flake8
 
-    - name: Lint with flake8
+    # Запускаем бота (один цикл)
+    - name: Run Bot Cycle
       run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        python run_once.py
 
-    - name: Run System Check
-      run: |
-        python check_system.py
+    # Сохраняем обновленную базу данных (историю публикаций) обратно в репозиторий
+    - name: Commit and push DB changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "🤖 Auto: Update database with published posts"
+        file_pattern: 'bot_database.db'
