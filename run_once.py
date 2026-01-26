@@ -8,6 +8,13 @@ from bs4 import BeautifulSoup
 import trafilatura
 from aiogram import Bot
 from aiogram.enums import ParseMode
+# ... (импорты)
+import os # убедись что есть
+from ai_writer import AIWriter
+
+# Получаем ключ
+GIGACHAT_KEY = os.getenv("GIGACHAT_API_KEY")
+ai = AIWriter(GIGACHAT_KEY)
 
 # Импорт конфигурации и базы данных
 # Предполагается, что bot_database.py лежит рядом и имеет класс Database
