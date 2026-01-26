@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from config import BOT_TOKEN, CHANNELS_CONFIG_FILE, PUBLISH_INTERVAL_HOURS
+from config import POSTER_BOT_TOKEN, CHANNELS_CONFIG_FILE, PUBLISH_INTERVAL_HOURS
 from telegram_bot import TelegramBot
 from parser import ArticleParser
 from processor import ContentProcessor
@@ -226,4 +226,5 @@ async def main():
             logger.info("Планировщик публикаций остановлен")
 
 if __name__ == '__main__':
+
     asyncio.run(main())
