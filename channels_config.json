@@ -1,0 +1,28 @@
+{
+  "channels": {
+    "-1001234567890": {
+      "sources": [
+        "https://habr.com",
+        "https://dev.to"
+      ],
+      "keywords": [
+        "python",
+        "programming",
+        "development"
+      ],
+      "style": "neutral"
+    },
+    "-1009876543210": {
+      "sources": [
+        "https://vc.ru",
+        "https://rb.ru"
+      ],
+      "keywords": [
+        "business",
+        "startup",
+        "entrepreneurship"
+      ],
+      "style": "informal"
+    }
+  }
+}

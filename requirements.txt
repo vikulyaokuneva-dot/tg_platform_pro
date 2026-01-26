@@ -1,0 +1,11 @@
+aiogram==3.4.1
+aiohttp==3.9.5
+beautifulsoup4==4.12.3
+lxml==5.2.2
+Flask==3.0.0
+requests>=2.31.0
+python-telegram-bot>=20.7
+transformers>=4.36.0
+torch>=2.1.0
+schedule>=1.2.0
+Pillow>=10.1.0
