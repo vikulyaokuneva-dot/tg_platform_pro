@@ -37,6 +37,7 @@ jobs:
     - name: Run Bot Cycle
       env:
         POSTER_BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
+        GIGACHAT_API_KEY: ${{ secrets.GIGACHAT_API_KEY }}
         AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
         ANEKDOTY_CHAT_ID: ${{ secrets.ANEKDOTY_CHAT_ID }}
         CRYPTO_AIRDROPS_CHAT_ID: ${{ secrets.CRYPTO_AIRDROPS_CHAT_ID }}
