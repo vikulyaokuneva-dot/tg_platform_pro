@@ -1,6 +1,7 @@
 import os
 
 print("--- DEBUG TOKEN START ---")
+
 # Проверяем наличие переменных окружения
 print(f"ENV 'POSTER_BOT_TOKEN' exists: {'POSTER_BOT_TOKEN' in os.environ}")
 print(f"ENV 'BOT_TOKEN' exists: {'BOT_TOKEN' in os.environ}")
@@ -11,6 +12,7 @@ token = os.getenv('POSTER_BOT_TOKEN', os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN_HER
 # Выводим информацию о токене (безопасно)
 print(f"Loaded token type: {type(token)}")
 print(f"Loaded token length: {len(token)}")
+
 if len(token) > 5:
     print(f"Token starts with: '{token[:3]}...'")
     print(f"Token ends with: '...{token[-3:]}'")
@@ -24,6 +26,11 @@ else:
     print("Token is too short or default placeholder used.")
 
 print("--- DEBUG TOKEN END ---")
+
+# ==========================================
+# ВАЖНО: Присваиваем токен глобальной переменной
+# ==========================================
+BOT_TOKEN = token
 
 # Файл конфигурации каналов
 CHANNELS_CONFIG_FILE = 'channels_hashtags_config.json'
@@ -41,9 +48,4 @@ MAX_RETRIES = 3
 RETRY_DELAY = 5
 
 # Путь к файлу логов
-
 LOG_FILE_PATH = 'bot.log'
-
-
-
-
