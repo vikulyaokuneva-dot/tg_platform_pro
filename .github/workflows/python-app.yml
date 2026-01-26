@@ -42,8 +42,11 @@ jobs:
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    # Запускаем бота (один цикл)
+       # Запускаем бота (один цикл)
     - name: Run Bot Cycle
+      env:  # <--- ДОБАВЬ ЭТО СЮДА
+        POSTER_BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
+        AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
       run: |
         python run_once.py
 
