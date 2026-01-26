@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from config import BOT_TOKEN
+from config import POSTER_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -96,4 +96,5 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"Попытка {attempt + 1} не удалась: {e}")
         
+
         logger.error(f"Не удалось отправить статью в канал {channel_id} после {MAX_RETRIES} попыток")
