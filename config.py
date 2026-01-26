@@ -4,7 +4,7 @@ import json
 # --- 1. СЕКРЕТЫ И НАСТРОЙКИ TELEGRAM ---
 
 # Токен бота
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("POSTER_BOT_TOKEN")
 
 # ID каналов. 
 # Скрипт ожидает, что в GitHub Secrets/Env они записаны как:
@@ -88,3 +88,4 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5"
 }
+
