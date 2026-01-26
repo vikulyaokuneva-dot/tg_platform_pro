@@ -1,169 +1,76 @@
 import asyncio
-import logging
 import aiohttp
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
-import hashlib
+import trafilatura
+from config import HTML_SOURCES
 
-logger = logging.getLogger(__name__)
-
-class ArticleParser:
-    """
-    Класс для парсинга статей с сайтов
-    """
+class HTMLParser:
     def __init__(self):
-        self.session = None
-    
-    async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
-    
-    async def fetch_page(self, url):
-        """
-        Получение HTML-страницы по URL
-        """
+        # Притворяемся обычным браузером, чтобы нас не банили
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+    async def fetch_html(self, session, url):
         try:
-            async with self.session.get(url) as response:
+            async with session.get(url, headers=self.headers, timeout=15) as response:
                 if response.status == 200:
                     return await response.text()
                 else:
-                    logger.warning(f"Ошибка при получении страницы {url}: {response.status}")
+                    print(f"Error {response.status} fetching {url}")
                     return None
         except Exception as e:
-            logger.error(f"Исключение при получении страницы {url}: {e}")
+            print(f"Exception fetching {url}: {e}")
             return None
-    
-    async def parse_article(self, url):
-        """
-        Парсинг статьи по URL
-        """
-        html = await self.fetch_page(url)
+
+    async def get_new_links(self, session, source_config):
+        """Собирает ссылки на статьи с главной страницы рубрики"""
+        html = await self.fetch_html(session, source_config['url'])
         if not html:
-            return None
-        
+            return []
+
         soup = BeautifulSoup(html, 'html.parser')
+        links = []
         
-        # Попробуем найти заголовок статьи
-        title_elem = soup.find(['h1', 'h2', 'h3'])
-        title = title_elem.get_text().strip() if title_elem else "Без заголовка"
+        # Находим все элементы по селектору
+        elements = soup.select(source_config['link_selector'])
         
-        # Попробуем найти основной текст статьи
-        # Обычно это элементы с классами типа 'content', 'article', 'post', 'entry-content'
-        content_selectors = [
-            'article',
-            '.content',
-            '.article',
-            '.post',
-            '.entry-content',
-            '.main-content',
-            '[role="main"]',
-            '.story-body'
-        ]
-        
-        content = ""
-        for selector in content_selectors:
-            content_elem = soup.select_one(selector)
-            if content_elem:
-                # Удаляем вложенные элементы, которые не являются частью контента
-                for elem in content_elem.find_all(['script', 'style', 'nav', 'aside', 'header', 'footer']):
-                    elem.decompose()
+        for el in elements:
+            link = el.get('href')
+            if not link:
+                continue
+            
+            # Обработка относительных ссылок (/news/123 -> https://site.com/news/123)
+            if link.startswith('/'):
+                from urllib.parse import urljoin
+                link = urljoin(source_config['url'], link)
                 
-                content = content_elem.get_text(separator=' ', strip=True)
-                if content:
-                    break
-        
-        # Если не удалось найти контент с помощью селекторов, берем весь текст body
-        if not content:
-            body_elem = soup.find('body')
-            if body_elem:
-                for elem in body_elem.find_all(['script', 'style', 'nav', 'aside', 'header', 'footer']):
-                    elem.decompose()
-                content = body_elem.get_text(separator=' ', strip=True)
-        
-        if content:
-            # Ограничиваем длину контента
-            max_length = 500
-            if len(content) > max_length:
-                content = content[:max_length] + "..."
+            links.append(link)
             
-            # Создаем уникальный ID статьи на основе URL
-            article_id = hashlib.md5(url.encode()).hexdigest()
-            
-            return {
-                'id': article_id,
-                'title': title,
-                'url': url,
-                'content': content,
-                'source_domain': urlparse(url).netloc
-            }
+        # Возвращаем уникальные ссылки (set), чтобы не дублировать
+        return list(set(links))
+
+    def extract_article_content(self, html_content, url):
+        """
+        Магия Trafilatura: вытаскивает заголовок и текст статьи, 
+        игнорируя меню, рекламу и футеры.
+        """
+        downloaded = trafilatura.extract(
+            html_content,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=True,
+            url=url # Помогает резолвить относительные пути картинок
+        )
         
+        if downloaded:
+            # Trafilatura возвращает чистый текст или XML. 
+            # Иногда удобнее получить JSON-структуру metadata
+            # Но для простоты вернем текст.
+            return downloaded
         return None
-    
-    async def get_articles_from_source(self, source_url, keywords=None):
-        """
-        Получение статей из указанного источника
-        """
-        articles = []
-        
-        # Получаем главную страницу сайта
-        html = await self.fetch_page(source_url)
-        if not html:
-            return articles
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Находим ссылки на статьи на главной странице или в категориях
-        link_selectors = [
-            'a[href*="/article/"]',
-            'a[href*="/post/"]',
-            'a[href*="/news/"]',
-            'a[href*="/blog/"]',
-            '.post-title a',
-            '.article-title a',
-            'h2 a',
-            'h3 a'
-        ]
-        
-        found_urls = set()
-        
-        for selector in link_selectors:
-            links = soup.select(selector)
-            for link in links:
-                href = link.get('href')
-                if href:
-                    full_url = urljoin(source_url, href)
-                    # Проверяем, что URL принадлежит тому же домену
-                    if urlparse(full_url).netloc == urlparse(source_url).netloc:
-                        found_urls.add(full_url)
-        
-        # Если не нашли ссылки через селекторы, пробуем найти все ссылки на странице
-        if not found_urls:
-            all_links = soup.find_all('a', href=True)
-            for link in all_links:
-                href = link.get('href')
-                if href:
-                    full_url = urljoin(source_url, href)
-                    if urlparse(full_url).netloc == urlparse(source_url).netloc:
-                        # Проверяем, содержит ли URL признаки статьи
-                        if any(keyword in full_url.lower() for keyword in ['article', 'post', 'news', 'blog']):
-                            found_urls.add(full_url)
-        
-        # Парсим каждую найденную статью
-        for url in found_urls:
-            article = await self.parse_article(url)
-            if article:
-                # Если заданы ключевые слова, проверяем, содержатся ли они в статье
-                if keywords:
-                    content_lower = article['content'].lower()
-                    title_lower = article['title'].lower()
-                    
-                    if any(keyword.lower() in content_lower or keyword.lower() in title_lower for keyword in keywords):
-                        articles.append(article)
-                else:
-                    articles.append(article)
-        
-        return articles
+
+    # Дополнительно: Если нужно получить заголовок отдельно
+    def extract_metadata(self, html_content):
+        return trafilatura.bare_extraction(html_content)
+
