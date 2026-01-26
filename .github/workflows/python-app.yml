@@ -1,58 +1,16 @@
-name: News Poster Bot
-
-on:
-  # Ручной запуск (кнопка)
-  workflow_dispatch:
-  # Запуск по расписанию (каждые 6 часов)
-  schedule:
-    - cron: '0 */6 * * *'
-
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    
-    # Права на запись в репозиторий (нужны для сохранения базы данных)
-    permissions:
-      contents: write
-
-    env:
-      BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
-      AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
-
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10"
-
-    - name: Cache pip packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-       # Запускаем бота (один цикл)
     - name: Run Bot Cycle
-      env:  # <--- ДОБАВЬ ЭТО СЮДА
+      env:
         POSTER_BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
+        # Передаем все ID каналов
         AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
+        ANEKDOTY_CHAT_ID: ${{ secrets.ANEKDOTY_CHAT_ID }}
+        CRYPTO_AIRDROPS_CHAT_ID: ${{ secrets.CRYPTO_AIRDROPS_CHAT_ID }}
+        CRYPTO_NEWS_CHAT_ID: ${{ secrets.CRYPTO_NEWS_CHAT_ID }}
+        IT_HUMOR_CHAT_ID: ${{ secrets.IT_HUMOR_CHAT_ID }}
+        PERSONAL_FINANCE_CHAT_ID: ${{ secrets.PERSONAL_FINANCE_CHAT_ID }}
+        PRODUCT_GROWTH_CHAT_ID: ${{ secrets.PRODUCT_GROWTH_CHAT_ID }}
+        PROGRAMMING_DEV_CHAT_ID: ${{ secrets.PROGRAMMING_DEV_CHAT_ID }}
+        STARTUPS_VC_CHAT_ID: ${{ secrets.STARTUPS_VC_CHAT_ID }}
+        STOCKS_INVESTING_CHAT_ID: ${{ secrets.STOCKS_INVESTING_CHAT_ID }}
       run: |
         python run_once.py
-
-    # Сохраняем обновленную базу данных (историю публикаций) обратно в репозиторий
-    - name: Commit and push DB changes
-      uses: stefanzweifel/git-auto-commit-action@v5
-      with:
-        commit_message: "🤖 Auto: Update database with published posts"
-        file_pattern: 'bot_database.db'
