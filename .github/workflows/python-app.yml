@@ -1,20 +1,24 @@
 name: Python Bot CI
 
 on:
+  # Запуск при пуше в main
   push:
     branches: [ "main" ]
+  # Запуск при пулл-реквесте в main
   pull_request:
     branches: [ "main" ]
+  
+  # 🔥 ЭТА СТРОЧКА ДОБАВЛЯЕТ КНОПКУ РУЧНОГО ЗАПУСКА
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    # СЮДА мы добавляем секреты.
-    # Они будут доступны как переменные окружения (os.getenv) во всех шагах
+    # Подключаем секреты
     env:
-      BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}             # Мапим твой секрет на переменную, которую ждет config.py
-      AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }} # Дополнительный ID канала
+      BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
+      AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
 
     steps:
     - uses: actions/checkout@v4
