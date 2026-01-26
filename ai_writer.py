@@ -1,7 +1,7 @@
 import logging
 from gigachat import GigaChat
 
-# Промпты для разных категорий (чтобы стиль отличался)
+# Промпты остались те же, они хорошие
 PROMPTS = {
     "DEFAULT": (
         "Ты — опытный редактор Telegram-канала. Твоя задача — прочитать новость и пересказать её "
@@ -32,6 +32,9 @@ class AIWriter:
     def __init__(self, api_key):
         self.api_key = api_key
         self.enabled = bool(api_key)
+        # Указываем модель явно
+        self.model_name = "GigaChat-2-Lite" 
+        
         if not self.enabled:
             logging.warning("GigaChat API Key is missing. AI features disabled.")
 
@@ -40,27 +43,17 @@ class AIWriter:
         Отправляет текст в GigaChat и возвращает обработанный пост.
         """
         if not self.enabled:
-            # Если ключа нет, просто возвращаем обрубок текста (как раньше)
             return text[:800] + "..."
 
         try:
-            # Выбираем промпт под категорию
             system_prompt = PROMPTS.get(category, PROMPTS["DEFAULT"])
-            
-            # Обрезаем входной текст, чтобы не тратить лишние токены 
-            # (обычно 4000-6000 символов хватает для понимания сути)
-            input_text = text[:6000]
+            input_text = text[:8000] # GigaChat-2 позволяет контекст побольше
 
-            # Инициализируем клиент внутри метода (или в __init__, но лучше контекстным менеджером)
-            # GigaChat умеет работать синхронно и асинхронно. 
-            # Для простоты используем синхронный вызов внутри async функции (не блокирует надолго)
-            # или используем GigaChat(..., verify_ssl_certs=False) если есть проблемы с сертами
-            
-            with GigaChat(credentials=self.api_key, verify_ssl_certs=False) as giga:
+            # ВАЖНО: Передаем model=self.model_name
+            with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=self.model_name) as giga:
                 response = giga.chat(f"{system_prompt}\n\nТекст новости:\n{input_text}")
                 return response.choices[0].message.content
 
         except Exception as e:
             logging.error(f"GigaChat Error: {e}")
-            # В случае ошибки возвращаем просто начало текста
             return text[:800] + "..."
