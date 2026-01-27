@@ -291,15 +291,24 @@ def extract_title_and_text(html: str) -> (str, str):
 # =========================
 # GigaChat integration (через ваш ai_writer.py)
 # =========================
-def generate_post_with_ai(article_text: str) -> Dict[str, Any]:
+# где-то рядом с импортами/глобально:
+from ai_writer import AIWriter
+
+_AI: AIWriter | None = None
+
+def generate_post_with_ai(article_text: str, category: str) -> dict:
     """
-    Импортируем ваш ai_writer.py и вызываем generate_post(text)
-    (ai_writer у вас уже оптимизирован под 2 попытки)
+    Правильный вызов вашего ai_writer.py:
+    ai_writer = AIWriter(api_key).generate_post(text, category)
     """
+    global _AI
+    if _AI is None:
+        _AI = AIWriter(api_key=GIGACHAT_API_KEY, model_name=GIGACHAT_MODEL)
+
     try:
-        import ai_writer  # type: ignore
+        return _AI.generate_post(article_text, category)
     except Exception as e:
-        logger.error(f"Cannot import ai_writer.py: {e}")
+        logger.error(f"AIWriter.generate_post error: {e}")
         return {}
 
     try:
@@ -345,7 +354,7 @@ class Runner:
         post = {}
         try:
             logger.info("   🤖 Generating post with GigaChat...")
-            post = generate_post_with_ai(text) or {}
+            post = generate_post_with_ai(text, category) or {}
         except Exception as e:
             logger.warning(f"AI generation failed: {e}")
             post = {}
