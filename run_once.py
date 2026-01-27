@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import re
@@ -80,7 +79,8 @@ async def tg_send_message(session: aiohttp.ClientSession, chat_id: str, html_tex
         "chat_id": chat_id,
         "text": html_text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": False,
+        # мы больше не хотим "большую карточку ссылки"
+        "disable_web_page_preview": True,
     }
     try:
         async with session.post(url, json=payload, timeout=HTTP_TIMEOUT) as r:
@@ -100,6 +100,7 @@ async def tg_send_message(session: aiohttp.ClientSession, chat_id: str, html_tex
 def normalize_url(u: str) -> str:
     return (u or "").strip()
 
+
 def uniq_keep_order(items: List[str]) -> List[str]:
     seen = set()
     out = []
@@ -112,6 +113,7 @@ def uniq_keep_order(items: List[str]) -> List[str]:
         out.append(x)
     return out
 
+
 def short_source_line(article_url: str) -> str:
     try:
         d = urlparse(article_url).netloc.replace("www.", "")
@@ -119,8 +121,10 @@ def short_source_line(article_url: str) -> str:
         d = "source"
     return f"Источник: {escape(d)}"
 
+
 def merge_hashtags(category: str, gigachat_tags: Any) -> List[str]:
     tags: List[str] = []
+
     base = CHANNEL_BASE_HASHTAGS.get(category, [])
     if isinstance(base, list):
         tags.extend([t for t in base if isinstance(t, str)])
@@ -129,17 +133,18 @@ def merge_hashtags(category: str, gigachat_tags: Any) -> List[str]:
         tags.extend([t for t in gigachat_tags if isinstance(t, str)])
 
     # чистка + уникализация
-    cleaned = []
+    cleaned: List[str] = []
     seen = set()
     for t in tags:
-        t = t.strip()
+        t = (t or "").strip()
         if not t:
             continue
         if not t.startswith("#"):
             t = "#" + t
-        if t.lower() in seen:
+        key = t.lower()
+        if key in seen:
             continue
-        seen.add(t.lower())
+        seen.add(key)
         cleaned.append(t)
 
     # добавим бренд-тег (уникальный на канал)
@@ -149,7 +154,8 @@ def merge_hashtags(category: str, gigachat_tags: Any) -> List[str]:
         b = brand.strip()
         if not b.startswith("#"):
             b = "#" + b
-        if b.lower() not in seen:
+        key = b.lower()
+        if key not in seen:
             cleaned.append(b)
 
     return cleaned
@@ -157,7 +163,7 @@ def merge_hashtags(category: str, gigachat_tags: Any) -> List[str]:
 
 def build_post_text(post: Dict[str, Any], category: str, article_url: str) -> str:
     """
-    Превращаем результат ai_writer.generate_post() в текст.
+    Превращаем результат AIWriter.generate_post() в текст.
     Ожидаем: title, summary, hashtags(list)
     + добавляем: emoji, бренд-тег, базовые хэштеги, компактный источник.
     """
@@ -182,7 +188,6 @@ def build_post_text(post: Dict[str, Any], category: str, article_url: str) -> st
     if hashtags:
         parts.append(escape(" ".join(hashtags)))
 
-    # компактная строка источника (без огромной голой ссылки)
     parts.append(short_source_line(article_url))
 
     return "\n\n".join([p for p in parts if p]).strip()
@@ -190,12 +195,11 @@ def build_post_text(post: Dict[str, Any], category: str, article_url: str) -> st
 
 def fallback_post_from_text(text: str, category: str, article_url: str, title_hint: str = "") -> Dict[str, Any]:
     """
-    Если GigaChat умер — делаем аккуратный "ручной" пост.
+    Если GigaChat умер/таймаут/вернул не-JSON — делаем аккуратный пост.
     """
     meta = CHANNEL_META.get(category, {})
     emoji = (meta.get("title_emoji") or "").strip()
 
-    # берём первые 600-900 символов текста
     plain = re.sub(r"\s+", " ", (text or "").strip())
     summary = plain[:850].strip()
     if len(plain) > 850:
@@ -220,6 +224,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
 }
+
 
 async def fetch_text(session: aiohttp.ClientSession, url: str) -> Optional[str]:
     try:
@@ -250,24 +255,23 @@ async def get_links_from_source(session: aiohttp.ClientSession, source: Dict[str
     links: List[str] = []
     for el in soup.select(link_selector):
         # RSS: <link>text</link>
-        if el.name == "link" and el.get_text(strip=True):
-            links.append(el.get_text(strip=True))
+        if el.name == "link":
+            txt = el.get_text(strip=True)
+            if txt:
+                links.append(txt)
             continue
 
         href = el.get("href")
         if not href:
             continue
-        href = href.strip()
 
-        # относительные -> абсолютные
+        href = href.strip()
         if href.startswith("/"):
             href = urljoin(base_url, href)
 
         links.append(href)
 
     links = uniq_keep_order(links)
-
-    # ограничение
     return links[:MAX_LINKS_PER_SOURCE]
 
 
@@ -281,8 +285,6 @@ def extract_title_and_text(html: str) -> (str, str):
     if soup.title and soup.title.get_text(strip=True):
         title = soup.title.get_text(strip=True)
 
-    # максимально простой "текст"
-    # (это не идеально, но достаточно как fallback)
     text = soup.get_text("\n", strip=True)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return title, text
@@ -291,12 +293,12 @@ def extract_title_and_text(html: str) -> (str, str):
 # =========================
 # GigaChat integration (через ваш ai_writer.py)
 # =========================
-# где-то рядом с импортами/глобально:
 from ai_writer import AIWriter
 
 _AI: AIWriter | None = None
 
-def generate_post_with_ai(article_text: str, category: str) -> dict:
+
+def generate_post_with_ai(article_text: str, category: str) -> Dict[str, Any]:
     """
     Корректный вызов AIWriter.
     """
@@ -310,13 +312,6 @@ def generate_post_with_ai(article_text: str, category: str) -> dict:
         logger.error(f"AIWriter.generate_post error: {e}")
         return {}
 
-    try:
-        # предполагаем, что у вас функция называется generate_post(text)
-        return ai_writer.generate_post(article_text)  # type: ignore
-    except Exception as e:
-        logger.error(f"ai_writer.generate_post error: {e}")
-        return {}
-
 
 # =========================
 # Main runner
@@ -325,67 +320,64 @@ class Runner:
     def __init__(self):
         self.db = CacheDB(DB_PATH)
 
-async def process_one_article(
-    self,
-    session: aiohttp.ClientSession,
-    category: str,
-    channel_id: str,
-    article_url: str,
-) -> bool:
-    article_url = normalize_url(article_url)
-    if not article_url:
-        return False
+    async def process_one_article(
+        self,
+        session: aiohttp.ClientSession,
+        category: str,
+        channel_id: str,
+        article_url: str,
+    ) -> bool:
+        article_url = normalize_url(article_url)
+        if not article_url:
+            return False
 
-    if self.db.url_exists(category, article_url):
-        return False
+        if self.db.url_exists(category, article_url):
+            return False
 
-    logger.info(f"⚡ Processing new article: {article_url}")
+        logger.info(f"⚡ Processing new article: {article_url}")
 
-    # --- 1. Загружаем HTML ---
-    html = await fetch_text(session, article_url)
-    if not html:
-        return False
+        # 1) Fetch HTML
+        html = await fetch_text(session, article_url)
+        if not html:
+            return False
 
-    # --- 2. Извлекаем текст ---
-    title_hint, text = extract_title_and_text(html)
-    if not text or len(text.strip()) < 50:
-        logger.warning(f"Skipping {article_url}: empty article text")
-        return False
+        # 2) Extract text
+        title_hint, text = extract_title_and_text(html)
+        if not text or len(text.strip()) < 50:
+            logger.warning(f"Skipping {article_url}: empty article text")
+            return False
 
-    # --- 3. Генерация поста ---
-    if category == "ANEKDOTY":
-        # анекдоты всегда без ИИ
-        post = fallback_post_from_text(
-            text=text,
-            category=category,
-            article_url=article_url,
-            title_hint="Анекдот дня",
-        )
-    else:
-        logger.info("   🤖 Generating post with GigaChat...")
-        post = generate_post_with_ai(text, category) or {}
-
-        # fallback если ИИ вернул мусор
-        if not post.get("title") or not post.get("summary"):
+        # 3) Generate post
+        if category == "ANEKDOTY":
             post = fallback_post_from_text(
                 text=text,
                 category=category,
                 article_url=article_url,
-                title_hint=title_hint,
+                title_hint="Анекдот дня",
             )
+        else:
+            logger.info("   🤖 Generating post with GigaChat...")
+            post = generate_post_with_ai(text, category) or {}
 
-    # --- 4. Собираем текст ---
-    html_text = build_post_text(post, category, article_url)
+            if not post.get("title") or not post.get("summary"):
+                post = fallback_post_from_text(
+                    text=text,
+                    category=category,
+                    article_url=article_url,
+                    title_hint=title_hint,
+                )
 
-    # --- 5. Отправляем ---
-    ok = await tg_send_message(session, channel_id, html_text)
-    if ok:
-        self.db.mark_posted(category, article_url)
-        logger.info(f"   ✅ SUCCESS: Posted to {category}")
-        return True
+        # 4) Build final text
+        html_text = build_post_text(post, category, article_url)
 
-    return False
+        # 5) Send to Telegram
+        ok = await tg_send_message(session, channel_id, html_text)
+        if ok:
+            self.db.mark_posted(category, article_url)
+            logger.info(f"   ✅ SUCCESS: Posted to {category}")
+            return True
 
+        return False
 
     async def run(self):
         logger.info("Starting single run (all channels)")
@@ -409,11 +401,9 @@ async def process_one_article(
                     for source in sources:
                         logger.info(f"Scanning source: {source.get('name','(no name)')}")
                         links = await get_links_from_source(session, source)
-
                         if not links:
                             continue
 
-                        # ищем первую НЕ posted ссылку
                         for link in links:
                             if self.db.url_exists(category, link):
                                 continue
@@ -429,7 +419,6 @@ async def process_one_article(
                         logger.info(f"No fresh new posts for {category}")
 
                 except Exception as e:
-                    # критично: ошибки не роняют процесс
                     logger.error(f"Channel {category} failed: {e}")
 
         logger.info("Job finished successfully.")
