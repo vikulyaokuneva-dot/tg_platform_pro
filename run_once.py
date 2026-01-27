@@ -148,27 +148,80 @@ def trim_text(s: str, limit: int) -> str:
     return s[: max(0, limit - 1)].rstrip() + "…"
 
 
-def build_post_text(post: dict) -> str:
+from html import escape
+
+def build_post_text(post: dict, category: str) -> str:
     """
-    Превращаем результат ai_writer.generate_post() в текст.
-    Ожидаем: title, summary, hashtags(list)
+    Собирает финальный текст поста с:
+    - эмодзи канала
+    - заголовком
+    - текстом
+    - бренд-хэштегом канала
+    - базовыми хэштегами канала
+    - хэштегами от GigaChat
+
+    Ожидает:
+      post = { title: str, summary: str, hashtags: list[str] }
     """
+
+    # --- 1. Данные из AI ---
     title = (post.get("title") or "").strip()
     summary = (post.get("summary") or "").strip()
-    hashtags = post.get("hashtags") or []
-    if not isinstance(hashtags, list):
-        hashtags = []
+    ai_tags = post.get("hashtags") or []
+    if not isinstance(ai_tags, list):
+        ai_tags = []
 
-    tags = " ".join([t.strip() for t in hashtags if isinstance(t, str) and t.strip()])
+    # --- 2. Метаданные канала ---
+    meta = CHANNEL_META.get(category, {})
+    brand_tag = meta.get("brand_tag")          # #ai_auto
+    title_emoji = meta.get("title_emoji")      # 🤖
+
+    base_tags = CHANNEL_BASE_HASHTAGS.get(category, [])
+
+    # --- 3. Заголовок с эмодзи ---
     parts = []
+
     if title:
+        if title_emoji:
+            title = f"{title_emoji} {title}"
         parts.append(f"<b>{escape(title)}</b>")
+
+    # --- 4. Основной текст ---
     if summary:
         parts.append(escape(summary))
-    if tags:
-        parts.append(escape(tags))
-    return "\n\n".join(parts).strip()
 
+    # --- 5. Хэштеги (3 слоя) ---
+    all_tags = []
+
+    if brand_tag:
+        all_tags.append(brand_tag)
+
+    all_tags.extend(base_tags)
+    all_tags.extend(ai_tags)
+
+    # нормализация и дедупликация
+    clean_tags = []
+    seen = set()
+
+    for tag in all_tags:
+        if not isinstance(tag, str):
+            continue
+        t = tag.strip()
+        if not t:
+            continue
+        if not t.startswith("#"):
+            t = "#" + t
+        t = t.replace(" ", "")
+        key = t.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        clean_tags.append(t)
+
+    if clean_tags:
+        parts.append(" ".join(clean_tags))
+
+    return "\n\n".join(parts).strip()
 
 # ------------------------------------------------------------
 # 6) Основной класс
