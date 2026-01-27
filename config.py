@@ -142,13 +142,14 @@ SOURCES = {
     ],
     "STOCKS_INVESTING": [
         {
-            "name": "Smart-Lab allnews RSS",
-            "type": "rss",
-            "url": "https://smart-lab.ru/allnews/rss/",
-            "link_selector": "item > link",
-            "base_url": "",
-        },
+            "name": "Smartlab.news (главная)",
+            "type": "html",
+            "url": "https://smartlab.news/",
+            "link_selector": "a[href^='/i/']",
+            "base_url": "https://smartlab.news",
+        }
     ],
+
     "PERSONAL_FINANCE": [
         {
             "name": "CBR (news/events) RSS",
