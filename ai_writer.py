@@ -1,8 +1,10 @@
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from gigachat import GigaChat
+from gigachat.exceptions import NotFoundError
 
 
 logger = logging.getLogger(__name__)
@@ -53,9 +55,11 @@ def _json_schema_hint() -> str:
 
 
 class AIWriter:
-    def __init__(self, api_key: Optional[str], model_name: str = "GigaChat-2-Lite"):
+    def __init__(self, api_key: Optional[str], model_name: Optional[str] = None):
         self.api_key = api_key
-        self.model_name = model_name
+        # По документации Sber основной рабочий пример — GigaChat-2-Pro.
+        # Модель можно переопределить через env GIGACHAT_MODEL.
+        self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-2-Pro"
         self.enabled = bool(api_key)
         if not self.enabled:
             logger.warning("GIGACHAT_API_KEY is missing. AI features disabled.")
@@ -85,9 +89,29 @@ class AIWriter:
         )
 
         try:
-            with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=self.model_name) as giga:
-                response = giga.chat(prompt)
-                content = response.choices[0].message.content
+            content: str
+            try:
+                with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=self.model_name) as giga:
+                    response = giga.chat(prompt)
+                    content = response.choices[0].message.content
+            except NotFoundError as e:
+                # Частая проблема: в аккаунте недоступна указанная модель.
+                # Пробуем несколько популярных имён по убыванию "качества".
+                logger.warning(f"Model not found ({self.model_name}). Trying fallbacks... Error: {e}")
+                for candidate in ["GigaChat-2-Pro", "GigaChat-2", "GigaChat-Pro", "GigaChat"]:
+                    if candidate == self.model_name:
+                        continue
+                    try:
+                        with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=candidate) as giga:
+                            response = giga.chat(prompt)
+                            content = response.choices[0].message.content
+                            self.model_name = candidate
+                            logger.info(f"Using GigaChat model: {self.model_name}")
+                            break
+                    except Exception:
+                        continue
+                else:
+                    raise
 
             # Иногда модель оборачивает JSON в код-блок — вычищаем.
             content = content.strip()

@@ -75,10 +75,10 @@ HTML_SOURCES = {
     ],
     "PERSONAL_FINANCE": [
         {
-            "name": "Tinkoff Journal",
-            "url": "https://journal.tinkoff.ru/news/",
+            "name": "Т—Ж (t-j.ru)",
+            "url": "https://t-j.ru/",
             "link_selector": "a.card__link",
-            "base_url": "https://journal.tinkoff.ru"
+            "base_url": "https://t-j.ru"
         }
     ],
     "PROGRAMMING_DEV": [
@@ -99,9 +99,9 @@ HTML_SOURCES = {
     ],
     "IT_HUMOR": [
         {
-            "name": "Tproger Fun",
-            "url": "https://tproger.ru/articles/fun/",
-            "link_selector": "a.article__link",
+            "name": "Tproger (Свежее)",
+            "url": "https://tproger.ru/",
+            "link_selector": "a[href^=\"/articles/\"]",
             "base_url": "https://tproger.ru"
         }
     ],
