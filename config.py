@@ -37,6 +37,20 @@ CHANNEL_BASE_HASHTAGS = {
     "IT_HUMOR": ["#it", "#humor"],
     "ANEKDOTY": ["#anekdot"],
 }
+CHANNEL_META = {
+    "AI_AUTOMATION": {
+        "brand_tag": "#ai_auto",      # уникальный якорь канала
+        "title_emoji": "🤖",          # эмодзи в заголовке
+    },
+    "IT_HUMOR": {
+        "brand_tag": "#it_fun",
+        "title_emoji": "😂",
+    },
+    "STARTUPS_VC": {
+        "brand_tag": "#startup_watch",
+        "title_emoji": "🚀",
+    },
+}
 
 # --- 2. НАСТРОЙКИ ПАРСИНГА (HTML ИСТОЧНИКИ) ---
 
