@@ -1,30 +1,46 @@
 import os
-import json
 
-# --- 1. СЕКРЕТЫ И НАСТРОЙКИ TELEGRAM ---
+# =========================
+# Telegram
+# =========================
+BOT_TOKEN = os.getenv("POSTER_BOT_TOKEN", "")
 
-# Токен бота
-BOT_TOKEN = os.getenv("POSTER_BOT_TOKEN")
+# =========================
+# GigaChat
+# =========================
+GIGACHAT_API_KEY = os.getenv("GIGACHAT_API_KEY", "")
+GIGACHAT_MODEL = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
 
-# Ключ GigaChat
-GIGACHAT_API_KEY = os.getenv("GIGACHAT_API_KEY")
+# =========================
+# Retry/Timeout
+# =========================
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
+RETRY_DELAY = int(os.getenv("RETRY_DELAY", "2"))
+HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT", "20"))
 
-# ID каналов (Исправлено под твой YML)
+# Сколько ссылок брать с каждого источника (чтобы не упираться в "топ-5" и не молчать)
+MAX_LINKS_PER_SOURCE = int(os.getenv("MAX_LINKS_PER_SOURCE", "25"))
+
+# =========================
+# 1. Каналы (chat_id берутся из env)
+# =========================
 CHANNEL_IDS = {
-    "AI_AUTOMATION": os.getenv("AI_AUTOMATION_CHAT_ID"),
-    "ANEKDOTY": os.getenv("ANEKDOTY_CHAT_ID"),
-    "CRYPTO_AIRDROPS": os.getenv("CRYPTO_AIRDROPS_CHAT_ID"),
-    "CRYPTO_NEWS": os.getenv("CRYPTO_NEWS_CHAT_ID"),
-    "IT_HUMOR": os.getenv("IT_HUMOR_CHAT_ID"),
-    "PERSONAL_FINANCE": os.getenv("PERSONAL_FINANCE_CHAT_ID"),
-    "PRODUCT_GROWTH": os.getenv("PRODUCT_GROWTH_CHAT_ID"),
-    "PROGRAMMING_DEV": os.getenv("PROGRAMMING_DEV_CHAT_ID"),
-    "STARTUPS_VC": os.getenv("STARTUPS_VC_CHAT_ID"),
-    "STOCKS_INVESTING": os.getenv("STOCKS_INVESTING_CHAT_ID"),
+    "AI_AUTOMATION": os.getenv("AI_AUTOMATION_CHAT_ID", ""),
+    "CRYPTO_NEWS": os.getenv("CRYPTO_NEWS_CHAT_ID", ""),
+    "CRYPTO_AIRDROPS": os.getenv("CRYPTO_AIRDROPS_CHAT_ID", ""),
+    "PROGRAMMING_DEV": os.getenv("PROGRAMMING_DEV_CHAT_ID", ""),
+    "STARTUPS_VC": os.getenv("STARTUPS_VC_CHAT_ID", ""),
+    "PRODUCT_GROWTH": os.getenv("PRODUCT_GROWTH_CHAT_ID", ""),
+    "PERSONAL_FINANCE": os.getenv("PERSONAL_FINANCE_CHAT_ID", ""),
+    "STOCKS_INVESTING": os.getenv("STOCKS_INVESTING_CHAT_ID", ""),
+    "IT_HUMOR": os.getenv("IT_HUMOR_CHAT_ID", ""),
+    "ANEKDOTY": os.getenv("ANEKDOTY_CHAT_ID", ""),
 }
 
-# --- 1.1. ХЭШТЕГИ И СТИЛЬ ДЛЯ КАНАЛОВ ---
-# Хэштеги добавляются к тем, что вернёт GigaChat.
+# =========================
+# 1.1 Хэштеги и стиль
+# =========================
+# Эти хэштеги добавляются к тем, что вернёт GigaChat (если вернёт).
 CHANNEL_BASE_HASHTAGS = {
     "AI_AUTOMATION": ["#AI", "#automation"],
     "CRYPTO_NEWS": ["#crypto", "#news"],
@@ -37,103 +53,136 @@ CHANNEL_BASE_HASHTAGS = {
     "IT_HUMOR": ["#it", "#humor"],
     "ANEKDOTY": ["#anekdot"],
 }
+
+# Уникальный "бренд-тег" и эмодзи для каждого канала (только ваши)
 CHANNEL_META = {
-    "AI_AUTOMATION": {
-        "brand_tag": "#ai_auto",      # уникальный якорь канала
-        "title_emoji": "🤖",          # эмодзи в заголовке
-    },
-    "IT_HUMOR": {
-        "brand_tag": "#it_fun",
-        "title_emoji": "😂",
-    },
-    "STARTUPS_VC": {
-        "brand_tag": "#startup_watch",
-        "title_emoji": "🚀",
-    },
+    "AI_AUTOMATION": {"brand_tag": "#ai_auto", "title_emoji": "🤖"},
+    "CRYPTO_NEWS": {"brand_tag": "#crypto_news_ru", "title_emoji": "🪙"},
+    "CRYPTO_AIRDROPS": {"brand_tag": "#airdrop_hunt", "title_emoji": "🎁"},
+    "PROGRAMMING_DEV": {"brand_tag": "#dev_digest", "title_emoji": "💻"},
+    "STARTUPS_VC": {"brand_tag": "#startup_watch", "title_emoji": "🚀"},
+    "PRODUCT_GROWTH": {"brand_tag": "#growth_lab", "title_emoji": "📈"},
+    "PERSONAL_FINANCE": {"brand_tag": "#money_smart", "title_emoji": "💰"},
+    "STOCKS_INVESTING": {"brand_tag": "#market_pulse", "title_emoji": "📊"},
+    "IT_HUMOR": {"brand_tag": "#it_fun", "title_emoji": "😂"},
+    "ANEKDOTY": {"brand_tag": "#anekdot_day", "title_emoji": "😄"},
 }
 
-# --- 2. НАСТРОЙКИ ПАРСИНГА (HTML ИСТОЧНИКИ) ---
-
-HTML_SOURCES = {
+# =========================
+# 2. Источники
+# Формат:
+#  - type: "html" или "rss"
+#  - url: страница/фид
+#  - link_selector: CSS селектор для ссылок
+#  - base_url: нужно если ссылки относительные (для html)
+# =========================
+SOURCES = {
     "AI_AUTOMATION": [
         {
             "name": "TechCrunch AI",
-            "url": "https://techcrunch.com/category/artificial-intelligence/",
-            "link_selector": "h3.loop-card__title a", 
-            "base_url": "https://techcrunch.com"
-        }
-    ],
-    "CRYPTO_NEWS": [
-        {
-            "name": "Cointelegraph",
-            "url": "https://cointelegraph.com/",
-            "link_selector": "a.post-card-inline__title-link",
-            "base_url": "https://cointelegraph.com"
-        }
-    ],
-    "CRYPTO_AIRDROPS": [
-        {
-            "name": "Airdrops.io",
-            "url": "https://airdrops.io/latest/",
-            "link_selector": "div.aidrop-content h3 a",
-            "base_url": "https://airdrops.io"
+            "type": "html",
+            "url": "https://techcrunch.com/tag/artificial-intelligence/",
+            "link_selector": "a.post-block__title__link",
+            "base_url": "https://techcrunch.com",
         }
     ],
     "STARTUPS_VC": [
         {
             "name": "TechCrunch Startups",
-            "url": "https://techcrunch.com/category/startups/",
-            "link_selector": "h3.loop-card__title a",
-            "base_url": "https://techcrunch.com"
-        }
-    ],
-    "PERSONAL_FINANCE": [
-        {
-            "name": "Т—Ж (t-j.ru)",
-            "url": "https://t-j.ru/",
-            "link_selector": "a.card__link",
-            "base_url": "https://t-j.ru"
+            "type": "html",
+            "url": "https://techcrunch.com/tag/startups/",
+            "link_selector": "a.post-block__title__link",
+            "base_url": "https://techcrunch.com",
         }
     ],
     "PROGRAMMING_DEV": [
         {
             "name": "Dev.to (Top Week)",
+            "type": "html",
             "url": "https://dev.to/top/week",
-            "link_selector": "h2.crayons-story__title a",
-            "base_url": "https://dev.to"
+            "link_selector": "a.crayons-story__hidden-navigation-link",
+            "base_url": "https://dev.to",
         }
     ],
     "PRODUCT_GROWTH": [
         {
             "name": "Indie Hackers",
-            "url": "https://www.indiehackers.com/popular",
-            "link_selector": "a.feed-item__title-link",
-            "base_url": "https://www.indiehackers.com"
+            "type": "html",
+            "url": "https://www.indiehackers.com/",
+            "link_selector": "a[href^='/post/']",
+            "base_url": "https://www.indiehackers.com",
         }
+    ],
+    "CRYPTO_NEWS": [
+        {
+            "name": "Cointelegraph",
+            "type": "html",
+            "url": "https://cointelegraph.com/",
+            "link_selector": "a[href^='/news/']",
+            "base_url": "https://cointelegraph.com",
+        }
+    ],
+    "CRYPTO_AIRDROPS": [
+        # основной
+        {
+            "name": "Airdrops.io (latest)",
+            "type": "html",
+            "url": "https://airdrops.io/latest/",
+            "link_selector": "a[href*='/airdrops/']",
+            "base_url": "https://airdrops.io",
+        },
+        # резервный (если airdrops.io таймаутит)
+        {
+            "name": "AirdropAlert (new)",
+            "type": "html",
+            "url": "https://airdropalert.com/browse-airdrops/?category=new",
+            "link_selector": "a[href*='/airdrop/']",
+            "base_url": "https://airdropalert.com",
+        },
     ],
     "IT_HUMOR": [
         {
             "name": "Tproger (Свежее)",
+            "type": "html",
             "url": "https://tproger.ru/",
-            "link_selector": "a[href^=\"/articles/\"]",
-            "base_url": "https://tproger.ru"
+            "link_selector": "a[href^='/articles/']",
+            "base_url": "https://tproger.ru",
         }
     ],
     "STOCKS_INVESTING": [
         {
-            "name": "Smart-Lab",
-            "url": "https://smart-lab.ru/news/",
-            "link_selector": "a.topic-title",
-            "base_url": "https://smart-lab.ru"
+            "name": "Smartlab.news",
+            "type": "html",
+            "url": "https://smartlab.news/",
+            "link_selector": "a[href^='/news/']",
+            "base_url": "https://smartlab.news",
         }
     ],
-    # ANEKDOTY пока оставим как пример, но ему нужен особый парсер, 
-    # так как там нет структуры "список ссылок -> статья"
-    "ANEKDOTY": [] 
-}
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5"
+    "PERSONAL_FINANCE": [
+        # вместо t-j.ru (там 401 у тебя в раннере)
+        {
+            "name": "Banki.ru (лента)",
+            "type": "html",
+            "url": "https://www.banki.ru/news/lenta/",
+            "link_selector": "a[href^='/news/lenta/?id=']",
+            "base_url": "https://www.banki.ru",
+        }
+    ],
+    "ANEKDOTY": [
+        # RSS ленты (уникальные ссылки, нормально для БД)
+        {
+            "name": "Anekdot.ru RSS (daily top)",
+            "type": "rss",
+            "url": "https://www.anekdot.ru/rss/export_j.xml",
+            "link_selector": "item > link",
+            "base_url": "",
+        },
+        {
+            "name": "Anekdot.ru RSS (no politics)",
+            "type": "rss",
+            "url": "https://www.anekdot.ru/rss/export_j_non_burning.xml",
+            "link_selector": "item > link",
+            "base_url": "",
+        },
+    ],
 }
