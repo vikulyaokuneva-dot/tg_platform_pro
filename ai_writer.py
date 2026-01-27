@@ -40,7 +40,6 @@ PROMPTS = {
 
 
 def _json_schema_hint() -> str:
-    # Отдельным блоком, чтобы модель реже "плыла".
     return (
         "Формат JSON (пример):\n"
         "{\n"
@@ -58,10 +57,8 @@ def _strip_code_fences(s: str) -> str:
     if not s.startswith("```"):
         return s
 
-    # Уберём первые и последние тройные кавычки
     s = s.strip("`").strip()
 
-    # Иногда остаётся префикс 'json\n'
     if s.lower().startswith("json\n"):
         s = s.split("\n", 1)[1].strip()
 
@@ -72,9 +69,7 @@ class AIWriter:
     def __init__(self, api_key: Optional[str], model_name: Optional[str] = None):
         self.api_key = api_key
 
-        # ВАЖНО: В API корректные имена моделей такие:
-        #   GigaChat, GigaChat-Lite, GigaChat-Pro, GigaChat-Max
-        # (а НЕ GigaChat-2-*)
+        # У тебя работает Lite v2 как "GigaChat-2"
         self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-2"
 
         self.enabled = bool(api_key)
@@ -82,10 +77,6 @@ class AIWriter:
             logger.warning("GIGACHAT_API_KEY is missing. AI features disabled.")
 
     def generate_post(self, text: str, category: str = "DEFAULT") -> Dict[str, Any]:
-        """Возвращает dict: {title, summary, hashtags[]}.
-
-        Никогда не бросает исключения наружу: на ошибке вернёт fallback.
-        """
         fallback = {
             "title": "Коротко о главном",
             "summary": (text or "").strip()[:900],
@@ -96,9 +87,10 @@ class AIWriter:
             return fallback
 
         system_prompt = PROMPTS.get(category, PROMPTS["DEFAULT"])
+
+        # Уменьшаем вход, чтобы реже ловить таймауты
         limit = 3500 if category == "IT_HUMOR" else 6000
         input_text = (text or "").strip()[:limit]
-
 
         prompt = (
             f"{system_prompt}\n\n"
@@ -107,14 +99,12 @@ class AIWriter:
             f"{input_text}"
         )
 
-        # Порядок фоллбеков (можно менять по вкусу)
-       # Пытаемся максимум 2 раза:
-# 1) выбранная модель (например GigaChat-2)
-# 2) резервная "GigaChat" (обычно самая стабильная)
-        candidates = []
+        # Пытаемся максимум 2 раза:
+        # 1) выбранная модель (например GigaChat-2)
+        # 2) резервная "GigaChat" (обычно самая стабильная)
+        candidates: List[str] = []
         if self.model_name:
             candidates.append(self.model_name)
-
         if "GigaChat" not in candidates:
             candidates.append("GigaChat")
 
@@ -148,7 +138,6 @@ class AIWriter:
                     if len(t) > 1:
                         cleaned.append(t)
 
-                # запомним успешно использованную модель
                 self.model_name = candidate
                 logger.info(f"Using GigaChat model: {self.model_name}")
 
@@ -159,12 +148,10 @@ class AIWriter:
                 }
 
             except NotFoundError as e:
-                # явная ошибка модели — пробуем следующую
                 logger.warning(f"Model not found: {candidate}. Trying next... ({e})")
                 last_error = e
                 continue
             except Exception as e:
-                # любые другие ошибки (таймауты/JSON/сетка) — тоже пробуем следующую
                 logger.warning(f"GigaChat attempt failed with model {candidate}: {e}")
                 last_error = e
                 continue
