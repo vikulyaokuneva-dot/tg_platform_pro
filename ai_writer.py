@@ -6,9 +6,7 @@ from typing import Any, Dict, List, Optional
 from gigachat import GigaChat
 from gigachat.exceptions import NotFoundError
 
-
 logger = logging.getLogger(__name__)
-
 
 PROMPTS = {
     "DEFAULT": (
@@ -54,12 +52,31 @@ def _json_schema_hint() -> str:
     )
 
 
+def _strip_code_fences(s: str) -> str:
+    """Убирает обёртки ``` и ```json вокруг JSON."""
+    s = (s or "").strip()
+    if not s.startswith("```"):
+        return s
+
+    # Уберём первые и последние тройные кавычки
+    s = s.strip("`").strip()
+
+    # Иногда остаётся префикс 'json\n'
+    if s.lower().startswith("json\n"):
+        s = s.split("\n", 1)[1].strip()
+
+    return s
+
+
 class AIWriter:
     def __init__(self, api_key: Optional[str], model_name: Optional[str] = None):
         self.api_key = api_key
-        # По документации Sber основной рабочий пример — GigaChat-2-Pro.
-        # Модель можно переопределить через env GIGACHAT_MODEL.
-        self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-2-Pro"
+
+        # ВАЖНО: В API корректные имена моделей такие:
+        #   GigaChat, GigaChat-Lite, GigaChat-Pro, GigaChat-Max
+        # (а НЕ GigaChat-2-*)
+        self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-Lite"
+
         self.enabled = bool(api_key)
         if not self.enabled:
             logger.warning("GIGACHAT_API_KEY is missing. AI features disabled.")
@@ -88,66 +105,66 @@ class AIWriter:
             f"{input_text}"
         )
 
-        try:
-            content: str
+        # Порядок фоллбеков (можно менять по вкусу)
+        candidates = []
+        if self.model_name:
+            candidates.append(self.model_name)
+
+        # Добавим стандартные модели без дублей
+        for m in ["GigaChat-Lite", "GigaChat-Pro", "GigaChat-Max", "GigaChat"]:
+            if m not in candidates:
+                candidates.append(m)
+
+        last_error: Optional[Exception] = None
+
+        for candidate in candidates:
             try:
-                with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=self.model_name) as giga:
+                with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=candidate) as giga:
                     response = giga.chat(prompt)
                     content = response.choices[0].message.content
+
+                content = _strip_code_fences(content)
+                data = json.loads(content)
+
+                title = str(data.get("title", "")).strip() or fallback["title"]
+                summary = str(data.get("summary", "")).strip() or fallback["summary"]
+                hashtags = data.get("hashtags", [])
+                if not isinstance(hashtags, list):
+                    hashtags = []
+
+                cleaned: List[str] = []
+                for tag in hashtags:
+                    if not isinstance(tag, str):
+                        continue
+                    t = tag.strip()
+                    if not t:
+                        continue
+                    if not t.startswith("#"):
+                        t = "#" + t
+                    t = t.replace(" ", "")
+                    if len(t) > 1:
+                        cleaned.append(t)
+
+                # запомним успешно использованную модель
+                self.model_name = candidate
+                logger.info(f"Using GigaChat model: {self.model_name}")
+
+                return {
+                    "title": title[:160],
+                    "summary": summary[:1200],
+                    "hashtags": cleaned[:12],
+                }
+
             except NotFoundError as e:
-                # Частая проблема: в аккаунте недоступна указанная модель.
-                # Пробуем несколько популярных имён по убыванию "качества".
-                logger.warning(f"Model not found ({self.model_name}). Trying fallbacks... Error: {e}")
-                for candidate in ["GigaChat-2-Pro", "GigaChat-2", "GigaChat-Pro", "GigaChat"]:
-                    if candidate == self.model_name:
-                        continue
-                    try:
-                        with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=candidate) as giga:
-                            response = giga.chat(prompt)
-                            content = response.choices[0].message.content
-                            self.model_name = candidate
-                            logger.info(f"Using GigaChat model: {self.model_name}")
-                            break
-                    except Exception:
-                        continue
-                else:
-                    raise
+                # явная ошибка модели — пробуем следующую
+                logger.warning(f"Model not found: {candidate}. Trying next... ({e})")
+                last_error = e
+                continue
+            except Exception as e:
+                # любые другие ошибки (таймауты/JSON/сетка) — тоже пробуем следующую
+                logger.warning(f"GigaChat attempt failed with model {candidate}: {e}")
+                last_error = e
+                continue
 
-            # Иногда модель оборачивает JSON в код-блок — вычищаем.
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.strip("`")
-                # может остаться "json\n{...}".
-                content = content.replace("json\n", "", 1).strip()
-
-            data = json.loads(content)
-
-            title = str(data.get("title", "")).strip() or fallback["title"]
-            summary = str(data.get("summary", "")).strip() or fallback["summary"]
-            hashtags = data.get("hashtags", [])
-            if not isinstance(hashtags, list):
-                hashtags = []
-
-            # Нормализация хэштегов
-            cleaned: List[str] = []
-            for tag in hashtags:
-                if not isinstance(tag, str):
-                    continue
-                t = tag.strip()
-                if not t:
-                    continue
-                if not t.startswith("#"):
-                    t = "#" + t
-                # минимальная чистка пробелов
-                t = t.replace(" ", "")
-                if len(t) > 1:
-                    cleaned.append(t)
-
-            return {
-                "title": title[:160],
-                "summary": summary[:1200],
-                "hashtags": cleaned[:12],
-            }
-        except Exception as e:
-            logger.error(f"GigaChat error: {e}")
-            return fallback
+        logger.error(f"GigaChat error: {last_error}")
+        return fallback
