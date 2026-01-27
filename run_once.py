@@ -14,10 +14,10 @@ from aiogram.enums import ParseMode
 # --- ИМПОРТЫ ЛОКАЛЬНЫХ МОДУЛЕЙ ---
 try:
     from config import CHANNEL_IDS, HTML_SOURCES, HEADERS
-    from bot_database import Database
+    from database import Database
     from ai_writer import AIWriter
 except ImportError as e:
-    print(f"CRITICAL ERROR: Import failed. Make sure config.py, bot_database.py and ai_writer.py exist. Details: {e}")
+    print(f"CRITICAL ERROR: Import failed. Make sure config.py, database.py and ai_writer.py exist. Details: {e}")
     sys.exit(1)
 
 # --- НАСТРОЙКА ЛОГИРОВАНИЯ ---
