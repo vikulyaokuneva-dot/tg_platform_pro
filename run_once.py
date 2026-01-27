@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+import sqlite3
 from html import escape
 from urllib.parse import urljoin
 
@@ -12,26 +13,20 @@ from bs4 import BeautifulSoup
 import trafilatura
 
 # ------------------------------------------------------------
-# 0) Гарантируем, что импорт локальных файлов работает в GitHub Actions
+# 0) Чтобы локальные импорты работали в GitHub Actions
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 # ------------------------------------------------------------
-# 1) Импорты ваших модулей (без DATABASE_FILE — его нет в config.py)
+# 1) Импорт ваших модулей (без database.py / bot_database.py)
 # ------------------------------------------------------------
 try:
     from config import CHANNEL_IDS, HTML_SOURCES, HEADERS
 except ImportError as e:
     print(f"CRITICAL ERROR: Import failed. Make sure config.py exists. Details: {e}")
     sys.exit(1)
-
-# Database: у кого-то файл называется bot_database.py, у кого-то database.py
-try:
-    from bot_database import Database
-except ImportError:
-    from database import Database  # type: ignore
 
 try:
     from ai_writer import AIWriter
@@ -57,31 +52,79 @@ GIGACHAT_KEY = os.getenv("GIGACHAT_API_KEY")
 
 
 # ------------------------------------------------------------
-# 4) Утилиты: картинка превью + безопасные ограничения длины
+# 4) Встроенная база (чтобы не зависеть от database.py)
+# ------------------------------------------------------------
+class Database:
+    def __init__(self, db_file: str = "bot_database.db"):
+        self.connection = sqlite3.connect(db_file)
+        self.cursor = self.connection.cursor()
+        self._create_table()
+
+    def _create_table(self) -> None:
+        with self.connection:
+            self.cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posted_urls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT UNIQUE NOT NULL,
+                    category TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def url_exists(self, url: str) -> bool:
+        with self.connection:
+            row = self.cursor.execute(
+                "SELECT id FROM posted_urls WHERE url = ?",
+                (url,),
+            ).fetchone()
+            return bool(row)
+
+    def add_url(self, url: str, category: str) -> bool:
+        try:
+            with self.connection:
+                self.cursor.execute(
+                    "INSERT INTO posted_urls (url, category) VALUES (?, ?)",
+                    (url, category),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            return False
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+# ------------------------------------------------------------
+# 5) Утилиты: картинка превью + аккуратные ограничения длины
 # ------------------------------------------------------------
 def extract_preview_image_url(html: str, page_url: str) -> str | None:
     """
-    Достаём картинку для send_photo:
-    - og:image / og:image:secure_url
-    - twitter:image
-    - fallback: первая <img>
+    Пытаемся достать картинку статьи:
+      1) og:image:secure_url
+      2) og:image
+      3) twitter:image
+      4) fallback: первая <img>
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
 
-        def pick_meta(attr_name: str, attr_value: str) -> str | None:
+        def meta(attr_name: str, attr_value: str) -> str | None:
             m = soup.find("meta", attrs={attr_name: attr_value})
             if m and m.get("content"):
                 return str(m.get("content")).strip()
             return None
 
         candidates = [
-            pick_meta("property", "og:image:secure_url"),
-            pick_meta("property", "og:image"),
-            pick_meta("name", "twitter:image"),
+            meta("property", "og:image:secure_url"),
+            meta("property", "og:image"),
+            meta("name", "twitter:image"),
         ]
 
-        # fallback: первая картинка
         img = soup.find("img")
         if img and img.get("src"):
             candidates.append(str(img.get("src")).strip())
@@ -102,12 +145,33 @@ def trim_text(s: str, limit: int) -> str:
     s = (s or "").strip()
     if len(s) <= limit:
         return s
-    # чтобы не резать “впритык”
     return s[: max(0, limit - 1)].rstrip() + "…"
 
 
+def build_post_text(post: dict) -> str:
+    """
+    Превращаем результат ai_writer.generate_post() в текст.
+    Ожидаем: title, summary, hashtags(list)
+    """
+    title = (post.get("title") or "").strip()
+    summary = (post.get("summary") or "").strip()
+    hashtags = post.get("hashtags") or []
+    if not isinstance(hashtags, list):
+        hashtags = []
+
+    tags = " ".join([t.strip() for t in hashtags if isinstance(t, str) and t.strip()])
+    parts = []
+    if title:
+        parts.append(f"<b>{escape(title)}</b>")
+    if summary:
+        parts.append(escape(summary))
+    if tags:
+        parts.append(escape(tags))
+    return "\n\n".join(parts).strip()
+
+
 # ------------------------------------------------------------
-# 5) Основной класс
+# 6) Основной класс
 # ------------------------------------------------------------
 class NewsPoster:
     def __init__(self) -> None:
@@ -116,14 +180,11 @@ class NewsPoster:
             sys.exit(1)
 
         self.bot = Bot(token=BOT_TOKEN)
-
-        # SQLite файл как и раньше
         self.db = Database("bot_database.db")
 
-        # AI
         self.ai = AIWriter(GIGACHAT_KEY)
         if not GIGACHAT_KEY:
-            logger.warning("GIGACHAT_API_KEY not found. AI summarization is DISABLED.")
+            logger.warning("GIGACHAT_API_KEY not found. AI generation is DISABLED.")
 
     async def fetch_html(self, session: aiohttp.ClientSession, url: str) -> str | None:
         try:
@@ -152,19 +213,14 @@ class NewsPoster:
             logger.error(f"Invalid selector for {source_conf.get('name', 'unknown')}: {e}")
             return []
 
-        logger.info(f"Source {source_conf['name']}: Found {len(elements)} raw elements")
-
         links: list[str] = []
         for el in elements:
             href = el.get("href")
             if not href:
                 continue
-
             base_url = source_conf.get("base_url", source_conf["url"])
-            full_link = urljoin(base_url, href)
-            links.append(full_link)
+            links.append(urljoin(base_url, href))
 
-        # Берём первые 5 уникальных
         return list(dict.fromkeys(links))[:5]
 
     async def process_article(self, session: aiohttp.ClientSession, link: str, category: str, channel_id: str) -> bool:
@@ -177,12 +233,10 @@ class NewsPoster:
         if not html:
             return False
 
-        # 1) картинка для поста сверху
         image_url = extract_preview_image_url(html, link)
 
-        # 2) извлекаем текст статьи
         try:
-            downloaded_text = trafilatura.extract(
+            article_text = trafilatura.extract(
                 html,
                 include_comments=False,
                 include_tables=False,
@@ -190,37 +244,30 @@ class NewsPoster:
             )
         except Exception as e:
             logger.error(f"Trafilatura error on {link}: {e}")
-            downloaded_text = None
+            article_text = None
 
-        if not downloaded_text or len(downloaded_text) < 100:
+        if not article_text or len(article_text) < 100:
             logger.warning(f"Skipping {link}: Content too short or extraction failed.")
             return False
 
-        # 3) генерим пост
-        logger.info("   🤖 Asking GigaChat to summarize...")
-        ai_text = await self.ai.summarize(downloaded_text, category)
-        ai_text = (ai_text or "").strip()
+        # Генерация поста (синхронная) — чтобы не блокировать event loop, делаем в отдельном потоке
+        logger.info("   🤖 Generating post with GigaChat...")
+        post = await asyncio.to_thread(self.ai.generate_post, article_text, category)
 
-        # 4) делаем маленькую ссылку (без огромной карточки)
+        text_body = build_post_text(post)
+
+        # маленькая ссылка (без огромной карточки)
         source_line = f"Источник: <a href='{link}'>читать</a>"
 
-        # Экранируем, чтобы HTML не ломался
-        safe_text = escape(ai_text)
-
         try:
-            # -----------------------------------------
-            # Вариант А: есть картинка → фото сверху
-            # -----------------------------------------
+            # --- если есть картинка -> фото сверху ---
             if image_url:
-                # В Telegram caption у фото максимум 1024 символа.
-                # Чтобы НЕ было “обрезано без конца” — делаем так:
-                # 1) короткий caption под фото (до лимита),
-                # 2) если текст длиннее — вторым сообщением отправим остаток (без превью).
+                # caption максимум 1024 символа
                 caption_limit = 1024
                 reserved = len("\n\n" + source_line)
                 body_limit = max(0, caption_limit - reserved)
 
-                caption_body = trim_text(safe_text, body_limit)
+                caption_body = trim_text(text_body, body_limit)
                 caption = f"{caption_body}\n\n{source_line}".strip()
 
                 await self.bot.send_photo(
@@ -230,29 +277,24 @@ class NewsPoster:
                     parse_mode=ParseMode.HTML,
                 )
 
-                # Если текст реально длинный — отправляем “хвост” вторым сообщением
-                # (так вы не теряете конец поста).
-                if len(safe_text) > body_limit:
-                    tail = safe_text[body_limit:].strip()
+                # если текст большой — докидываем хвост вторым сообщением (без превью)
+                if len(text_body) > body_limit:
+                    tail = text_body[body_limit:].strip()
                     if tail:
-                        # хвост без ссылки, чтобы не дублировать
                         await self.bot.send_message(
                             chat_id=channel_id,
                             text=tail,
                             parse_mode=ParseMode.HTML,
                             disable_web_page_preview=True,
                         )
-
-            # -----------------------------------------
-            # Вариант B: картинки нет → просто сообщение
-            # -----------------------------------------
             else:
-                message = f"{safe_text}\n\n{source_line}".strip()
+                # --- картинки нет -> обычное сообщение, но без превью ---
+                message = f"{text_body}\n\n{source_line}".strip()
                 await self.bot.send_message(
                     chat_id=channel_id,
                     text=message,
                     parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,  # ключевое: убираем большую карточку
+                    disable_web_page_preview=True,
                 )
 
             logger.info(f"   ✅ SUCCESS: Posted to {category}")
@@ -264,7 +306,7 @@ class NewsPoster:
             return False
 
     async def run(self) -> None:
-        logger.info("🚀 Starting single run (all channels)")
+        logger.info("Starting single run (all channels)")
 
         async with aiohttp.ClientSession() as session:
             for category, sources in HTML_SOURCES.items():
@@ -280,31 +322,28 @@ class NewsPoster:
                     logger.info(f"Skip {category}: no sources")
                     continue
 
-                posted_any = False
-
+                posted = False
                 for source in sources:
                     logger.info(f"Scanning source: {source['name']}")
                     links = await self.get_article_links(session, source)
-
                     if not links:
                         continue
 
                     for link in links:
                         ok = await self.process_article(session, link, category, channel_id)
                         if ok:
-                            posted_any = True
-                            # Важно: один запуск = одна публикация на канал
+                            posted = True
                             break
 
-                    if posted_any:
+                    if posted:
                         break
 
-                if not posted_any:
+                if not posted:
                     logger.info(f"No fresh new posts for {category}")
 
         await self.bot.session.close()
         self.db.close()
-        logger.info("🏁 Job finished successfully.")
+        logger.info("Job finished successfully.")
 
 
 if __name__ == "__main__":
