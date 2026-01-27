@@ -23,7 +23,7 @@ if BASE_DIR not in sys.path:
 # 1) Импорт ваших модулей (без database.py / bot_database.py)
 # ------------------------------------------------------------
 try:
-    from config import CHANNEL_IDS, HTML_SOURCES, HEADERS
+    from config import CHANNEL_IDS, HTML_SOURCES, HEADERS, CHANNEL_META, CHANNEL_BASE_HASHTAGS
 except ImportError as e:
     print(f"CRITICAL ERROR: Import failed. Make sure config.py exists. Details: {e}")
     sys.exit(1)
