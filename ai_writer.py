@@ -57,12 +57,29 @@ def _strip_code_fences(s: str) -> str:
     if not s.startswith("```"):
         return s
 
+    # Важно: strip("`") удаляет все backticks по краям (и много), это ок для нашей задачи
     s = s.strip("`").strip()
 
     if s.lower().startswith("json\n"):
         s = s.split("\n", 1)[1].strip()
 
     return s
+
+
+def _safe_json_loads(raw: str) -> Dict[str, Any]:
+    """
+    Более устойчивый парсинг JSON:
+    - убираем ```json ... ```
+    - если модель добавила текст вокруг JSON, вырезаем от первой '{' до последней '}'
+    """
+    raw = _strip_code_fences(raw)
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        raw = raw[start : end + 1]
+
+    return json.loads(raw)
 
 
 class AIWriter:
@@ -75,6 +92,9 @@ class AIWriter:
         self.enabled = bool(api_key)
         if not self.enabled:
             logger.warning("GIGACHAT_API_KEY is missing. AI features disabled.")
+
+        # Таймаут на запрос к модели (сек). Можно переопределить через env
+        self.timeout_sec = int(os.getenv("GIGACHAT_TIMEOUT_SEC", "30"))
 
     def generate_post(self, text: str, category: str = "DEFAULT") -> Dict[str, Any]:
         fallback = {
@@ -110,14 +130,32 @@ class AIWriter:
 
         last_error: Optional[Exception] = None
 
+        # Главное изменение: не делаем "with GigaChat(...)" на каждую попытку,
+        # чтобы не дергать OAuth лишний раз. Создаем клиента один раз на попытку модели.
+        giga_client: Optional[GigaChat] = None
+
         for candidate in candidates:
             try:
-                with GigaChat(credentials=self.api_key, verify_ssl_certs=False, model=candidate) as giga:
-                    response = giga.chat(prompt)
-                    content = response.choices[0].message.content
+                # Закрываем предыдущий клиент (если был), и создаём новый под нужную модель
+                if giga_client is not None:
+                    try:
+                        giga_client.close()
+                    except Exception:
+                        pass
+                    giga_client = None
 
-                content = _strip_code_fences(content)
-                data = json.loads(content)
+                giga_client = GigaChat(
+                    credentials=self.api_key,
+                    verify_ssl_certs=False,
+                    model=candidate,
+                    timeout=self.timeout_sec,
+                )
+
+                response = giga_client.chat(prompt)
+                content = response.choices[0].message.content
+
+                # Устойчивый парсинг JSON
+                data = _safe_json_loads(content)
 
                 title = str(data.get("title", "")).strip() or fallback["title"]
                 summary = str(data.get("summary", "")).strip() or fallback["summary"]
@@ -138,8 +176,8 @@ class AIWriter:
                     if len(t) > 1:
                         cleaned.append(t)
 
-                self.model_name = candidate
-                logger.info(f"Using GigaChat model: {self.model_name}")
+                # Важно: НЕ мутируем self.model_name здесь.
+                logger.info(f"Using GigaChat model: {candidate}")
 
                 return {
                     "title": title[:160],
@@ -152,9 +190,30 @@ class AIWriter:
                 last_error = e
                 continue
             except Exception as e:
-                logger.warning(f"GigaChat attempt failed with model {candidate}: {e}")
+                # Важно: при JSON ошибке полезно видеть начало ответа (но без риска залить весь текст в лог)
+                msg = str(e)
+                if "Expecting value" in msg or "JSON" in msg:
+                    try:
+                        preview = (content or "")[:800]
+                        logger.warning(
+                            f"GigaChat returned non-JSON for model {candidate}. "
+                            f"Error: {e}. Preview: {preview!r}"
+                        )
+                    except Exception:
+                        logger.warning(f"GigaChat attempt failed with model {candidate}: {e}")
+                else:
+                    logger.warning(f"GigaChat attempt failed with model {candidate}: {e}")
+
                 last_error = e
                 continue
+            finally:
+                # Закрываем клиент аккуратно
+                if giga_client is not None:
+                    try:
+                        giga_client.close()
+                    except Exception:
+                        pass
+                    giga_client = None
 
         logger.error(f"GigaChat error: {last_error}")
         return fallback
