@@ -19,7 +19,7 @@ RETRY_DELAY = int(os.getenv("RETRY_DELAY", "2"))
 HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT", "20"))
 
 # Сколько ссылок брать с каждого источника (чтобы не упираться в "топ-5" и не молчать)
-MAX_LINKS_PER_SOURCE = int(os.getenv("MAX_LINKS_PER_SOURCE", "25"))
+MAX_LINKS_PER_SOURCE = int(os.getenv("MAX_LINKS_PER_SOURCE", "50"))
 
 # =========================
 # 1. Каналы (chat_id берутся из env)
