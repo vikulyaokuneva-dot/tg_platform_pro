@@ -1,74 +1,96 @@
 import asyncio
 import logging
-import sys
 import os
-from urllib.parse import urljoin
+import sys
 from html import escape
+from urllib.parse import urljoin
 
 import aiohttp
-from bs4 import BeautifulSoup
-import trafilatura
 from aiogram import Bot
 from aiogram.enums import ParseMode
+from bs4 import BeautifulSoup
+import trafilatura
 
-# --- ИМПОРТЫ ЛОКАЛЬНЫХ МОДУЛЕЙ ---
+# ------------------------------------------------------------
+# 0) Гарантируем, что импорт локальных файлов работает в GitHub Actions
+# ------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+# ------------------------------------------------------------
+# 1) Импорты ваших модулей (без DATABASE_FILE — его нет в config.py)
+# ------------------------------------------------------------
 try:
     from config import CHANNEL_IDS, HTML_SOURCES, HEADERS
-    from database import Database
-    from ai_writer import AIWriter
 except ImportError as e:
-    print(f"CRITICAL ERROR: Import failed. Make sure config.py, database.py and ai_writer.py exist. Details: {e}")
+    print(f"CRITICAL ERROR: Import failed. Make sure config.py exists. Details: {e}")
     sys.exit(1)
 
-# --- НАСТРОЙКА ЛОГИРОВАНИЯ ---
+# Database: у кого-то файл называется bot_database.py, у кого-то database.py
+try:
+    from bot_database import Database
+except ImportError:
+    from database import Database  # type: ignore
+
+try:
+    from ai_writer import AIWriter
+except ImportError as e:
+    print(f"CRITICAL ERROR: Import failed. Make sure ai_writer.py exists. Details: {e}")
+    sys.exit(1)
+
+# ------------------------------------------------------------
+# 2) Логирование
+# ------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
-# --- ПОЛУЧЕНИЕ СЕКРЕТОВ ---
+# ------------------------------------------------------------
+# 3) Секреты
+# ------------------------------------------------------------
 BOT_TOKEN = os.getenv("POSTER_BOT_TOKEN")
 GIGACHAT_KEY = os.getenv("GIGACHAT_API_KEY")
 
 
+# ------------------------------------------------------------
+# 4) Утилиты: картинка превью + безопасные ограничения длины
+# ------------------------------------------------------------
 def extract_preview_image_url(html: str, page_url: str) -> str | None:
     """
-    Пытаемся достать превью-картинку статьи.
-    Приоритет:
-      1) meta property="og:image"
-      2) meta name="twitter:image"
-      3) первая <img> с нормальным src
+    Достаём картинку для send_photo:
+    - og:image / og:image:secure_url
+    - twitter:image
+    - fallback: первая <img>
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
 
-        candidates = []
+        def pick_meta(attr_name: str, attr_value: str) -> str | None:
+            m = soup.find("meta", attrs={attr_name: attr_value})
+            if m and m.get("content"):
+                return str(m.get("content")).strip()
+            return None
 
-        og = soup.find("meta", attrs={"property": "og:image"})
-        if og and og.get("content"):
-            candidates.append(og.get("content"))
+        candidates = [
+            pick_meta("property", "og:image:secure_url"),
+            pick_meta("property", "og:image"),
+            pick_meta("name", "twitter:image"),
+        ]
 
-        tw = soup.find("meta", attrs={"name": "twitter:image"})
-        if tw and tw.get("content"):
-            candidates.append(tw.get("content"))
-
-        # fallback: первая картинка в статье (очень грубо, но иногда спасает)
-        first_img = soup.find("img")
-        if first_img and first_img.get("src"):
-            candidates.append(first_img.get("src"))
+        # fallback: первая картинка
+        img = soup.find("img")
+        if img and img.get("src"):
+            candidates.append(str(img.get("src")).strip())
 
         for c in candidates:
             if not c:
                 continue
-            c = c.strip()
-            if not c:
-                continue
-            # отсекаем мусор
             if c.startswith("data:"):
                 continue
-            # делаем абсолютной
             return urljoin(page_url, c)
 
         return None
@@ -76,42 +98,40 @@ def extract_preview_image_url(html: str, page_url: str) -> str | None:
         return None
 
 
-def truncate_html_text(s: str, limit: int) -> str:
-    """
-    Простой и безопасный трим:
-    - у нас весь текст уже escape() (то есть без настоящих HTML-тегов),
-      поэтому можно просто резать по символам.
-    """
+def trim_text(s: str, limit: int) -> str:
     s = (s or "").strip()
     if len(s) <= limit:
         return s
-    # чтобы не резать совсем жестко — добавим многоточие
+    # чтобы не резать “впритык”
     return s[: max(0, limit - 1)].rstrip() + "…"
 
 
+# ------------------------------------------------------------
+# 5) Основной класс
+# ------------------------------------------------------------
 class NewsPoster:
-    def __init__(self):
+    def __init__(self) -> None:
         if not BOT_TOKEN:
             logger.critical("POSTER_BOT_TOKEN is missing in env vars! Exiting.")
             sys.exit(1)
 
         self.bot = Bot(token=BOT_TOKEN)
+
+        # SQLite файл как и раньше
         self.db = Database("bot_database.db")
 
-        # Инициализация AI
+        # AI
         self.ai = AIWriter(GIGACHAT_KEY)
         if not GIGACHAT_KEY:
             logger.warning("GIGACHAT_API_KEY not found. AI summarization is DISABLED.")
 
-    async def fetch_html(self, session, url):
-        """Скачивает HTML страницы с защитой от ошибок и таймаутом"""
+    async def fetch_html(self, session: aiohttp.ClientSession, url: str) -> str | None:
         try:
             async with session.get(url, headers=HEADERS, timeout=20) as response:
                 if response.status == 200:
                     return await response.text()
-                else:
-                    logger.warning(f"Failed to fetch {url}: Status {response.status}")
-                    return None
+                logger.warning(f"HTTP {response.status} for {url}")
+                return None
         except asyncio.TimeoutError:
             logger.error(f"Timeout fetching {url}")
             return None
@@ -119,38 +139,35 @@ class NewsPoster:
             logger.error(f"Error fetching {url}: {e}")
             return None
 
-    async def get_article_links(self, session, source_conf):
-        """Парсит страницу рубрики и собирает ссылки на новые статьи"""
-        html = await self.fetch_html(session, source_conf['url'])
+    async def get_article_links(self, session: aiohttp.ClientSession, source_conf: dict) -> list[str]:
+        html = await self.fetch_html(session, source_conf["url"])
         if not html:
             return []
 
-        soup = BeautifulSoup(html, 'html.parser')
-        links = []
+        soup = BeautifulSoup(html, "html.parser")
 
         try:
-            elements = soup.select(source_conf['link_selector'])
+            elements = soup.select(source_conf["link_selector"])
         except Exception as e:
-            logger.error(f"Invalid selector for {source_conf['name']}: {e}")
+            logger.error(f"Invalid selector for {source_conf.get('name', 'unknown')}: {e}")
             return []
 
         logger.info(f"Source {source_conf['name']}: Found {len(elements)} raw elements")
 
+        links: list[str] = []
         for el in elements:
-            href = el.get('href')
+            href = el.get("href")
             if not href:
                 continue
 
-            base_url = source_conf.get('base_url', source_conf['url'])
+            base_url = source_conf.get("base_url", source_conf["url"])
             full_link = urljoin(base_url, href)
             links.append(full_link)
 
-        unique_links = list(dict.fromkeys(links))[:5]
-        return unique_links
+        # Берём первые 5 уникальных
+        return list(dict.fromkeys(links))[:5]
 
-    async def process_article(self, session, link, category, channel_id):
-        """Полный цикл: проверка -> скачивание -> AI -> постинг -> сохранение"""
-
+    async def process_article(self, session: aiohttp.ClientSession, link: str, category: str, channel_id: str) -> bool:
         if self.db.url_exists(link):
             return False
 
@@ -160,15 +177,16 @@ class NewsPoster:
         if not html:
             return False
 
-        # Достаём картинку превью (если есть)
+        # 1) картинка для поста сверху
         image_url = extract_preview_image_url(html, link)
 
+        # 2) извлекаем текст статьи
         try:
             downloaded_text = trafilatura.extract(
                 html,
                 include_comments=False,
                 include_tables=False,
-                no_fallback=True
+                no_fallback=True,
             )
         except Exception as e:
             logger.error(f"Trafilatura error on {link}: {e}")
@@ -178,26 +196,31 @@ class NewsPoster:
             logger.warning(f"Skipping {link}: Content too short or extraction failed.")
             return False
 
+        # 3) генерим пост
         logger.info("   🤖 Asking GigaChat to summarize...")
-        ai_summary = await self.ai.summarize(downloaded_text, category)
+        ai_text = await self.ai.summarize(downloaded_text, category)
+        ai_text = (ai_text or "").strip()
 
-        # Экранируем, чтобы HTML не ломался
-        safe_text = escape(ai_summary or "")
-
-        # Ссылка в виде маленького якоря (а не “голая” ссылка)
+        # 4) делаем маленькую ссылку (без огромной карточки)
         source_line = f"Источник: <a href='{link}'>читать</a>"
 
+        # Экранируем, чтобы HTML не ломался
+        safe_text = escape(ai_text)
+
         try:
-            # --- Вариант 1: есть картинка -> шлём фото сверху ---
+            # -----------------------------------------
+            # Вариант А: есть картинка → фото сверху
+            # -----------------------------------------
             if image_url:
-                # caption у Telegram максимум 1024 символа
-                # оставим место под "Источник: читать"
+                # В Telegram caption у фото максимум 1024 символа.
+                # Чтобы НЕ было “обрезано без конца” — делаем так:
+                # 1) короткий caption под фото (до лимита),
+                # 2) если текст длиннее — вторым сообщением отправим остаток (без превью).
                 caption_limit = 1024
-                # +2 под переносы
                 reserved = len("\n\n" + source_line)
                 body_limit = max(0, caption_limit - reserved)
 
-                caption_body = truncate_html_text(safe_text, body_limit)
+                caption_body = trim_text(safe_text, body_limit)
                 caption = f"{caption_body}\n\n{source_line}".strip()
 
                 await self.bot.send_photo(
@@ -206,15 +229,30 @@ class NewsPoster:
                     caption=caption,
                     parse_mode=ParseMode.HTML,
                 )
-            else:
-                # --- Вариант 2: картинки нет -> обычный текст, но БЕЗ превью ---
-                message = f"{safe_text}\n\n{source_line}"
 
+                # Если текст реально длинный — отправляем “хвост” вторым сообщением
+                # (так вы не теряете конец поста).
+                if len(safe_text) > body_limit:
+                    tail = safe_text[body_limit:].strip()
+                    if tail:
+                        # хвост без ссылки, чтобы не дублировать
+                        await self.bot.send_message(
+                            chat_id=channel_id,
+                            text=tail,
+                            parse_mode=ParseMode.HTML,
+                            disable_web_page_preview=True,
+                        )
+
+            # -----------------------------------------
+            # Вариант B: картинки нет → просто сообщение
+            # -----------------------------------------
+            else:
+                message = f"{safe_text}\n\n{source_line}".strip()
                 await self.bot.send_message(
                     chat_id=channel_id,
                     text=message,
                     parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,  # ключевое: убираем огромную карточку
+                    disable_web_page_preview=True,  # ключевое: убираем большую карточку
                 )
 
             logger.info(f"   ✅ SUCCESS: Posted to {category}")
@@ -225,38 +263,44 @@ class NewsPoster:
             logger.error(f"   ❌ Telegram Error ({category}): {e}")
             return False
 
-    async def run(self):
-        logger.info("🚀 Starting News Poster Bot (Single Run)...")
+    async def run(self) -> None:
+        logger.info("🚀 Starting single run (all channels)")
 
         async with aiohttp.ClientSession() as session:
             for category, sources in HTML_SOURCES.items():
-
                 channel_id = CHANNEL_IDS.get(category)
+
                 if not channel_id:
-                    logger.debug(f"Skipping category {category}: No Channel ID configured.")
+                    logger.info(f"Skip {category}: no channel id")
                     continue
 
-                logger.info(f"--- 📂 Category: {category} ---")
+                logger.info(f"=== Channel {category} ===")
+
+                if not sources:
+                    logger.info(f"Skip {category}: no sources")
+                    continue
+
+                posted_any = False
 
                 for source in sources:
-                    logger.info(f"🔍 Scanning source: {source['name']}")
-
+                    logger.info(f"Scanning source: {source['name']}")
                     links = await self.get_article_links(session, source)
 
                     if not links:
-                        logger.info(f"   No links found in {source['name']} (check selectors?)")
                         continue
 
-                    new_posts_count = 0
                     for link in links:
-                        is_posted = await self.process_article(session, link, category, channel_id)
+                        ok = await self.process_article(session, link, category, channel_id)
+                        if ok:
+                            posted_any = True
+                            # Важно: один запуск = одна публикация на канал
+                            break
 
-                        if is_posted:
-                            new_posts_count += 1
-                            await asyncio.sleep(8)
+                    if posted_any:
+                        break
 
-                    if new_posts_count == 0:
-                        logger.info("   No new articles to post.")
+                if not posted_any:
+                    logger.info(f"No fresh new posts for {category}")
 
         await self.bot.session.close()
         self.db.close()
