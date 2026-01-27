@@ -298,8 +298,7 @@ _AI: AIWriter | None = None
 
 def generate_post_with_ai(article_text: str, category: str) -> dict:
     """
-    Правильный вызов вашего ai_writer.py:
-    ai_writer = AIWriter(api_key).generate_post(text, category)
+    Корректный вызов AIWriter.
     """
     global _AI
     if _AI is None:
@@ -326,66 +325,67 @@ class Runner:
     def __init__(self):
         self.db = CacheDB(DB_PATH)
 
-    async def process_one_article(
-        self,
-        session: aiohttp.ClientSession,
-        category: str,
-        channel_id: str,
-        article_url: str,
-    ) -> bool:
-        article_url = normalize_url(article_url)
-        if not article_url:
-            return False
+async def process_one_article(
+    self,
+    session: aiohttp.ClientSession,
+    category: str,
+    channel_id: str,
+    article_url: str,
+) -> bool:
+    article_url = normalize_url(article_url)
+    if not article_url:
+        return False
 
-        if self.db.url_exists(category, article_url):
-            return False
-        # Анекдоты: не тратим GigaChat и не ловим модерацию — всегда fallback
-        if category == "ANEKDOTY":
+    if self.db.url_exists(category, article_url):
+        return False
+
+    logger.info(f"⚡ Processing new article: {article_url}")
+
+    # --- 1. Загружаем HTML ---
+    html = await fetch_text(session, article_url)
+    if not html:
+        return False
+
+    # --- 2. Извлекаем текст ---
+    title_hint, text = extract_title_and_text(html)
+    if not text or len(text.strip()) < 50:
+        logger.warning(f"Skipping {article_url}: empty article text")
+        return False
+
+    # --- 3. Генерация поста ---
+    if category == "ANEKDOTY":
+        # анекдоты всегда без ИИ
+        post = fallback_post_from_text(
+            text=text,
+            category=category,
+            article_url=article_url,
+            title_hint="Анекдот дня",
+        )
+    else:
+        logger.info("   🤖 Generating post with GigaChat...")
+        post = generate_post_with_ai(text, category) or {}
+
+        # fallback если ИИ вернул мусор
+        if not post.get("title") or not post.get("summary"):
             post = fallback_post_from_text(
                 text=text,
                 category=category,
                 article_url=article_url,
-                title_hint="Анекдот дня"
+                title_hint=title_hint,
             )
-        else:
-            logger.info("   🤖 Generating post with GigaChat...")
-            post = generate_post_with_ai(text, category) or {}
 
+    # --- 4. Собираем текст ---
+    html_text = build_post_text(post, category, article_url)
 
-        logger.info(f"⚡ Processing new article: {article_url}")
-        html = await fetch_text(session, article_url)
-        if not html:
-            # не помечаем как posted, чтобы можно было попробовать в следующий раз
-            return False
+    # --- 5. Отправляем ---
+    ok = await tg_send_message(session, channel_id, html_text)
+    if ok:
+        self.db.mark_posted(category, article_url)
+        logger.info(f"   ✅ SUCCESS: Posted to {category}")
+        return True
 
-        title_hint, text = extract_title_and_text(html)
-        if not text:
-            return False
+    return False
 
-        # Генерация через ИИ
-        post = {}
-        try:
-            logger.info("   🤖 Generating post with GigaChat...")
-            post = generate_post_with_ai(text, category) or {}
-        except Exception as e:
-            logger.warning(f"AI generation failed: {e}")
-            post = {}
-
-        # Если ИИ вернул кривой JSON/пусто — fallback
-        if not isinstance(post, dict) or not post.get("title") or not post.get("summary"):
-            post = fallback_post_from_text(text=text, category=category, article_url=article_url, title_hint=title_hint)
-
-        # Собираем финальный текст
-        html_text = build_post_text(post, category, article_url)
-
-        # Отправляем в Telegram
-        ok = await tg_send_message(session, channel_id, html_text)
-        if ok:
-            self.db.mark_posted(category, article_url)
-            logger.info(f"   ✅ SUCCESS: Posted to {category}")
-            return True
-
-        return False
 
     async def run(self):
         logger.info("Starting single run (all channels)")
