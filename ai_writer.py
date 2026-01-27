@@ -96,7 +96,9 @@ class AIWriter:
             return fallback
 
         system_prompt = PROMPTS.get(category, PROMPTS["DEFAULT"])
-        input_text = (text or "").strip()[:8000]
+        limit = 3500 if category == "IT_HUMOR" else 6000
+        input_text = (text or "").strip()[:limit]
+
 
         prompt = (
             f"{system_prompt}\n\n"
@@ -106,14 +108,15 @@ class AIWriter:
         )
 
         # Порядок фоллбеков (можно менять по вкусу)
+       # Пытаемся максимум 2 раза:
+# 1) выбранная модель (например GigaChat-2)
+# 2) резервная "GigaChat" (обычно самая стабильная)
         candidates = []
         if self.model_name:
             candidates.append(self.model_name)
 
-        # Добавим стандартные модели без дублей
-        for m in ["GigaChat-2", "GigaChat-2-Pro", "GigaChat-2-Max", "GigaChat-Pro", "GigaChat"]:
-            if m not in candidates:
-                candidates.append(m)
+        if "GigaChat" not in candidates:
+            candidates.append("GigaChat")
 
         last_error: Optional[Exception] = None
 
