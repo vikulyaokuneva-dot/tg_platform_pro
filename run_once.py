@@ -339,6 +339,18 @@ class Runner:
 
         if self.db.url_exists(category, article_url):
             return False
+        # Анекдоты: не тратим GigaChat и не ловим модерацию — всегда fallback
+        if category == "ANEKDOTY":
+            post = fallback_post_from_text(
+                text=text,
+                category=category,
+                article_url=article_url,
+                title_hint="Анекдот дня"
+            )
+        else:
+            logger.info("   🤖 Generating post with GigaChat...")
+            post = generate_post_with_ai(text, category) or {}
+
 
         logger.info(f"⚡ Processing new article: {article_url}")
         html = await fetch_text(session, article_url)
