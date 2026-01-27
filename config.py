@@ -19,7 +19,7 @@ RETRY_DELAY = int(os.getenv("RETRY_DELAY", "2"))
 HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT", "20"))
 
 # Сколько ссылок брать с каждого источника (чтобы не упираться в "топ-5" и не молчать)
-MAX_LINKS_PER_SOURCE = int(os.getenv("MAX_LINKS_PER_SOURCE", "50"))
+MAX_LINKS_PER_SOURCE = int(os.getenv("MAX_LINKS_PER_SOURCE", "120"))
 
 # =========================
 # 1. Каналы (chat_id берутся из env)
@@ -99,7 +99,43 @@ SOURCES = {
         "link_selector": "a.post-block__title__link",
         "base_url": "https://techcrunch.com",
     },
+    {
+        "name": "TechCrunch AI p4",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/4/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p5",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/5/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p6",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/6/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p7",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/7/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p8",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/8/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
 ],
+
 
 "STARTUPS_VC": [
     {
@@ -123,7 +159,43 @@ SOURCES = {
         "link_selector": "a.post-block__title__link",
         "base_url": "https://techcrunch.com",
     },
+    {
+        "name": "TechCrunch Startups p4",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/4/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p5",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/5/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p6",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/6/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p7",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/7/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p8",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/8/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
 ],
+
 
     "PROGRAMMING_DEV": [
         {
@@ -175,10 +247,11 @@ SOURCES = {
             "name": "Smartlab.news (главная)",
             "type": "html",
             "url": "https://smartlab.news/",
-            "link_selector": "a[href^='/i/']",
+            "link_selector": "a[href^='/i/'], a[href^='/news/'], a[href^='/blog/']",
             "base_url": "https://smartlab.news",
         }
     ],
+
 
     "PERSONAL_FINANCE": [
         {
