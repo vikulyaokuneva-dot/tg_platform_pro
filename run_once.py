@@ -307,7 +307,7 @@ class NewsPoster:
         logger.info("   🤖 Generating post with GigaChat...")
         post = await asyncio.to_thread(self.ai.generate_post, article_text, category)
 
-        text_body = build_post_text(post)
+        text_body = build_post_text(post, category)
 
         # маленькая ссылка (без огромной карточки)
         source_line = f"Источник: <a href='{link}'>читать</a>"
