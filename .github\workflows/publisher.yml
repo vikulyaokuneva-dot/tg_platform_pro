@@ -2,8 +2,7 @@ name: TG Autopublisher
 
 on:
   schedule:
-    # GitHub Actions cron uses UTC.
-    # Moscow (UTC+3): 09:00, 13:00, 18:00 => UTC: 06:00, 10:00, 15:00
+    # 09:00 / 13:00 / 18:00 MSK (UTC+3) == 06:00 / 10:00 / 15:00 UTC
     - cron: "0 6,10,15 * * *"
   workflow_dispatch:
 
@@ -14,22 +13,15 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
       - name: Restore DB cache
         uses: actions/cache@v4
@@ -44,21 +36,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run publisher (single run)
+      - name: Run publisher
         env:
           POSTER_BOT_TOKEN: ${{ secrets.POSTER_BOT_TOKEN }}
           GIGACHAT_API_KEY: ${{ secrets.GIGACHAT_API_KEY }}
 
+          # chat_id каналов (добавь все свои *_CHAT_ID по аналогии)
           AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
-          ANEKDOTY_CHAT_ID: ${{ secrets.ANEKDOTY_CHAT_ID }}
-          CRYPTO_AIRDROPS_CHAT_ID: ${{ secrets.CRYPTO_AIRDROPS_CHAT_ID }}
           CRYPTO_NEWS_CHAT_ID: ${{ secrets.CRYPTO_NEWS_CHAT_ID }}
-          IT_HUMOR_CHAT_ID: ${{ secrets.IT_HUMOR_CHAT_ID }}
-          PERSONAL_FINANCE_CHAT_ID: ${{ secrets.PERSONAL_FINANCE_CHAT_ID }}
-          PRODUCT_GROWTH_CHAT_ID: ${{ secrets.PRODUCT_GROWTH_CHAT_ID }}
-          PROGRAMMING_DEV_CHAT_ID: ${{ secrets.PROGRAMMING_DEV_CHAT_ID }}
-          STARTUPS_VC_CHAT_ID: ${{ secrets.STARTUPS_VC_CHAT_ID }}
-          STOCKS_INVESTING_CHAT_ID: ${{ secrets.STOCKS_INVESTING_CHAT_ID }}
+
         run: |
           mkdir -p data
           python run_once.py
