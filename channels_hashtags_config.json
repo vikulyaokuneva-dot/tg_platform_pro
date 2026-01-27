@@ -1,0 +1,102 @@
+{
+  "channels": {
+    "-1001234567890": {
+      "sources": [
+        "https://habr.com",
+        "https://dev.to"
+      ],
+      "keywords": [
+        "python",
+        "programming",
+        "development"
+      ],
+      "style": "neutral",
+      "hashtags": [
+        "#python",
+        "#programming",
+        "#coding",
+        "#IT"
+      ]
+    },
+    "-1009876543210": {
+      "sources": [
+        "https://vc.ru",
+        "https://rb.ru"
+      ],
+      "keywords": [
+        "business",
+        "startup",
+        "entrepreneurship"
+      ],
+      "style": "informal",
+      "hashtags": [
+        "#business",
+        "#startup",
+        "#entrepreneur",
+        "#innovation",
+        "#investing",
+        "#success"
+      ]
+    },
+    "-1001111111111": {
+      "sources": [
+        "https://dachnye-sovety.ru",
+        "https://ogorod.ru"
+      ],
+      "keywords": [
+        "gardening",
+        "farming",
+        "plants"
+      ],
+      "style": "informal",
+      "hashtags": [
+        "#садоводство",
+        "#огород",
+        "#посев",
+        "#прикормка",
+        "#полив",
+        "#посадка"
+      ]
+    },
+    "-1002222222222": {
+      "sources": [
+        "https://healthinfo.com",
+        "https://meddaily.ru"
+      ],
+      "keywords": [
+        "health",
+        "medicine",
+        "fitness"
+      ],
+      "style": "neutral",
+      "hashtags": [
+        "#здоровье",
+        "#медицина",
+        "#фитнес",
+        "#питание",
+        "#упражнения"
+      ]
+    },
+    "-1003333333333": {
+      "sources": [
+        "https://cookingtoday.ru",
+        "https://recipes-world.com"
+      ],
+      "keywords": [
+        "cooking",
+        "recipes",
+        "food"
+      ],
+      "style": "informal",
+      "hashtags": [
+        "#рецепты",
+        "#кулинария",
+        "#еда",
+        "#готовка",
+        "#вкусно",
+        "#приготовление"
+      ]
+    }
+  }
+
+}
