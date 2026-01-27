@@ -75,7 +75,7 @@ class AIWriter:
         # ВАЖНО: В API корректные имена моделей такие:
         #   GigaChat, GigaChat-Lite, GigaChat-Pro, GigaChat-Max
         # (а НЕ GigaChat-2-*)
-        self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-Lite"
+        self.model_name = model_name or os.getenv("GIGACHAT_MODEL") or "GigaChat-2"
 
         self.enabled = bool(api_key)
         if not self.enabled:
@@ -111,7 +111,7 @@ class AIWriter:
             candidates.append(self.model_name)
 
         # Добавим стандартные модели без дублей
-        for m in ["GigaChat-Lite", "GigaChat-Pro", "GigaChat-Max", "GigaChat"]:
+        for m in ["GigaChat-2", "GigaChat-2-Pro", "GigaChat-2-Max", "GigaChat-Pro", "GigaChat"]:
             if m not in candidates:
                 candidates.append(m)
 
