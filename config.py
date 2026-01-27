@@ -123,21 +123,12 @@ SOURCES = {
         }
     ],
     "CRYPTO_AIRDROPS": [
-        # основной
         {
-            "name": "Airdrops.io (latest)",
-            "type": "html",
-            "url": "https://airdrops.io/latest/",
-            "link_selector": "a[href*='/airdrops/']",
-            "base_url": "https://airdrops.io",
-        },
-        # резервный (если airdrops.io таймаутит)
-        {
-            "name": "AirdropAlert (new)",
-            "type": "html",
-            "url": "https://airdropalert.com/browse-airdrops/?category=new",
-            "link_selector": "a[href*='/airdrop/']",
-            "base_url": "https://airdropalert.com",
+            "name": "AirdropAlert RSS",
+            "type": "rss",
+            "url": "https://airdropalert.com/feed/rssfeed",
+            "link_selector": "item > link",
+            "base_url": "",
         },
     ],
     "IT_HUMOR": [
@@ -151,22 +142,28 @@ SOURCES = {
     ],
     "STOCKS_INVESTING": [
         {
-            "name": "Smartlab.news",
-            "type": "html",
-            "url": "https://smartlab.news/",
-            "link_selector": "a[href^='/news/']",
-            "base_url": "https://smartlab.news",
-        }
+            "name": "Smart-Lab allnews RSS",
+            "type": "rss",
+            "url": "https://smart-lab.ru/allnews/rss/",
+            "link_selector": "item > link",
+            "base_url": "",
+        },
     ],
     "PERSONAL_FINANCE": [
-        # вместо t-j.ru (там 401 у тебя в раннере)
         {
-            "name": "Banki.ru (лента)",
-            "type": "html",
-            "url": "https://www.banki.ru/news/lenta/",
-            "link_selector": "a[href^='/news/lenta/?id=']",
-            "base_url": "https://www.banki.ru",
-        }
+            "name": "CBR (news/events) RSS",
+            "type": "rss",
+            "url": "http://www.cbr.ru/rss/eventrss",
+            "link_selector": "item > link",
+            "base_url": "",
+        },
+        {
+            "name": "CBR (press releases) RSS",
+            "type": "rss",
+            "url": "http://www.cbr.ru/rss/RssPress",
+            "link_selector": "item > link",
+            "base_url": "",
+        },
     ],
     "ANEKDOTY": [
         # RSS ленты (уникальные ссылки, нормально для БД)
