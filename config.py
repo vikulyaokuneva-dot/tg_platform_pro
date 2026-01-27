@@ -77,24 +77,54 @@ CHANNEL_META = {
 #  - base_url: нужно если ссылки относительные (для html)
 # =========================
 SOURCES = {
-    "AI_AUTOMATION": [
-        {
-            "name": "TechCrunch AI",
-            "type": "html",
-            "url": "https://techcrunch.com/tag/artificial-intelligence/",
-            "link_selector": "a.post-block__title__link",
-            "base_url": "https://techcrunch.com",
-        }
-    ],
-    "STARTUPS_VC": [
-        {
-            "name": "TechCrunch Startups",
-            "type": "html",
-            "url": "https://techcrunch.com/tag/startups/",
-            "link_selector": "a.post-block__title__link",
-            "base_url": "https://techcrunch.com",
-        }
-    ],
+"AI_AUTOMATION": [
+    {
+        "name": "TechCrunch AI",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p2",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/2/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch AI p3",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/artificial-intelligence/page/3/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+],
+
+"STARTUPS_VC": [
+    {
+        "name": "TechCrunch Startups",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p2",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/2/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+    {
+        "name": "TechCrunch Startups p3",
+        "type": "html",
+        "url": "https://techcrunch.com/tag/startups/page/3/",
+        "link_selector": "a.post-block__title__link",
+        "base_url": "https://techcrunch.com",
+    },
+],
+
     "PROGRAMMING_DEV": [
         {
             "name": "Dev.to (Top Week)",
