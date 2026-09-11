@@ -1,0 +1,5 @@
+﻿{
+    "source":  "parser_poc_results/classifier_v2_validation (frozen, holdout-validated)",
+    "classifier_v2.py":  "5665791f2aba5f2004f0f2268c348a3d1d39b817f32b44ecfa3680504caa389d",
+    "classifier_baseline.py":  "2b0ad31536d00bd078a287c96f2639a2f2fefef8a4d29008e3f13be2d49b51f6"
+}

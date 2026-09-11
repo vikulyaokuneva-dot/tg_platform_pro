@@ -1,0 +1,56 @@
+name: Case pipeline (AI Автоматизация | Бизнес)
+# Production-расписание: 09:00 и 18:00 МСК = 06:00 и 15:00 UTC.
+# Максимум 1 публикация за запуск (--limit 1). Нет качественного материала —
+# тишина, мусор не публикуется. daily_jobs.yml (10 платформенных каналов) не затронут.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+    - cron: "0 15 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: case-pipeline
+  cancel-in-progress: false   # два параллельных прогона не дерутся за один материал
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      # Персистентность БД между запусками (dedup/history переживают рестарт).
+      # NOTE: actions/cache эвиктится после ~7 дней неактивности — при долгом
+      # простое возможен повторный просмотр старых URL; публикации при этом
+      # защищены Telegram-side? НЕТ — см. README §11 (рекомендация: периодический
+      # запуск не реже раза в неделю или миграция на внешний volume).
+      - name: Restore pipeline DB
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}
+          restore-keys: case-db-
+
+      - name: Run pipeline (max 1 post)
+        env:
+          AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
+          AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
+          GIGACHAT_API_KEY: ${{ secrets.GIGACHAT_API_KEY }}
+          NEWS_SOURCE_URL: ${{ vars.NEWS_SOURCE_URL }}
+          CASE_PUBLISH: "1"
+          CASE_PUBLISH_LIMIT: "1"
+        run: python run_case_pipeline.py --publish --limit 1
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-run-${{ github.run_id }}
+          path: runs/
+          retention-days: 14

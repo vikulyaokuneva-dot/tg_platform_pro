@@ -1,0 +1,13 @@
+# локальные секреты — никогда не коммитить
+.env
+*.env.local
+
+# персистентные данные пайплайна и артефакты прогонов
+data/
+runs/
+jobs/*/storage.json
+jobs/*/stats.json
+
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,9 @@
+# runtime (platform + case pipeline)
+# requests уже использовался job-ами (jobs/*/job.py), но не был объявлен — фикс
+reportlab
+requests>=2.31
+beautifulsoup4>=4.12
+trafilatura>=1.8
+lxml>=4.9
+# AI arbitration layer: REST-клиент на requests (GIGACHAT_API_KEY) — SDK не требуется
+# (gigachat SDK на PyPI устарел и не поддерживает новый базовый домен)
