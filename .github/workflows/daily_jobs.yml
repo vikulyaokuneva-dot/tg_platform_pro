@@ -1,9 +1,8 @@
 name: Daily jobs
 on:
   schedule:
-    - cron: "0 6 * * *"
-    - cron: "0 14 * * *"
-    - cron: "0 22 * * *"
+    - cron: "0 6 * * *"    # 09:00 МСК (UTC+3)
+    - cron: "0 18 * * *"    # 21:00 МСК (UTC+3)
 
 jobs:
   run:
@@ -15,3 +14,6 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: python runner.py
+        env:
+          CASE_PUBLISH: "1"   # публикация разрешена (job гейт: CASE_PUBLISH=1 и DRY_RUN!=1)
+          AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
