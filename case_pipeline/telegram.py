@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from . import config
+from . import config, postformat
 
 log = logging.getLogger("case_pipeline.telegram")
 
@@ -57,9 +57,27 @@ def send_message(token, chat_id, text, dry_run=False, parse_mode=None, retries=2
 
 
 def publish_post(text, chat_id=None, dry_run=False):
-    """Plain text (без markdown) — безопаснее для детерминированного каркаса."""
-    res = send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID, text,
-                       dry_run=dry_run, parse_mode=None)
+    """Финальная подача поста: целевой макет канала (жирный заголовок/поля,
+    пустые строки между блоками) + валидный MarkdownV2 с полным экранированием
+    (postformat). Механизм отправки и ретраи — прежние. Откат безопасный: если
+    API отверг разметку (400 parse) или длина после экранирования близка к
+    лимиту — тот же текст уходит plain text (без parse_mode)."""
+    formatted = postformat.format_post(text)
+    if dry_run:
+        return send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID,
+                            formatted, dry_run=True)
+    md = postformat.to_markdownv2(formatted)
+    if len(md) <= 4090:
+        res = send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID, md,
+                           parse_mode="MarkdownV2")
+        if res.ok:
+            return res
+        err = str(res.error or "").lower()
+        if "400" not in err or "parse" not in err:
+            log.error("telegram publish failed: %s", res.error)
+            return res
+        log.warning("markdownv2 rejected (400 parse) — повтор plain text")
+    res = send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID, formatted)
     if not res.ok:
         log.error("telegram publish failed: %s", res.error)
     return res
