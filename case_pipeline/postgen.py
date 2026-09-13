@@ -18,7 +18,7 @@ import logging
 import re
 
 from . import ai as ai_mod
-from . import hashtags, langguard
+from . import hashtags, langguard, textclean
 from .utils import digits_of, extract_numbers, norm_num_text, ws_norm
 
 log = logging.getLogger("case_pipeline.postgen")
@@ -60,6 +60,63 @@ def _short(s, n=220):
     return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "…"
 
 
+PREP_RX = re.compile(r"(?:\s|^)(?:к|на|до|в|за|по|с|у|от|для|без|при)\s*$")
+
+
+def _num_members(text):
+    """(токены чисел, цифровые ядра) — единая мера «число упоминается в тексте»
+    для фильтра Цифры и для editorial_check."""
+    nums = extract_numbers(norm_num_text(ws_norm(text)))
+    cores = {digits_of(n) for n in nums if digits_of(n)}
+    return nums, cores
+
+
+def _num_used(val, nums, cores):
+    v = ws_norm(re.sub(r"\s+", "", val or ""))
+    return bool(v) and (v in nums or (digits_of(v) in cores if digits_of(v) else False))
+
+
+def _metric_parts(metric):
+    """(значение, короткий контекст из evidence-цитаты источника). Слова —
+    только из источника, выдумывания нет."""
+    val = textclean.clean((metric.get("value") or "").strip())
+    quote = textclean.clean((metric.get("evidence") or {}).get("quote") or "")
+    ctx = ""
+    idx = quote.find(val)
+    if idx > 0:
+        words = re.findall(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'-]{1,}", quote[:idx])
+        ctx = PREP_RX.sub("", " ".join(words[-4:])).strip()
+    return val, ctx
+
+
+# «Что автоматизировали»: цитата-перечисление сервисов без механики подаётся
+# цепочкой (тот же каркас, что в выводах канала), с сохранением цитаты.
+MECHANISM_RX = re.compile(
+    r"(данные|обработк|анализ|модел[ьяи]|алгоритм|правил|\bбот\b|сценар|интеграц|"
+    r"маршрутиз|классиф|извлечени|автоответ|настройк|→|data|process|analy|model|"
+    r"rule|workflow|trigger|routing|predict|enrich|scoring)", re.I)
+SERVICES_LIST_RX = re.compile(
+    r"^[^.,;!?]{3,40}(?:,| и) ?[^.,;!?]{2,40}(?:,| и)?[^.,;!?]{0,40}$")
+
+
+def _mechanics(impl):
+    impl = textclean.clean(impl or "")
+    if not impl:
+        return ""
+    has_list = (SERVICES_LIST_RX.match(impl) or impl.count(",") >= 2
+                or re.search(r"\s+\w+\s*(?:,| и)\s+\w+\s*(?:,| и)\s+\w+", impl))
+    if not MECHANISM_RX.search(impl) and has_list:
+        return ("цепочка: данные → AI-обработка → действие в бизнес-системе "
+                "(в источнике: %s)" % _short(impl, 160).rstrip("."))
+    return impl
+
+
+def clean_for_publish(text):
+    """Нормализация уже сохранённого поста (путь backlog). -> (text, ok)."""
+    t = textclean.clean(text or "")
+    return t, not textclean.has_artifacts(t)
+
+
 def tags_for_case(case):
     """Контролируемые теги поста (1 TYPE + 1–2 DOMAIN + 1 COMPANY)."""
     blob = ws_norm(" ".join([case.get("problem", ""), case.get("implementation", ""),
@@ -69,27 +126,53 @@ def tags_for_case(case):
 
 
 def render_template(case, tags=None):
-    """RU-каркас; fact-строки — дословные цитаты источника (EN допустимы)."""
+    """RU-каркас; fact-строки — цитаты источника (EN допустимы, дальше guard).
+
+    Редакционные правила (post-review «Читай-город»):
+    * заголовок — осмысленная фраза «контекст + цифра» из цитаты источника,
+      а не «+56% / +1,4 п. п. / 16%» (перечисление голых цифр запрещено);
+    * блок «Цифры» — только показатели, реально использованные в тексте поста
+      И имеющие контекст; голые цифры не выводятся;
+    * HTML-артефакты/склейки нейтрализуются textclean на всех source-строках."""
     tags = tags or tags_for_case(case)
-    comp = case.get("company_name") or "компания"
-    metrics = [m.get("value", "").strip() for m in case.get("metrics") or [] if m.get("value")]
-    headline_bits = metrics[:3] or ["практический эффект"]
+    comp = textclean.clean(case.get("company_name") or "компания")
+    problem = textclean.clean(case.get("problem") or "")
+    impl = textclean.clean(case.get("implementation") or "")
+    results = [textclean.clean(r) for r in (case.get("results") or []) if r]
+
+    parsed = [_metric_parts(m) for m in (case.get("metrics") or []) if m.get("value")]
+    parsed = [(v, c) for v, c in parsed if v]
+    body_txt = ws_norm(" ".join([problem, impl] + results))
+    body_nums, body_cores = _num_members(body_txt)
+    # «использованные с контекстом»: значение реально упоминается в теле поста
+    used = [(v, c) for v, c in parsed if c and _num_used(v, body_nums, body_cores)]
+    if used:
+        v, c = used[0]
+        headline = "%s: %s" % (comp, _short("%s %s" % (c, v), 90))
+    else:
+        headline = "%s: практический эффект автоматизации" % comp
+
     lines = []
-    lines.append("⚡ %s: %s" % (comp, " / ".join(headline_bits)))
+    lines.append("⚡ " + headline)
     lines.append("")
     lines.append("🏢 Кто: %s (%s)" % (comp, case.get("source_domain", "")))
-    if case.get("problem"):
-        lines.append("❗️ Проблема: «%s»" % _short(case["problem"], 200))
-    if case.get("implementation"):
-        lines.append("🔧 Что автоматизировали: «%s»" % _short(case["implementation"], 200))
+    if problem:
+        lines.append("❗️ Проблема: «%s»" % _short(problem, 200))
+    if impl:
+        mech = _mechanics(impl)
+        if mech.startswith("цепочка:"):
+            lines.append("🔧 Что автоматизировали: %s" % _short(mech, 240))
+        else:
+            lines.append("🔧 Что автоматизировали: «%s»" % _short(mech, 220))
     tech = ", ".join((case.get("technology") or [])[:4])
     if tech:
         lines.append("⚙️ Технологии: %s" % tech)
-    results = [r for r in case.get("results") or [] if r]
     if results:
         lines.append("📈 Результат: «%s»" % _short(results[0], 200))
-    if metrics:
-        lines.append("🔢 Цифры из источника: %s" % ", ".join(metrics[:5]))
+    if used:
+        lines.append("🔢 Цифры:")
+        for v, c in used[:3]:
+            lines.append("- %s %s" % (_short(c, 60), v))
     lines.append("")
     lines.append("💡 Вывод для бизнеса: связка «данные → AI-обработка → "
                  "бизнес-система» убирает ручной перенос информации между "
@@ -106,10 +189,19 @@ def render_template(case, tags=None):
 POLISH_SYSTEM_TMPL = (
     "Ты — редактор канала «AI Автоматизация | Бизнес». Перепиши материал "
     "СТРОГО по фактам из переданного JSON CASE, на русском, практическим языком.\n"
-    "СТРУКТУРА: заголовок с конкретным результатом (до 10 слов, 1 эмодзи); "
-    "кто компания; проблема; что автоматизировали и как это работало; результат; "
-    "цифры; что отсюда может применить обычный бизнес; CTA-абзац; ссылка; "
+    "СТРУКТУРА: заголовок — осмысленная фраза (до 12 слов) с 1–2 главными цифрами "
+    "и их пояснением, например «выручка с клика выросла на +56%»; ПЕРЕЧИСЛЕНИЕ "
+    "цифр через слэш («+56% / 16%») в заголовке запрещён. Далее: кто компания; "
+    "проблема; что автоматизировали и как это работало — ОПИСЫВАЙ МЕХАНИКОЙ "
+    "ЦЕПОЧКОЙ «данные → обработка/модель → действие в бизнес-системе», а не "
+    "просто списком сервисов; результат; цифры; что отсюда может применить "
+    "обычный бизнес; CTA-абзац; ссылка; "
     "хэштеги в последней строке ровно такие: {tags}.\n"
+    "Блок «Цифры»: только показатели, которые уже названы в тексте поста и имеют "
+    "понятный читателю контекст (по строке на показатель); голые числа без "
+    "пояснения — не выводить.\n"
+    "Символы '<' и '>' не использовать: пиши «менее 16% ДРР», «более 2 раз»; "
+    "HTML-теги, сущности (&lt; и т.п.) и склейки вида «16%ДРР» недопустимы.\n"
     "ЗАПРЕЩЕНО: любые числа/проценты/суммы, которых нет в CASE; усиление формулировок; "
     "фразы «революционный прорыв», «ИИ меняет всё», «это будущее бизнеса»; пересказ-«воду»; "
     "свои дополнительные хэштеги.\n"
@@ -137,7 +229,7 @@ def render_post(case, source_text, provider=None):
                      json.dumps(payload, ensure_ascii=False)[:7000] +
                      "\n\nCTA-блок обязан присутствовать в конце (бизнес-приглашение к "
                      "автоматизации, без агрессивной рекламы)."}]
-            text = (provider.complete(msgs) or "").strip()
+            text = textclean.clean((provider.complete(msgs) or "").strip())
             if text and len(text) > 300:
                 ok, errors = validate_post(text, case, source_text)
                 if ok:
@@ -165,9 +257,33 @@ def render_post(case, source_text, provider=None):
     return template, "template_langfail", False
 
 
+def editorial_check(text):
+    """Редакционные гейты, не требующие source-текста: HTML-артефакты,
+    заголовок-перечисление цифр, «голые» цифры в блоке «Цифры»."""
+    errors = []
+    if textclean.has_artifacts(text):
+        errors.append("html artifact in post")
+    first = next((l for l in (text or "").splitlines() if l.strip()), "")
+    if re.search(r"\d[\d.,]*\s*/\s*[-+−]?\d", first) or \
+            re.search(r"\d[\d.,]*[^\n]{0,25}?\s/\s*[-+−]?\d", first):
+        errors.append("headline: bare numbers separated by slashes")
+    dm = re.search(r"(?mi)^[^\w\n]*цифры[^\w\n]*:\s*\n"
+                   r"((?:[-•*].+(?:\n|$))+)", (text or "") + "\n")
+    if dm:
+        block = dm.group(1)
+        rest = (text or "").replace(block, " ")
+        rest_nums, rest_cores = _num_members(rest)
+        naked = [n for n in sorted(extract_numbers(norm_num_text(ws_norm(block))))
+                 if digits_of(n) and n not in {"1", "2", "3"}
+                 and not _num_used(n, rest_nums, rest_cores)]
+        if naked:
+            errors.append("digits block not used in text: %s" % naked[:4])
+    return (not errors), errors
+
+
 def validate_post(text, case, source_text):
     """Финальный security-гейт поста: ни одного числа вне источника, компания
-    упомянута, без хайпа, валидная длина."""
+    упомянута, без хайпа, валидная длина + редакционные правила."""
     errors = []
     if not text or len(text) > 3900:
         errors.append("bad length %s" % (len(text or "")))
@@ -187,4 +303,6 @@ def validate_post(text, case, source_text):
     comp = ws_norm(case.get("company_name") or "").split()[0:1]
     if comp and comp[0] not in ws_norm(text):
         errors.append("company missing in post")
+    ok_e, err_e = editorial_check(text)
+    errors.extend(err_e)
     return (not errors), errors

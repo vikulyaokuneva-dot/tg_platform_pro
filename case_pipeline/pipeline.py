@@ -161,9 +161,12 @@ def process_candidate(storage, art, url, source, provider, publish, limit_left):
     post_text, mode, lang_ok = postgen.render_post(case, text, provider=provider)
     tags = postgen.tags_for_case(case)
     if not lang_ok:
-        storage.update(mid, status="review",
-                       reason="language guard: не русский после retry (EN-доминанта)")
-        out.update(status="review", reason="language guard failed")
+        # честная причина: guard или все же редакционный гейт (mode один и тот же)
+        eok, eerr = postgen.editorial_check(post_text)
+        why = ("editorial: " + "; ".join(eerr)[:150]) if not eok else \
+              "language guard: не русский после retry (EN-доминанта)"
+        storage.update(mid, status="review", reason=why[:300])
+        out.update(status="review", reason="post gate failed")
         return out
     ok, errors = postgen.validate_post(post_text, case, text)
     if not ok:
@@ -311,6 +314,15 @@ def _publish_backlog(storage, provider, limit_left):
         if cid and cid in published_ids:  # hard dedup по истории
             storage.update(m["id"], status="rejected",
                            reason="duplicate of published case (history)")
+            continue
+        # нормализация HTML-артефактов/склеек + редакционные гейты по сохранённому тексту
+        text, clean_ok = postgen.clean_for_publish(text)
+        eok, eerr = postgen.editorial_check(text)
+        if not (clean_ok and eok):
+            storage.update(m["id"], status="review",
+                           reason="editorial check: %s" % "; ".join(eerr)[:200])
+            row.update(status="review", reason="editorial check failed")
+            out.append(row)
             continue
         # финальный редакционный проход: язык + контролируемые теги
         tags = postgen.tags_for_case(case) if case else hashtags.build(
