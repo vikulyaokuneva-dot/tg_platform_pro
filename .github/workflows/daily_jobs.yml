@@ -4,6 +4,13 @@ on:
     - cron: "0 6 * * *"    # 09:00 МСК (UTC+3)
     - cron: "0 18 * * *"    # 21:00 МСК (UTC+3)
 
+# Единая очередь с case_pipeline.yml (тот же канал и та же БД history):
+# общий concurrency group сериализует daily- и manual-dispatch, чтобы
+# параллельные прогоны не перезаписали свежий снапшот кэша устаревшим.
+concurrency:
+  group: case-pipeline
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -12,6 +19,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # Персистентность publication history между запусками — та же схема,
+      # что в case_pipeline.yml: общий restore-префикс case-db-* (кэш
+      # репозитория, не workflow) => daily получает последний снапшот,
+      # сохранённый ЛЮБЫМ из двух workflow; save-ключ уникален по run_id.
+      # actions/cache эвиктится после ~7 дней неактивности; два запуска в
+      # сутки держат кэш живым (и для case_pipeline.yml тоже).
+      - name: Restore pipeline DB
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}
+          restore-keys: case-db-
+
       - run: pip install -r requirements.txt
       - run: python runner.py
         env:

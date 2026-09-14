@@ -87,6 +87,29 @@ def test_publish_flow_and_dedup_rerun(env, fake_http, monkeypatch):
     assert len(sent) == 1  # ни одного повторного поста
 
 
+def test_rerun_survives_db_reopen(env, fake_http, monkeypatch):
+    """Persistence-сценарий GHA (аналог actions/cache restore): run1 публикует
+    в файл БД; процесс завершается (close); новый «процесс» открывает ТОТ ЖЕ
+    файл -> hard dedup по истории не публикует повторно."""
+    st, runs = env
+    sent = []
+    monkeypatch.setattr(pipeline.telegram, "publish_post", _sent(sent))
+    s1 = pipeline.run(dry_run=False, publish=True, limit=1, sources=["mindbox"],
+                      provider=ai.NullProvider(), storage=st)
+    assert s1.get("published") == 1 and len(sent) == 1
+    db_path = st.path
+    st.close()
+
+    st2 = storage.Storage(db_path)  # «новый раннер», восстановленный файл
+    s2 = pipeline.run(dry_run=False, publish=True, limit=1, sources=["mindbox"],
+                      provider=ai.NullProvider(), storage=st2)
+    assert not [k for k in s2 if k != "run_dir"], s2
+    assert len(sent) == 1  # ни одной повторной публикации
+    n = st2.db.execute("SELECT COUNT(*) c FROM publications WHERE ok=1").fetchone()["c"]
+    assert n == 1
+    st2.close()
+
+
 def test_review_lane_without_ai_stays_unpublished(env, fake_http, monkeypatch):
     """needs_review + нет AI-провайдера => review, публикаций ноль (rules-first)."""
     st, runs = env
