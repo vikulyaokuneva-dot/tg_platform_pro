@@ -20,6 +20,10 @@ GLUE_ANGLE_RX = re.compile(r"(?<=[^\W\d_])(?=[<>])|(?<=[<>])(?=[^\W\d_])")
 GLUE_PCT_RX = re.compile(r"%(?=[^\W\d_])")
 # кириллическая межсловная склейка (след strip-а тегов/списков): "заказДРР"
 GLUE_CASE_RX = re.compile(r"(?<=[а-яё])(?=[А-ЯЁ])")
+# склейка слова со знаком нового значения из табличных цифр: "покупками+30%"
+GLUE_SIGN_RX = re.compile(r"(?<=[^\W\d_])(?=[+\u2212]\d)")
+# склейка цифры со следующим словом: "×4,3выручка"
+GLUE_NUM_RX = re.compile(r"(?<=\d)(?=[^\W\d_])")
 # '<' '>' как операторы сравнения перед числом -> русские слова
 CMP_NUM_RX = re.compile(r"(?:^|(?<=[\s(«\"'—,:;]))([<>])\s*(?=[\d+−-])")
 
@@ -37,6 +41,8 @@ def clean(text):
     t = GLUE_ANGLE_RX.sub(" ", t)
     t = GLUE_PCT_RX.sub("% ", t)
     t = GLUE_CASE_RX.sub(" ", t)
+    t = GLUE_SIGN_RX.sub(" ", t)
+    t = GLUE_NUM_RX.sub(" ", t)
     t = CMP_NUM_RX.sub(_cmp_sub, t)
     t = re.sub(r"[ \t]{2,}", " ", t)
     return t.strip()
