@@ -1,0 +1,4 @@
+raw head: b'\xef\xbb\xbf# -*- coding: utf-8 -*-\r\n"""case_pipeline.postgen \xd0\xb2\xd0\x82\xe2\x80\x9d CASE -> \xd0\xa0\xd1\x97\xd0\xa0\xd1\x95\xd0\xa1\xd0'
+L4 as stored: 'РџРѕР·РёС†РёРѕРЅРёСЂРѕРІР°РЅРёРµ: РџР\xa0РћР‘Р›Р•РњРђ в†’ Р\xa0Р•РЁР•РќР\x98Р• в†’ РљРђРљ'
+latin1 fail: 'latin-1' codec can't encode characters in position 50-52: ordinal not in range(256)
+L4 after cp1251-utf8: 'Позиционирование: ПРОБЛЕМА → РЕШЕН�?Е → КАК АВТОМАТ�?З�?РОВАЛ�? → РЕЗУЛЬТАТ →'

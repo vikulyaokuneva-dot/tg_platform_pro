@@ -7,7 +7,8 @@ AI/пайплайн НЕ порождает свободные теги: пос�
 """
 import re
 
-TYPE_TAGS = {"case": "#Кейс", "news": "#НовостьДня", "analysis": "#Разбор"}
+TYPE_TAGS = {"case": "#Кейс", "news": "#НовостьДня", "analysis": "#Разбор",
+             "agro": "#Практика"}
 
 # DOMAIN: (тег, regex по тексту кейса/новости). Порядок = приоритет.
 DOMAIN_RULES = [
@@ -75,12 +76,19 @@ def detect_domains(blob, limit=2):
     return hits[:limit]
 
 
-def build(content_type="case", text_blob="", company=None, own=None):
-    """-> list[str] 3–5 контролируемых тегов."""
+def build(content_type="case", text_blob="", company=None, own=None,
+          domain_rules=None, fallback=None):
+    """-> list[str] 3–5 контролируемых тегов.
+
+    domain_rules/fallback — расширяемо для второго канала (agro передаёт
+    словарь рубрик из classifier_agro); по умолчанию — словарь AI-канала."""
+    rules = domain_rules if domain_rules is not None else DOMAIN_RULES
+    fb = fallback or DOMAIN_FALLBACK
     tags = [TYPE_TAGS.get(content_type, TYPE_TAGS["case"])]
-    doms = detect_domains(text_blob or "")
+    blob = text_blob or ""
+    doms = [tag for tag, rx in rules if re.search(rx, blob, re.I)][:2]
     if not doms:
-        doms = [DOMAIN_FALLBACK]
+        doms = [fb]
     tags += doms[:2]
     ct = company_tag(company)
     if ct and ct not in tags:
@@ -90,8 +98,8 @@ def build(content_type="case", text_blob="", company=None, own=None):
         if ot and ot not in tags:
             tags.append(ot)
     # минимальный смысл: TYPE + DOMAIN + (COMPANY или вторая DOMAIN)
-    if len(tags) < 3 and DOMAIN_FALLBACK not in tags:
-        tags.append(DOMAIN_FALLBACK)
+    if len(tags) < 3 and fb not in tags:
+        tags.append(fb)
     return tags[:MAX_TAGS]
 
 
@@ -107,13 +115,16 @@ def apply_to_post(text, tags):
     return body + "\n" + line
 
 
-def validate(tags):
-    """Проверка списка тегов для тестов/гейтов. -> (ok, errors)."""
+def validate(tags, extra_allowed=None):
+    """Проверка списка тегов для тестов/гейтов. -> (ok, errors).
+    extra_allowed — доп. контролируемый словарь канала (agro)."""
     errors = []
     if not 3 <= len(tags) <= MAX_TAGS:
         errors.append("tag count %d not in 3..%d" % (len(tags), MAX_TAGS))
     allowed = set(TYPE_TAGS.values()) | {t for t, _ in DOMAIN_RULES} \
         | set(KNOWN_COMPANIES.values()) | set(OWN_PROJECTS) | {DOMAIN_FALLBACK}
+    if extra_allowed:
+        allowed |= set(extra_allowed)
     for t in tags:
         if t in allowed:
             continue

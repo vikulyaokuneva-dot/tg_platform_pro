@@ -1,0 +1,25 @@
+practical | conf=0.95 | topics=['weather', 'plants', 'tech'] | signals={'ad': 0, 'practical': 4, 'numbers': 7, 'topics': 3, 'imperative': 1}
+  Когда и чем подкормить озимые осенью: 3 схемы
+ad | conf=0.9 | topics=['machinery', 'sad'] | signals={'ad': 7, 'practical': 0, 'numbers': 1, 'topics': 2}
+  Купить секатор садовый со скидкой 50% — акция до конца недели! Заказ по телефону
+practical | conf=0.95 | topics=['tech', 'weather', 'pests'] | signals={'ad': 0, 'practical': 8, 'numbers': 2, 'topics': 3, 'imperative': 4}
+  Как подготовить теплицу к зиме: пошаговая схема
+news | conf=0.7 | topics=['agrobus'] | signals={'ad': 0, 'practical': 0, 'numbers': 0, 'topics': 1, 'imperative': 0}
+  Минсельхоз сообщил о запуске новой программы субсидирования
+offtopic | conf=0.8 | topics=[] | signals={'ad': 0, 'practical': 1, 'numbers': 1, 'topics': 0}
+  Обзор новинок смартфонной индустрии 2026 года
+offtopic | conf=0.8 | topics=[] | signals={'ad': 0, 'practical': 0, 'numbers': 0, 'topics': 0}
+  Кошка мнёт лапами подушку: что это значит
+
+--- POST ---
+🌦 Погода и сезон Когда и чем подкормить озимые осенью: 3 схемы
+
+Озимые подкармливают после укоренения. Первая подкормка: 15 г аммиачной селитры на 10 л воды на 1 м2. Вторая — через 3 недели: 20 г суперфосфата. Ошибки: свежий навоз и азот перед морозами. Если листья посветлели, растение голодает. Совет: работы проводят при температуре не ниже +5 градусов, почва должна быть влажной. Дозировки приведены для суглинка. Перепревщие дозы азота снижают зимостойкость, поэтому осенью калийные удобрения важнее азотных. Проверьте всходы на глубину 2 см и при необходимости замульчируйте слоем 5 см. Так растения уйдут в зиму укреплёнными и без лишней вытяжки побегов перед заморозками.
+
+Источник: https://botanichka.ru/article/test/
+
+#Практика #Растения #Погода #Ботаничка
+--- errs: []
+
+AGRO cfg: sources=['botanichka', 'agroinvestor', 'gismeteo'] publish=False db=D:\Bots TG\tg_platform_10bots\data\agro_channel.db chat=None token=False
+telegram.credentials('agro') -> (None, None)

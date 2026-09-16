@@ -1,0 +1,16 @@
+7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-ina
+  title='7 комнатных растений, которые в природе выглядят совсем иначе — Ботаничка'
+  head_pract=0 body_pract=6 imper=1 numbers=0 topics(title)=['plants']
+  newsish=[] verdict=practical
+pochemu-zhivotnye-v-hozyajstve-hudeyut-hotya-edyat-normalno
+  title='Почему животные в хозяйстве худеют, хотя едят нормально — Ботаничка'
+  head_pract=0 body_pract=4 imper=2 numbers=0 topics(title)=['farm']
+  newsish=[] verdict=practical
+chem-luchshe-belit-derevya-osenyu-izvest-mel-ili-sadovaya-kr
+  title='Чем лучше белить деревья осенью: известь, мел или садовая краска? — Ботаничка'
+  head_pract=1 body_pract=4 imper=0 numbers=2 topics(title)=['sad', 'weather']
+  newsish=[] verdict=practical
+jerozija-bolot-ezhegodno-perenosit-v-okean-okolo-380-tys-ton
+  title='Эрозия болот ежегодно переносит в океан около 380 тыс. тонн углерода'
+  head_pract=0 body_pract=1 imper=0 numbers=7 topics(title)=[]
+  newsish=['сообщает', 'за период', 'принят'] verdict=news

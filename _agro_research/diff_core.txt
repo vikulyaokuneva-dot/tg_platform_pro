@@ -1,0 +1,167 @@
+﻿diff --git a/case_pipeline/config.py b/case_pipeline/config.py
+index 3f3c5e3..639a3d2 100644
+--- a/case_pipeline/config.py
++++ b/case_pipeline/config.py
+@@ -12,6 +12,12 @@ Env-переменные (документированы в README_CASE_PIPELINE
+   CASE_PUBLISH_LIMIT        максимум постов за запуск (default 1)
+   CASE_MAX_PER_SOURCE       максимум свежих URL на источник за запуск (default 4)
+   CASE_SOURCES              csv включённых источников (default mindbox,ibm,zapier,salesforce)
++  AGRO_SOURCES              csv источников агро-канала (default botanichka,svoe_fermerstvo,gismeteo,agroinvestor)
++  AGRO_BOT_TOKEN            токен бота агро-канала (конвенция платформенных jobs <JOB>_BOT_TOKEN)
++  AGRO_CHAT_ID              chat_id агро-канала (конвенция <JOB>_CHAT_ID)
++  AGRO_DB_PATH              отдельная sqlite-история агро-канала (default <root>/data/agro_channel.db)
++  AGRO_PUBLISH              "1" разрешает реальную публикацию агро (иначе dry-run)
++  AGRO_PUBLISH_LIMIT        максимум агро-постов за запуск (default 1)
+   FETCH_TIMEOUT_SEC         таймаут HTTP (default 40)
+ """
+ import os
+@@ -76,6 +82,8 @@ PUBLISH = env("CASE_PUBLISH", "0") == "1"
+ PUBLISH_LIMIT = int(env("CASE_PUBLISH_LIMIT", "1"))
+ MAX_PER_SOURCE = int(env("CASE_MAX_PER_SOURCE", "4"))
+ SOURCES = [s.strip() for s in env("CASE_SOURCES", "mindbox,ibm,zapier,salesforce").split(",") if s.strip()]
++AGRO_SOURCES = [s.strip() for s in env(
++    "AGRO_SOURCES", "botanichka,agroinvestor,gismeteo").split(",") if s.strip()]
+ 
+ FETCH_TIMEOUT_SEC = int(env("FETCH_TIMEOUT_SEC", "40"))
+ FETCH_RETRIES = int(env("FETCH_RETRIES", "2"))
+@@ -85,6 +93,20 @@ POLITE_DELAY_SEC = float(env("POLITE_DELAY_SEC", "1.2"))
+ QUALITY_GOOD = 2500
+ QUALITY_PARTIAL = 700          # == size-gate классификатора
+ 
++# ---------- AGRO CHANNEL (jobs/agro) ----------
++# Секреты ТОЛЬКО из env/secrets (конвенция платформенных jobs):
++#   AGRO_BOT_TOKEN / AGRO_CHAT_ID. Пустые значения = канал выключен
++#   (lane честно сообщит "не задано" и не тронет production).
++AGRO_BOT_TOKEN = env("AGRO_BOT_TOKEN")
++AGRO_CHAT_ID = env("AGRO_CHAT_ID")
++# Отдельная БД истории: ноль взаимного влияния publication history/dedup
++# между каналами без изменения storage.py (та же схема, свой файл).
++AGRO_DB_PATH = env("AGRO_DB_PATH", os.path.join(ROOT, "data", "agro_channel.db"))
++AGRO_PUBLISH = env("AGRO_PUBLISH", "0") == "1"
++AGRO_PUBLISH_LIMIT = int(env("AGRO_PUBLISH_LIMIT", "1"))
++AGRO_MAX_PER_RUN = int(env("AGRO_MAX_PER_RUN", "3"))
++AGRO_MAX_AGE_DAYS = int(env("AGRO_MAX_AGE_DAYS", "5"))
++
+ # ---------- редакционный слой ----------
+ # Источник «Новости дня»: csv список разделов (пока один; архитектура — список).
+ NEWS_SOURCES = [u.strip() for u in env("NEWS_SOURCE_URL", "https://habr.com/ru/news/").split(",") if u.strip()]
+diff --git a/case_pipeline/hashtags.py b/case_pipeline/hashtags.py
+index 619dae4..8c1fcdb 100644
+--- a/case_pipeline/hashtags.py
++++ b/case_pipeline/hashtags.py
+@@ -7,7 +7,8 @@ AI/пайплайн НЕ порождает свободные теги: пос
+ """
+ import re
+ 
+-TYPE_TAGS = {"case": "#Кейс", "news": "#НовостьДня", "analysis": "#Разбор"}
++TYPE_TAGS = {"case": "#Кейс", "news": "#НовостьДня", "analysis": "#Разбор",
++             "agro": "#Практика"}
+ 
+ # DOMAIN: (тег, regex по тексту кейса/новости). Порядок = приоритет.
+ DOMAIN_RULES = [
+@@ -75,12 +76,19 @@ def detect_domains(blob, limit=2):
+     return hits[:limit]
+ 
+ 
+-def build(content_type="case", text_blob="", company=None, own=None):
+-    """-> list[str] 3–5 контролируемых тегов."""
++def build(content_type="case", text_blob="", company=None, own=None,
++          domain_rules=None, fallback=None):
++    """-> list[str] 3–5 контролируемых тегов.
++
++    domain_rules/fallback — расширяемо для второго канала (agro передаёт
++    словарь рубрик из classifier_agro); по умолчанию — словарь AI-канала."""
++    rules = domain_rules if domain_rules is not None else DOMAIN_RULES
++    fb = fallback or DOMAIN_FALLBACK
+     tags = [TYPE_TAGS.get(content_type, TYPE_TAGS["case"])]
+-    doms = detect_domains(text_blob or "")
++    blob = text_blob or ""
++    doms = [tag for tag, rx in rules if re.search(rx, blob, re.I)][:2]
+     if not doms:
+-        doms = [DOMAIN_FALLBACK]
++        doms = [fb]
+     tags += doms[:2]
+     ct = company_tag(company)
+     if ct and ct not in tags:
+@@ -90,8 +98,8 @@ def build(content_type="case", text_blob="", company=None, own=None):
+         if ot and ot not in tags:
+             tags.append(ot)
+     # минимальный смысл: TYPE + DOMAIN + (COMPANY или вторая DOMAIN)
+-    if len(tags) < 3 and DOMAIN_FALLBACK not in tags:
+-        tags.append(DOMAIN_FALLBACK)
++    if len(tags) < 3 and fb not in tags:
++        tags.append(fb)
+     return tags[:MAX_TAGS]
+ 
+ 
+@@ -107,13 +115,16 @@ def apply_to_post(text, tags):
+     return body + "\n" + line
+ 
+ 
+-def validate(tags):
+-    """Проверка списка тегов для тестов/гейтов. -> (ok, errors)."""
++def validate(tags, extra_allowed=None):
++    """Проверка списка тегов для тестов/гейтов. -> (ok, errors).
++    extra_allowed — доп. контролируемый словарь канала (agro)."""
+     errors = []
+     if not 3 <= len(tags) <= MAX_TAGS:
+         errors.append("tag count %d not in 3..%d" % (len(tags), MAX_TAGS))
+     allowed = set(TYPE_TAGS.values()) | {t for t, _ in DOMAIN_RULES} \
+         | set(KNOWN_COMPANIES.values()) | set(OWN_PROJECTS) | {DOMAIN_FALLBACK}
++    if extra_allowed:
++        allowed |= set(extra_allowed)
+     for t in tags:
+         if t in allowed:
+             continue
+diff --git a/case_pipeline/telegram.py b/case_pipeline/telegram.py
+index d4d1654..6233234 100644
+--- a/case_pipeline/telegram.py
++++ b/case_pipeline/telegram.py
+@@ -56,19 +56,34 @@ def send_message(token, chat_id, text, dry_run=False, parse_mode=None, retries=2
+     return PublishResult(False, error=str(last))
+ 
+ 
+-def publish_post(text, chat_id=None, dry_run=False):
++def credentials(channel="ai"):
++    """Токен/чат по имени канала. 'ai' — существующий production-канал
++    (пары env не тронуты), 'agro' — второй канал (jobs/agro). Секретов в коде
++    нет: только env (см. config).-> (token, chat_id)"""
++    if channel == "agro":
++        return config.AGRO_BOT_TOKEN, config.AGRO_CHAT_ID
++    return config.BOT_TOKEN, config.CHAT_ID
++
++
++def publish_post(text, chat_id=None, dry_run=False, channel="ai"):
+     """Финальная подача поста: целевой макет канала (жирный заголовок/поля,
+     пустые строки между блоками) + валидный MarkdownV2 с полным экранированием
+     (postformat). Механизм отправки и ретраи — прежние. Откат безопасный: если
+     API отверг разметку (400 parse) или длина после экранирования близка к
+-    лимиту — тот же текст уходит plain text (без parse_mode)."""
++    лимиту — тот же текст уходит plain text (без parse_mode).
++
++    channel: 'ai' (default, поведение идентично прежнему) | 'agro'."""
++    token, target_chat = credentials(channel)
+     formatted = postformat.format_post(text)
+     if dry_run:
+-        return send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID,
++        return send_message(token, chat_id or target_chat,
+                             formatted, dry_run=True)
++    if not token or not (chat_id or target_chat):
++        # честный стоп: без секретов канала НЕ уходим в чужой токен/чат
++        return PublishResult(False, error="no credentials for channel %s" % channel)
+     md = postformat.to_markdownv2(formatted)
+     if len(md) <= 4090:
+-        res = send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID, md,
++        res = send_message(token, chat_id or target_chat, md,
+                            parse_mode="MarkdownV2")
+         if res.ok:
+             return res
+@@ -77,7 +92,7 @@ def publish_post(text, chat_id=None, dry_run=False):
+             log.error("telegram publish failed: %s", res.error)
+             return res
+         log.warning("markdownv2 rejected (400 parse) — повтор plain text")
+-    res = send_message(config.BOT_TOKEN, chat_id or config.CHAT_ID, formatted)
++    res = send_message(token, chat_id or target_chat, formatted)
+     if not res.ok:
+         log.error("telegram publish failed: %s", res.error)
+     return res

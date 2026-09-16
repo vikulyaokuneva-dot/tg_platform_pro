@@ -1,0 +1,45 @@
+gismeteo article: http 200 title= 'Что значит, если кот трется о ноги или мнет лапами подушку?' date= '2026-09-15T07:01:33' q= partial len= 911
+excerpt: Коты создают в доме атмосферу тепла и уюта. Невзирая на свою независимость, они могут проявлять привязанность и преданность к своему владельцу. Однако
+svoefermerstvo /analytics/ hrefs: 288 unique internal: 99
+   /
+   /_nuxt/static/apple-touch-icon.png
+   /_nuxt/static/favicon-16x16.png
+   /_nuxt/static/favicon-32x32.png
+   /_nuxt/static/favicon-48x48.png
+   /_nuxt/static/favicon.ico
+   /_nuxt/static/favicon.svg
+   /_nuxt_front_media/08e10ad.modern.js
+   /_nuxt_front_media/48ba9c4.modern.js
+   /_nuxt_front_media/c4ae4fb.modern.js
+   /_nuxt_front_media/css/5036ec2.css
+   /_nuxt_front_media/css/7980601.css
+   /_nuxt_front_media/css/f41a022.css
+   /_nuxt_front_media/e915736.modern.js
+   /_nuxt_front_media/ece7711.modern.js
+   /_nuxt_front_media/fonts/onest-400.woff2
+   /_nuxt_front_media/fonts/onest-500.woff2
+   /_nuxt_front_media/fonts/ubuntu-400.woff2
+   /_nuxt_front_media/fonts/ubuntu-500.woff2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#angle-arrow-3
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#arrow-right
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#arrow2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#arrow_down
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#cart3
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#cart4
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#catalog2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#chat4
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#clear
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#close-2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#compare
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#delete
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#docs2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#eco
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#heart3
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#logo2-v2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#menu3
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#pin2
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#search3
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#square-menu
+   /_nuxt_front_media/img/rshb-vue-kit-icons.278635c.svg#user3
+  article-like: []
+  date markers: ['15.09.2025', '12.09.2025', '12.09.2025', '11.09.2025', '11.09.2025'] | iso: []

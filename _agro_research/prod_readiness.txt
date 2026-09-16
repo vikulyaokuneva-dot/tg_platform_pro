@@ -1,0 +1,36 @@
+A) КОНФИГУРАЦИЯ (реальное env-состояние этого дерева)
+  AGRO_BOT_TOKEN задан: False | AGRO_CHAT_ID: None | AGRO_PUBLISH: False
+  prod BOT_TOKEN задан (.env): True | prod CHAT_ID: -1003553181515
+  AGRO_DB_PATH: D:\Bots TG\tg_platform_10bots\data\agro_channel.db
+  совпадает с prod DB? False | лежит внутри data/? True
+  credentials('ai') == prod-пары: True
+  credentials('agro'): (False, False) (False,False = секретов нет)
+  publish_post(channel=agro, dry_run=False) без секретов -> ok=False error='no credentials for channel agro'
+  реальных HTTP в Telegram зафиксировано: 0
+  dry_run агро без секретов -> ok=True (безопасно)
+
+B) ИЗОЛЯЦИЯ БД (реальные файлы, tmp-копии)
+  prod БД существует: True | hash до: 2b4a0b14e2630259
+  агро-публикация (фейк-креды, gate-транспорт): published 
+  публикации в АГРО-БД: [('-100AGROFAKE', 'agro')]
+  перехваченные telegram-запросы (token/call): ['botAGROFAKE:… (token скрыт)']
+  отправлено с AGROFAKE-токеном: False
+  prod-БД: hash после: 2b4a0b14e2630259 неизменен: True | mtime не изменился: True
+  агро-обработка того же URL: skipped reason='already published'; публикации агро не задвоены: True
+  prod-копия case_published(agro_id): False (False = prod не заблокирован агро-историей)
+  prod-копия materials: до=84 сейчас=85 (прирост=1 — наша же setup-строка, агро lane в prod-копию не писал)
+  агро-БД materials: 1 (1 строка: только наш тестовый URL)
+
+C) DRY-RUN ЖИВЫХ ИСТОЧНИКОВ (без публикации; своя tmp-БД)
+  botanichka    {'discovered': 50, 'fetch_ok': 5, 'extract_ok': 5, 'practical': 5, 'news': 0, 'ad_offtopic': 0, 'thin_stale': 0, 'post_ready': 5, 'errors': []}
+    ПРИМЕР https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem | date=2026-09-15T14:48:28+00:00 | verdict=practical conf=0.95 | src_len=16330
+    ПРИМЕР https://www.botanichka.ru/article/pochemu-zhivotnye-v-hozyajstve-hudeyut-hotya-edyat-norma | date=2026-09-15T14:45:37+00:00 | verdict=practical conf=0.9 | src_len=13544
+    ПРИМЕР https://www.botanichka.ru/article/chem-luchshe-belit-derevya-osenyu-izvest-mel-ili-sadovay | date=2026-09-14T15:26:24+00:00 | verdict=practical conf=0.94 | src_len=13184
+  agroinvestor  {'discovered': 108, 'fetch_ok': 12, 'extract_ok': 12, 'practical': 0, 'news': 4, 'ad_offtopic': 0, 'thin_stale': 8, 'post_ready': 0, 'errors': ['stale(2026-09-04) @ https://www.agroinvestor.ru/investments/article/46524-p', 'stale(2026-09-04) @ https://www.agroinvestor.ru/markets/article/46523-vyyti', 'stale(2026-09-04) @ https://www.agroinvestor.ru/analytics/article/46522-beg', 'st
+  gismeteo      {'discovered': 8, 'fetch_ok': 8, 'extract_ok': 5, 'practical': 0, 'news': 5, 'ad_offtopic': 0, 'thin_stale': 3, 'post_ready': 0, 'errors': ['thin(430,q=poor) @ https://www.gismeteo.ru/news/weather/sezon-uraganov-bez', 'thin(391,q=poor) @ https://www.gismeteo.ru/news/weather/v-ojmjakone-udaril', 'thin(523,q=poor) @ https://www.gismeteo.ru/news/weather/v-jakutske-vypal-p']}
+  agro.run(dry) summary: {'checked': 20, 'post_ready': 3, 'published': 0, 'rejected': 11, 'review': 0, 'news_hold': 6, 'failed': 0, 'skipped': 0, 'dry_run': True}
+
+D) svoe_fermerstvo:
+  адаптер зарегистрирован: False | в AGRO_SOURCES: False | основания: source_probe2/3.txt (Nuxt SPA, article-like=[], feed/sitemap 404)
+
+ИТОГ: реальных запросов к api.telegram.org: 1 (перехвачены gate, не отправлены)
