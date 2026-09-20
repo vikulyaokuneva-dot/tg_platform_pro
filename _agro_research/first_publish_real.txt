@@ -1,0 +1,33 @@
+PROD DB before: D:\Bots TG\tg_platform_10bots\data\ai_case_pipeline.db hash= 2b4a0b14e26302599ff26395f0db101ae83080d2c462e94cab5756bb4855a78b
+
+=== ВЫБРАННЫЙ МАТЕРИАЛ ===
+URL: https://www.botanichka.ru/article/kak-sozdat-romanticheskij-sad-ot-nastroeniya-do-rastenij-i-dekora/
+Title: Как создать романтический сад — от настроения до растений и декора — Ботаничка
+Date: 2026-09-16T15:11:23+00:00
+Verdict: practical conf= 0.95
+Image: https://cdn2.botanichka.ru/wp-content/uploads/2026/09/kak-sozdat-romanticheskij-sad-ot-nastroeniya-do-rastenij-i-dekora-0-1.jpg
+Tags: ['#Практика', '#Сад', '#Растения', '#Ботаничка']
+
+=== FINAL PREVIEW (caption) ===
+🌿 Сад и огород Как создать романтический сад — от настроения до растений и декора
+
+Какими были романтические сады прошлого? Как выглядит современный сад для любителей романтики? С чего начать и как организовать такое пространство на своем участке? Об этом и будет наш сегодняшний материал. Сады эпохи романтизма Конец 18 столетия ознаменовался становлением такого направления в искусстве, как романти
+
+Evidence gate OK: post_nums ⊆ src_nums (0 чисел)
+photo send failed: 400 Bad Request: failed to get HTTP URL content -> fallback text-only
+
+=== TELEGRAM RESULT ===
+ok= True message_id= 73 image_used= (text-only)
+AGRO DB written: D:\Bots TG\tg_platform_10bots\data\agro_channel.db
+Dedup re-process: skipped reason= already published
+
+PROD DB after: 2b4a0b14e26302599ff26395f0db101ae83080d2c462e94cab5756bb4855a78b unchanged= True
+
+=== ИТОГ ===
+Первый production-пост отправлен ОДИН РАЗ.
+Канал: -1003389902213
+Источник: https://www.botanichka.ru/article/kak-sozdat-romanticheskij-sad-ot-nastroeniya-do-rastenij-i-dekora/
+Изображение: (text-only)
+AGRO DB: D:\Bots TG\tg_platform_10bots\data\agro_channel.db
+PROD DB не изменён: True
+Dedup работает: True

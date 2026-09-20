@@ -1,0 +1,18 @@
+PROD DB before: data/ai_case_pipeline.db hash= 2b4a0b14e2630259
+
+=== ВЫБРАННЫЙ МАТЕРИАЛ ===
+URL: https://www.botanichka.ru/article/kak-obustroit-paru-sotok-luchshie-idei-dlya-nebolshogo-uchastka/
+Title: Как обустроить пару соток: лучшие идеи для небольшого участка — Ботаничка
+Image URL: https://cdn2.botanichka.ru/wp-content/uploads/2026/09/kak-obustroit-paru-sotok-luchshie-idei-dlya-nebolshogo-uchastka-1-
+Verdict: {'type': 'practical', 'confidence': 0.95, 'topics': [('sad', '🌿 Сад и огород', '#Сад'), ('plants', '🌱 Растения и сорта', '#Растения'), ('weather', '🌦 Погода и сезон', '#Погода')], 'signals': {'ad': 0, 'practical': 13, 'numbers': 0, 'topics': 3, 'imperative': 0, 'newsish': 0}}
+Tags: ['#Практика', '##Сад', '##Погода']
+
+=== FINAL PREVIEW ===
+🌿 обустроить пару соток: лучшие идеи для небольшого участка
+
+Совсем маленький участок или простой задний двор – это приговор или скрытые возможности? Какие проблемы у такой маленькой площади и как их решать? Маленький участок: вызовы и приемы Изначальная ограниченность пространства На стандартных дачных участках обычно сложно развернуться из-за нехватки «полезной» площади: каждый уголок уже занят постройками, грядками, плодовыми деревьями и т.д.
+
+Что делать:
+• Совсем маленький участок или просто
+Evidence gate OK: post_nums ⊆ src_nums (0 чисел)
+Image too small or empty: <class 'str'>
