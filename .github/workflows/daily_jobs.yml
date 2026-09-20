@@ -1,8 +1,12 @@
 name: Daily jobs
+
 on:
   schedule:
     - cron: "0 6 * * *"    # 09:00 МСК (UTC+3)
-    - cron: "0 18 * * *"    # 21:00 МСК (UTC+3)
+    - cron: "0 18 * * *"   # 21:00 МСК (UTC+3)
+
+  # Ручной запуск из GitHub → Actions → Daily jobs → Run workflow
+  workflow_dispatch:
 
 # Единая очередь с case_pipeline.yml (тот же канал и та же БД history):
 # общий concurrency group сериализует daily- и manual-dispatch, чтобы
@@ -16,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -34,6 +39,7 @@ jobs:
           restore-keys: case-db-
 
       - run: pip install -r requirements.txt
+
       - run: python runner.py
         env:
           CASE_PUBLISH: "1"   # публикация разрешена (job гейт: CASE_PUBLISH=1 и DRY_RUN!=1)
