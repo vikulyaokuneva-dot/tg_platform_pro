@@ -50,7 +50,5 @@ def run_jobs():
             stats["last_run"] = datetime.utcnow().isoformat()
             save_stats(stats_path, stats)
 
-        time.sleep(JOB_DELAY_SECONDS)
-
 if __name__ == "__main__":
     run_jobs()
