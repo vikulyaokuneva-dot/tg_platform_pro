@@ -116,9 +116,15 @@ def process_candidate(storage, art, url, source, provider, publish, limit_left):
             v, verr = ai.validate_verdict(raw_v, text)
             if verr:
                 review_reason = "ai verdict invalid: %s" % verr
-            elif v and v.get("decision") == "business_case":
-                cls_type = "business_case"
-                cls["type"] = "business_case"
+            elif v and v.get("decision") in ("business_case", "how_to", "other"):
+                # AI Automation: practical guides/workflows/agent reviews allowed through
+                # (soft: they go review/post_ready path, not auto-rejected)
+                if v.get("decision") == "business_case":
+                    cls_type = "business_case"
+                    cls["type"] = "business_case"
+                else:
+                    cls_type = "how_to"  # practical content lane (soft check)
+                    cls["type"] = "how_to"
                 cls["confidence"] = float(v.get("confidence") or 0.6)
                 if v.get("company"):
                     cls["company"] = v["company"]
@@ -130,7 +136,9 @@ def process_candidate(storage, art, url, source, provider, publish, limit_left):
         out["status"] = "review"; out["reason"] = review_reason
         storage.update(mid, status="review", reason=review_reason[:300])
         return out
-    if cls_type != "business_case":
+    # HARD: only auto-reject clearly non-AI/non-business (spam / off-topic detected by rules);
+    # how_to / practical / news go through arbitration above (soft).
+    if cls_type not in ("business_case", "how_to"):
         storage.update(mid, status="rejected", reason="rules: %s" % cls_type)
         out.update(status="rejected", reason="rules:%s" % cls_type)
         return out

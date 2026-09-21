@@ -68,8 +68,11 @@ def validate_verdict(v, source_text):
         return None, "bad decision"
     quotes = {k: v.get(k) for k in ("problem_quote", "implementation_quote", "result_quote") if v.get(k)}
     if d == "business_case":
+        # HARD: business_case requires both problem + implementation evidence quotes
         if not quotes.get("problem_quote") or not quotes.get("implementation_quote"):
             return None, "business_case without problem/implementation quotes"
+    # SOFT: how_to / news / other verdicts allowed for AI Automation (practical guides,
+    # workflow explanations, tool reviews) — no mandatory quote pair required.
     from .utils import ws_norm
     src = ws_norm(source_text)
     for k, q in quotes.items():

@@ -336,15 +336,17 @@ def validate_case_shape(case):
     for k in REQUIRED_FIELDS:
         if not case.get(k):
             errors.append("missing required field: %s" % k)
-    if case.get("classification") != "business_case":
-        errors.append("classification != business_case")
+    if case.get("classification") not in ("business_case", "how_to"):
+        errors.append("classification != business_case/how_to")
     ev = case.get("evidence") or {}
     if not (ev.get("problem") or {}).get("quote"):
         errors.append("no evidence for problem")
     if not (ev.get("implementation") or {}).get("quote"):
         errors.append("no evidence for implementation")
-    # позиционирование канала требует экономический эффект: нужна оцифровка
+    # позиционирование канала требует экономический эффект: по возможности — оцифровка
     numeric = bool(case.get("metrics")) or any(NUM_RX.search(r or "") for r in case.get("results") or [])
     if not numeric:
-        errors.append("no numeric result (metrics/results empty of numbers)")
-    return (not errors), errors
+        errors.append("soft: no numeric result — practical/guide content allowed to review")
+    # HARD errors only from missing fields / evidence / classification; numeric is soft
+    hard = [e for e in errors if e.startswith("missing ") or e.startswith("no evidence") or e.startswith("classification")]
+    return (not hard), errors
