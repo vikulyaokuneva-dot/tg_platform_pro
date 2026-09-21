@@ -1,0 +1,41 @@
+sources: ['botanichka', 'agroinvestor', 'gismeteo'] | dry-run only, publish gate: False | DB: D:\Bots TG\tg_platform_10bots\data\agro_channel.db (не создаётся)
+============================== botanichka
+discovery: 50 URL, примеры:
+    https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-inache/
+    https://www.botanichka.ru/article/pochemu-zhivotnye-v-hozyajstve-hudeyut-hotya-edyat-normalno/
+    https://www.botanichka.ru/article/chem-luchshe-belit-derevya-osenyu-izvest-mel-ili-sadovaya-kraska/
+  fetch=HTTP200 len=179797 | title='7 комнатных растений, которые в природе выглядят совсем' date='2026-09-15T14:48:28' q=good
+    verdict=practical conf=0.9 topics=['plants', 'sad', 'machinery']
+    POST ok tags=['#Практика', '#Сад', '#Растения', '#Ботаничка'] editorial_errs=[] len=892
+    head: 🌱 Растения и сорта 7 комнатных растений, которые в природе выглядят совсем иначе
+  fetch=HTTP200 len=147502 | title='Почему животные в хозяйстве худеют, хотя едят нормально' date='2026-09-15T14:45:37' q=good
+    verdict=practical conf=0.8 topics=['farm', 'pests', 'weather']
+    POST ok tags=['#Практика', '#Фермерство', '#Погода', '#Ботаничка'] editorial_errs=[] len=962
+    head: 🚜 Фермерство Почему животные в хозяйстве худеют, хотя едят нормально
+  итоги источника: практических в пост из 2 проверенных: 2
+============================== agroinvestor
+discovery: 108 URL, примеры:
+    https://www.agroinvestor.ru/investments/article/46524-podvodnye-ugodya-v-rossii-planiruyut-razvivat-
+    https://www.agroinvestor.ru/markets/article/46523-vyyti-iz-teni-molochnogo-shleyfa-mify-i-strukturny
+    https://www.agroinvestor.ru/analytics/article/46522-begstvo-v-maslichnye-kakim-budet-sezon-2026-27-d
+  fetch=HTTP200 len=126722 | title='Подводные угодья. В России планируют развивать перерабо' date='2026-09-04' q=good
+    verdict=practical conf=0.95 topics=['economics', 'pests', 'farm']
+    POST ok tags=['#Практика', '#Фермерство', '#ЗащитаРастений', '#Агроинвестор'] editorial_errs=[] len=684
+    head: 📊 Экономика Подводные угодья. В России планируют развивать переработку водоросле
+  fetch=HTTP200 len=103668 | title='Выйти из тени молочного шлейфа. Мифы и структурные реал' date='2026-09-04' q=partial
+    verdict=practical conf=0.83 topics=['farm', 'economics', 'agrobus']
+    POST ok tags=['#Практика', '#Фермерство', '#Агробизнес', '#Агроинвестор'] editorial_errs=[] len=964
+    head: 🚜 Фермерство Выйти из тени молочного шлейфа. Мифы и структурные реалии отечестве
+  итоги источника: практических в пост из 2 проверенных: 2
+============================== gismeteo
+discovery: 8 URL, примеры:
+    https://www.gismeteo.ru/news/weather/sezon-uraganov-bez-uraganov-anomalija-v-atlantike/
+    https://www.gismeteo.ru/news/nature/narodnye-primety-na-15-sentyabrya-mamont-ovcharnik-fedot-i-rufin
+    https://www.gismeteo.ru/news/nature/jel-nino-pochti-ostanovil-sezon-uraganov-v-atlantike-ustanovlen-
+  fetch=HTTP200 len=168747 | title='Сезон ураганов без ураганов – аномалия в Атлантике' date='2026-09-15T16:27:52' q=poor
+    verdict=news conf=0.55 topics=['weather', 'pests', 'agrotech']
+  fetch=HTTP200 len=171069 | title='Народные приметы на 15 сентября — Мамант, Федот и Руфин' date='2026-09-14T23:10:57' q=partial
+    verdict=news conf=0.55 topics=['weather', 'farm']
+  итоги источника: практических в пост из 2 проверенных: 0
+
+production DB не тронута: True | prod ai_case_pipeline.db mtime не менялся тестом

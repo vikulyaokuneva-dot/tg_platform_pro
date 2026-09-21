@@ -1,0 +1,56 @@
+1) robots.txt / sitemap-указания
+  robots http=200:
+    User-agent: GPTBot
+    Disallow: /
+    
+    User-agent: ClaudeBot
+    Disallow: /
+    
+    User-agent: CCBot
+    Disallow: /
+    
+    User-agent: Bytespider
+    Disallow: /
+    
+    User-agent: Yandex
+    Allow: /*.js$
+    Allow: /*.css$
+    Allow: /*.jpg$
+    Allow: /*.jpeg$
+    Allow: /*.png$
+    Allow: /*.gif$
+    
+    # pages
+    Disallow: /api/
+    Disallow: /my-account*
+    Disallow: /cart
+    Disallow: /checkout
+
+2) sitemap-кандидаты
+  FAIL https://svoefermerstvo.ru/sitemap.xml -> FetchError: https://svoefermerstvo.ru/sitemap.xml 404 permanent
+  FAIL https://svoefermerstvo.ru/sitemap_index.xml -> FetchError: https://svoefermerstvo.ru/sitemap_index.xml 404 permanent
+  FAIL https://svoefermerstvo.ru/sitemap/sitemap.xml -> FetchError: https://svoefermerstvo.ru/sitemap/sitemap.xml 404 permanent
+  FAIL https://svoefermerstvo.ru/yandex.xml -> FetchError: https://svoefermerstvo.ru/yandex.xml 404 permanent
+
+3) RSS-кандидаты
+  https://svoefermerstvo.ru/rss.xml -> FetchError: https://svoefermerstvo.ru/rss.xml 404 permanent
+  https://svoefermerstvo.ru/feed -> FetchError: https://svoefermerstvo.ru/feed 404 permanent
+  https://svoefermerstvo.ru/rss -> FetchError: https://svoefermerstvo.ru/rss 404 permanent
+  https://svoefermerstvo.ru/api/rss -> FetchError: https://svoefermerstvo.ru/api/rss 404 permanent
+
+4) __NUXT__ embedded state на /analytics/ (ссылки в SSR-данных?)
+  /analytics/ http=200 size=182023
+  __NUXT_DATA__ present: False len: 0
+  state article-like paths: ['/analytics', '/analytics-BaseCmsFormSubscribe-bodyText', '/analytics-BaseCmsFormSubscribe-button', '/analytics-BaseCmsFormSubscribe-title']
+  api hints: ['http://api:8080', 'https://s56442.cdn.ngenix.net/api/ext/svg-data/svg/rshb/content/images/Social_media_Telegram.svg', 'https://s56442.cdn.ngenix.net/api/ext/svg-data/svg/rshb/content/images/Social_media_VK.svg', 'https
+
+5) вероятные публичные JSON-эндпоинты (по хинтам/типичные для бэка)
+  https://svoefermerstvo.ru/api/articles?page=1 -> FetchError NONE
+  https://svoefermerstvo.ru/api/posts -> FetchError NONE
+  https://svoefermerstvo.ru/api/news?page=1 -> FetchError NONE
+  https://svoefermerstvo.ru/api/v1/articles -> FetchError NONE
+  https://api.svoefermerstvo.ru/articles -> FetchError NONE
+  https://svoefermerstvo.ru/bff/articles -> FetchError NONE
+
+6) имя бэкенда из HTML-мета/скриптов (эвристика)
+  tech hints: []

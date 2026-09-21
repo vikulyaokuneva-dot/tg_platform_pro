@@ -1,0 +1,18 @@
+agroinvestor discovered: 108
+https://www.agroinvestor.ru/investments/article/46524-podvodnye-ugodya-v-rossii-planiruyut-razv
+  http=200 len_html=126725 len_text=22595 quality=good title='Подводные угодья. В России планируют развивать пер' date='2026-09-04' captcha=False
+  html head snippet: <!DOCTYPE html> <html lang="ru">  <head>      <link rel="dns-prefetch" href="//www.google.com">     <link rel="dns-prefetch" href="//yandex.ru">     <link rel="dns-prefetch" href="//yandex.net">     <link rel="dns-prefetch" href="//yastatic.net">     <link rel="dns-prefetch" href="//mc.yandex.ru">  
+https://www.agroinvestor.ru/markets/article/46523-vyyti-iz-teni-molochnogo-shleyfa-mify-i-struk
+  http=200 len_html=103663 len_text=2152 quality=partial title='Выйти из тени молочного шлейфа. Мифы и структурные' date='2026-09-04' captcha=False
+  html head snippet: <!DOCTYPE html> <html lang="ru">  <head>      <link rel="dns-prefetch" href="//www.google.com">     <link rel="dns-prefetch" href="//yandex.ru">     <link rel="dns-prefetch" href="//yandex.net">     <link rel="dns-prefetch" href="//yastatic.net">     <link rel="dns-prefetch" href="//mc.yandex.ru">  
+https://www.agroinvestor.ru/analytics/article/46522-begstvo-v-maslichnye-kakim-budet-sezon-2026
+  http=200 len_html=130295 len_text=25117 quality=good title='«Бегство» в масличные. Каким будет сезон 2026/27 д' date='2026-09-04' captcha=False
+  html head snippet: <!DOCTYPE html> <html lang="ru">  <head>      <link rel="dns-prefetch" href="//www.google.com">     <link rel="dns-prefetch" href="//yandex.ru">     <link rel="dns-prefetch" href="//yandex.net">     <link rel="dns-prefetch" href="//yastatic.net">     <link rel="dns-prefetch" href="//mc.yandex.ru">  
+https://www.agroinvestor.ru/markets/article/46521-toplivo-iz-vozobnovlyaemogo-syrya-perspektivy
+  http=200 len_html=103847 len_text=1493 quality=partial title='Топливо из возобновляемого сырья. Перспективы разв' date='2026-09-04' captcha=False
+  html head snippet: <!DOCTYPE html> <html lang="ru">  <head>      <link rel="dns-prefetch" href="//www.google.com">     <link rel="dns-prefetch" href="//yandex.ru">     <link rel="dns-prefetch" href="//yandex.net">     <link rel="dns-prefetch" href="//yastatic.net">     <link rel="dns-prefetch" href="//mc.yandex.ru">  
+
+gismeteo El Nino: practical signals= {'ad': 0, 'practical': 3, 'numbers': 6, 'topics': 2}
+  practical matches: ['', '']
+  body excerpt: К середине сентября в Атлантике в 2026 году не возникло ни одного урагана, а суммарная штормовая активность составляет всего 7 % от обычного для этого времени уровня. Нынешний сезон уже стал самым продолжительным с начала спутниковых наблюдений, в ко
+  body len: 2359 quality: partial

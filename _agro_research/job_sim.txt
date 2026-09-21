@@ -1,0 +1,4 @@
+status: OK
+db created: True
+2026-09-15 23:50:50 [agro] agro lane start (dry_run=True, sources=['botanichka', 'agroinvestor', 'gismeteo'])
+2026-09-15 23:51:47 [agro] agro summary: {'checked': 9, 'post_ready': 4, 'published': 0, 'rejected': 4, 'review': 0, 'news_hold': 1, 'failed': 0, 'skipped': 0, 'dry_run': True}

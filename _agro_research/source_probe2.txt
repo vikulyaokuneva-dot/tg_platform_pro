@@ -1,0 +1,47 @@
+==================== gismeteo /news/
+  unique news hrefs: 45 | article-like: 42
+    /news/animals/
+    /news/animals/eti-zhivotnye-razocharovyvajut-vegetariancev/
+    /news/animals/kak-otnosilis-k-koshkam-v-srednevekove-spojler-ne-vse-tak-odnoznachno/
+    /news/animals/kakaja-ptica-poet-prijatnee-vseh-uchenye-sravnili-golosa-123-vidov/
+    /news/animals/pochemu-kot-mnet-lapami-podushku/
+    /news/animals/rastenija-posle-napadenija-nasekomyh-ostavljajut-v-pochve-zashhitnyj-sled/
+  ARTICLE https://www.gismeteo.ru/news/animals/
+    http=200 title='GISMETEO: Животные. Новости о животных в мире, открытия, исследования' date='2026-09-14' quality=good len=11776
+    excerpt: Что значит, если кот трется о ноги или мнет лапами подушку?                                           Чтобы понять чувства животного, нужно внимательно понаблюдать за его поведение
+==================== svoe_fermerstvo
+OK https://svoefermerstvo.ru/analytics/ 200 182023 html
+   section links: []
+FAIL https://svoefermerstvo.ru/rss/ FetchError https://svoefermerstvo.ru/rss/ 404 permanent
+FAIL https://svoefermerstvo.ru/rss.xml FetchError https://svoefermerstvo.ru/rss.xml 404 permanent
+FAIL https://svoefermerstvo.ru/blog/ FetchError https://svoefermerstvo.ru/blog/ 404 permanent
+FAIL https://svoefermerstvo.ru/sitemap.xml FetchError https://svoefermerstvo.ru/sitemap.xml 404 permanent
+FAIL https://svoefermerstvo.ru/media/ FetchError https://svoefermerstvo.ru/media/ 404 permanent
+==================== botanichka rss
+items: 50
+  https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-inac | Tue, 15 Sep 2026 14:48:28 +0000 | 7 комнатных растений, которые в природе выглядят с
+  https://www.botanichka.ru/article/pochemu-zhivotnye-v-hozyajstve-hudeyut-hotya-edyat-normalno/ | Tue, 15 Sep 2026 14:45:37 +0000 | Почему животные в хозяйстве худеют, хотя едят норм
+  https://www.botanichka.ru/article/chem-luchshe-belit-derevya-osenyu-izvest-mel-ili-sadovaya-kra | Mon, 14 Sep 2026 15:26:24 +0000 | Чем лучше белить деревья осенью: известь, мел или 
+  https://www.botanichka.ru/article/8-czvetov-dlya-osennego-samoseva-kotorye-ne-stoit-srezat-rans | Mon, 14 Sep 2026 15:20:43 +0000 | 8 цветов для осеннего самосева, которые не стоит с
+  https://www.botanichka.ru/article/borba-s-krysami-v-chastnom-dome-ekstrennye-mery-i-bezopasnye- | Mon, 14 Sep 2026 11:17:52 +0000 | Борьба с крысами в частном доме: экстренные меры и
+  https://www.botanichka.ru/article/kuda-pristroit-opavshuyu-listvu-v-sadu-8-poleznyh-primenenij/ | Sun, 13 Sep 2026 15:19:13 +0000 | Куда пристроить опавшую листву в саду? 8 полезных 
+  ARTICLE https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-inache/
+    http=200 title='7 комнатных растений, которые в природе выглядят совсем иначе — Ботани' date='2026-09-15T14:48:28+00:00' quality=good len=16330
+    excerpt: Глядя на растение в горшке, мы почти уверены, что видим его настоящим, просто небольшим. На самом деле перед нами обычно его юность, застрявшая между потолком, слабым светом и стен
+==================== agroinvestor rss
+https://www.agroinvestor.ru/feed/public-agroinvestor-articles.xml -> items: 8
+    https://www.agroinvestor.ru/investments/article/46524-podvodnye-ugodya-v-rossii-planiruyut-razv | Fri, 04 Sep 2026 17:00:00 +0300
+    https://www.agroinvestor.ru/markets/article/46523-vyyti-iz-teni-molochnogo-shleyfa-mify-i-struk | Fri, 04 Sep 2026 17:00:00 +0300
+    https://www.agroinvestor.ru/analytics/article/46522-begstvo-v-maslichnye-kakim-budet-sezon-2026 | Fri, 04 Sep 2026 17:00:00 +0300
+    https://www.agroinvestor.ru/markets/article/46521-toplivo-iz-vozobnovlyaemogo-syrya-perspektivy | Fri, 04 Sep 2026 17:00:00 +0300
+  ARTICLE https://www.agroinvestor.ru/investments/article/46524-podvodnye-ugodya-v-rossii-planiruyut-razvivat-
+    http=200 title='Подводные угодья. В России планируют развивать переработку водорослей ' date='2026-09-04' quality=good len=22595
+    excerpt: Журнал «Агроинвестор» Несмотря на то что страна обладает огромным ресурсным потенциалом добычи морских водорослей, пока данный сегмент находится в самом начале своего развития, а е
+https://www.agroinvestor.ru/feed/public-agronews.xml -> items: 398
+    https://www.agroinvestor.ru/markets/news/46540-minselkhoz-khochet-izmenit-lgotnoe-kreditovanie- | Tue, 15 Sep 2026 17:00:00 +0300
+    https://www.agroinvestor.ru/regions/news/46539-krasnodarskiy-kray-nachal-uborku-risa/ | Tue, 15 Sep 2026 13:45:00 +0300
+    https://www.agroinvestor.ru/business-pages/46534-vozvrashchaya-organiku-v-pochvu-my-rabotaem-i- | Tue, 15 Sep 2026 13:00:00 +0300
+    https://www.agroinvestor.ru/regions/news/46538-dalnevostochnye-dobytchiki-lososevykh-schitayut- | Tue, 15 Sep 2026 09:00:00 +0300
+  ARTICLE https://www.agroinvestor.ru/markets/news/46540-minselkhoz-khochet-izmenit-lgotnoe-kreditovanie-v-reg
+    http=200 title='Минсельхоз хочет изменить льготное кредитование в регионах с профицито' date='2026-09-15' quality=good len=3596
+    excerpt: Минсельхоз планирует изменить правила льготного кредитования для регионов, где есть профицит зерна. В пояснительной записке к документу, размещенному на портале проектов нормативны

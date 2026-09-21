@@ -353,9 +353,13 @@ def _publish_backlog(storage, provider, limit_left):
             row.update(status="published", telegram_message_id=res.message_id)
             limit_left -= 1
         else:
+            safe_err = (res.error or "publish failed").replace(
+                str(config.BOT_TOKEN or ""), "[token]").replace(
+                str(config.CHAT_ID or ""), "[chat_id]")
+            log.info("PUBLISH_ERROR safe=%s http=%s", safe_err[:200], res.http_status)
             storage.release_claim(m["id"], "review",
-                                  "publish failed: %s" % (res.error or ""))
-            row.update(status="review", reason="publish failed: %s" % res.error)
+                                  "publish failed: %s" % safe_err[:300])
+            row.update(status="review", reason="publish failed: %s" % safe_err[:200])
         log.info("BACKLOG %s | %s | msg_id=%s", m["url"], row["status"],
                  row.get("telegram_message_id", ""))
         out.append(row)

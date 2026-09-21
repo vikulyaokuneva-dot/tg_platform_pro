@@ -1,0 +1,24 @@
+1:     # заголовок не имеет права повышать уровень утверждения источника:
+2:     # AI/ИИ/ML-формулировка допустима, только если то же слово есть в source/evidence
+3:     hl = ws_norm(_head_body(next((l for l in (text or "").splitlines() if l.strip()), "")))
+4:     srcb = ws_norm(source_text or "") + " " + ws_norm(
+5:         json.dumps(case.get("evidence") or {}, ensure_ascii=False)) + " " + ws_norm(
+6:         " ".join([case.get("implementation") or "", case.get("solution") or "",
+7:                   case.get("source_title") or ""]))
+8:     if re.search(r"\bai\b|\bии\b|нейросет|искусственн", hl) and \
+9:             not re.search(r"\bai\b|artificial|нейросет|искусственн|\bии\b", srcb):
+10:         errors.append("headline: AI-claim not backed by source")
+11: # ---------------- AGRO HASHTAGS ----------------
+12: AGRO_HASHTAGS = [
+13:     "#Сад", "#Огород", "#Фермерство", "#Агротехнологии", "#Агробизнес",
+14:     "#Растения", "#Урожай", "#Агроавтоматизация", "#Практика",
+15:     "#Погода", "#Техника", "#Экономика", "#Болезни", "#Вредители"
+16: ]
+17: 
+18: # ---------------- END AGRO HASHTAGS ----------------
+19: 
+20:         not re.search(r"\\bml\\b|machine|������", srcb):
+21:         errors.append("headline: ML-claim not backed by source")
+22:     ok_e, err_e = editorial_check(text)
+23:     errors.extend(err_e)
+24:     return (not errors), errors

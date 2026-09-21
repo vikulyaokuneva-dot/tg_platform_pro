@@ -1,0 +1,929 @@
+﻿# -*- coding: utf-8 -*-
+"""case_pipeline.postgen вЂ” CASE -> РїРѕСЃС‚ РґР»СЏ РєР°РЅР°Р»Р° В«AI РђРІС‚РѕРјР°С‚РёР·Р°С†РёСЏ | Р‘РёР·РЅРµСЃВ».
+
+РџРѕР·РёС†РёРѕРЅРёСЂРѕРІР°РЅРёРµ: РџР РћР‘Р›Р•РњРђ в†’ Р Р•РЁР•РќРР• в†’ РљРђРљ РђР’РўРћРњРђРўРР—РР РћР’РђР›Р в†’ Р Р•Р—РЈР›Р¬РўРђРў в†’
+Р­Р¤Р¤Р•РљРў в†’ РџР РРњР•РќРРњРћРЎРўР¬ в†’ CTA. РџСЂР°РєС‚РёС‡РµСЃРєРёР№ С‚РѕРЅ, Р±РµР· С…Р°Р№РїР°.
+
+Р”РІР° СЂРµР¶РёРјР°:
+  1. template вЂ” РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№ RU-РєР°СЂРєР°СЃ, С„Р°РєС‚С‹ вЂ” С†РёС‚Р°С‚С‹ РёР· CASE (РІСЃРµРіРґР°
+     РґРѕСЃС‚СѓРїРµРЅ, Р±РµР· AI);
+  2. ai_polish (РµСЃР»Рё GigaChat РґРѕСЃС‚СѓРїРµРЅ) вЂ” RU-РїРµСЂРµСЂР°Р±РѕС‚РєР° CASE; СЂРµР·СѓР»СЊС‚Р°С‚
+     РІР°Р»РёРґРёСЂСѓРµС‚СЃСЏ: РќР РѕРґРЅРѕ РЅРѕРІРѕРµ С‡РёСЃР»Рѕ, РєРѕРјРїР°РЅРёСЏ СЃРѕС…СЂР°РЅРµРЅР°, С…Р°Р№Рї-СЃС‚РѕРї-С„СЂР°Р·С‹.
+     РџСЂРѕРІР°Р» РІР°Р»РёРґР°С†РёРё => РѕС‚РєР°С‚ Рє template.
+
+validate_post() РѕР±СЏР·Р°С‚РµР»РµРЅ РїРµСЂРµРґ РїСѓР±Р»РёРєР°С†РёРµР№ РІ РѕР±РѕРёС… СЂРµР¶РёРјР°С….
+"""
+import json
+import logging
+import re
+
+from . import ai as ai_mod
+from . import hashtags, langguard, textclean
+from .utils import digits_of, extract_numbers, norm_num_text, ws_norm
+
+log = logging.getLogger("case_pipeline.postgen")
+
+HYPE_RX = re.compile(r"(СЂРµРІРѕР»СЋС†РёРѕРЅ|РјРµРЅСЏРµС‚ РІСЃС‘|РІСЃС‘ РёР·РјРµРЅРёС‚|Р±СѓРґСѓС‰РµРµ СѓР¶Рµ Р·РґРµСЃСЊ|"
+                     r"РЅРµРІРµСЂРѕСЏС‚РЅ|РїСЂРѕСЂС‹РІ|СѓРЅРёРєР°Р»СЊРЅ|РёРЅРЅРѕРІР°С†РёРѕРЅРЅ)", re.I)
+HASHTAGS = "#AI #Р°РІС‚РѕРјР°С‚РёР·Р°С†РёСЏ #РєРµР№СЃР±РёР·РЅРµСЃР°"  # legacy-РєРѕРЅСЃС‚Р°РЅС‚Р° (Р·Р°РјРµРЅРµРЅР° СЃР»РѕРІР°СЂС‘Рј hashtags)
+
+CTA_SALES = ("рџ’ј Р•СЃР»Рё Сѓ РІР°СЃ СЃРѕС‚СЂСѓРґРЅРёРєРё РІСЂСѓС‡РЅСѓСЋ РїРµСЂРµРЅРѕСЃСЏС‚ Р·Р°СЏРІРєРё, РґРѕРєСѓРјРµРЅС‚С‹ РёР»Рё "
+             "РѕР±СЂР°С‰РµРЅРёСЏ РјРµР¶РґСѓ СЃРµСЂРІРёСЃР°РјРё вЂ” С‚Р°РєРѕР№ РїСЂРѕС†РµСЃСЃ РѕР±С‹С‡РЅРѕ РїРѕРґРґР°С‘С‚СЃСЏ "
+             "Р°РІС‚РѕРјР°С‚РёР·Р°С†РёРё: Р·Р°СЏРІРєРё в†’ AI-РєР»Р°СЃСЃРёС„РёРєР°С†РёСЏ в†’ CRM/Telegram в†’ РѕС‚РІРµС‚ "
+             "РєР»РёРµРЅС‚Сѓ Р·Р° СЃРµРєСѓРЅРґС‹.")
+CTA_SUPPORT = ("рџ’ј РџРѕРґРѕР±РЅС‹Рµ СЃС…РµРјС‹ СЂР°Р±РѕС‚Р°СЋС‚ Рё РІ РјР°Р»РѕРј Р±РёР·РЅРµСЃРµ: РѕР±СЂР°С‰РµРЅРёСЏ в†’ AI-"
+               "РјР°СЂС€СЂСѓС‚РёР·Р°С†РёСЏ в†’ Р±Р°Р·Р° Р·РЅР°РЅРёР№ в†’ РѕС‚РІРµС‚ РёР»Рё СЌСЃРєР°Р»Р°С†РёСЏ. Р СѓС‡РЅРѕР№ "
+               "РєРѕР»Р»-С†РµРЅС‚СЂ/РїРѕРґРґРµСЂР¶РєР° вЂ” РїРµСЂРІРѕРµ, С‡С‚Рѕ СЃС‚РѕРёС‚ Р°РІС‚РѕРјР°С‚РёР·РёСЂРѕРІР°С‚СЊ.")
+CTA_DOCS = ("рџ’ј Р”РѕРєСѓРјРµРЅС‚С‹, СЃРѕРіР»Р°СЃРѕРІР°РЅРёСЏ, РѕС‚С‡С‘С‚РЅРѕСЃС‚СЊ вЂ” С‚Рѕ Р¶Рµ РїРѕР»Рµ Р±РѕСЏ: С€Р°Р±Р»РѕРЅС‹ в†’ "
+            "AI-РїСЂРѕРІРµСЂРєР° в†’ РјР°СЂС€СЂСѓС‚РёР·Р°С†РёСЏ в†’ РєРѕРЅС‚СЂРѕР»СЊ. РћР±С‹С‡РЅРѕ РѕРєСѓРїР°РµС‚СЃСЏ Р·Р° "
+            "РїРµСЂРІС‹Рµ РЅРµРґРµР»Рё.")
+CTA_GENERIC = ("рџ’ј РџРѕРґРѕР±РЅСѓСЋ СЃС…РµРјСѓ РјРѕР¶РЅРѕ СЃРѕР±СЂР°С‚СЊ Рё РїРѕРґ РЅРµР±РѕР»СЊС€РѕР№ Р±РёР·РЅРµСЃ: РґР°РЅРЅС‹Рµ в†’ "
+               "AI-РѕР±СЂР°Р±РѕС‚РєР° в†’ РЅСѓР¶РЅР°СЏ СЃРёСЃС‚РµРјР° в†’ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РѕС‚РєР»РёРє. "
+               "РЎРёР»Р° вЂ” РЅРµ РІ СЂР°Р·РјРµСЂРµ РєРѕРјРїР°РЅРёРё, Р° РІ РїСЂР°РІРёР»СЊРЅРѕ РІС‹Р±СЂР°РЅРЅРѕРј РїСЂРѕС†РµСЃСЃРµ.")
+
+
+def pick_cta(case):
+    blob = ws_norm(" ".join([case.get("problem", ""), case.get("implementation", "")] +
+                             list(case.get("results") or [])))
+    if re.search(r"lead|sales|Р·Р°СЏРІРє|crm|pipeline|СЃРґРµР»Рє|РІС‹СЂСѓС‡Рє|revenue|quota|"
+                 r"СЂРµРєР»Р°Рј|РјР°СЂРєРµС‚РёРЅРі|СЃС‚Р°РІРє|РєРѕРЅРІРµСЂСЃРё|С‚СЂР°С„РёРє|click|retarget|РєР°РјРїР°РЅРё|СЃРєРёРґРє", blob):
+        return CTA_SALES
+    if re.search(r"document|РґРѕРєСѓРјРµРЅС‚|report|РѕС‚С‡С‘С‚|invoice|СЃС‡РµС‚|СЃС‡С‘С‚|finance|С„РёРЅР°РЅСЃ|compliance|budget|Р±СЋРґР¶РµС‚|СЃРѕРіР»Р°СЃРѕРІ", blob):
+        return CTA_DOCS
+    if re.search(r"support|РїРѕРґРґРµСЂР¶Рє|helpdesk|ticket|РѕР±СЂР°С‰РµРЅРё|call|service", blob):
+        return CTA_SUPPORT
+    return CTA_GENERIC
+
+
+def _short(s, n=220):
+    s = re.sub(r"\s+", " ", (s or "")).strip()
+    return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "вЂ¦"
+
+
+PREP_RX = re.compile(r"(?:\s|^)(?:Рє|РЅР°|РґРѕ|РІ|Р·Р°|РїРѕ|СЃ|Сѓ|РѕС‚|РґР»СЏ|Р±РµР·|РїСЂРё)\s*$")
+
+
+def _num_members(text):
+    """(С‚РѕРєРµРЅС‹ С‡РёСЃРµР», С†РёС„СЂРѕРІС‹Рµ СЏРґСЂР°) вЂ” РµРґРёРЅР°СЏ РјРµСЂР° В«С‡РёСЃР»Рѕ СѓРїРѕРјРёРЅР°РµС‚СЃСЏ РІ С‚РµРєСЃС‚РµВ»
+    РґР»СЏ С„РёР»СЊС‚СЂР° Р¦РёС„СЂС‹ Рё РґР»СЏ editorial_check."""
+    nums = extract_numbers(norm_num_text(ws_norm(text)))
+    cores = {digits_of(n) for n in nums if digits_of(n)}
+    return nums, cores
+
+
+def _num_used(val, nums, cores):
+    v = ws_norm(re.sub(r"\s+", "", val or ""))
+    return bool(v) and (v in nums or (digits_of(v) in cores if digits_of(v) else False))
+
+
+def _metric_parts(metric):
+    """(Р·РЅР°С‡РµРЅРёРµ, РєРѕСЂРѕС‚РєРёР№ РєРѕРЅС‚РµРєСЃС‚ РёР· evidence-С†РёС‚Р°С‚С‹ РёСЃС‚РѕС‡РЅРёРєР°). РЎР»РѕРІР° вЂ”
+    С‚РѕР»СЊРєРѕ РёР· РёСЃС‚РѕС‡РЅРёРєР°, РІС‹РґСѓРјС‹РІР°РЅРёСЏ РЅРµС‚."""
+    val = textclean.clean((metric.get("value") or "").strip())
+    quote = textclean.clean((metric.get("evidence") or {}).get("quote") or "")
+    ctx = ""
+    idx = quote.find(val)
+    if idx > 0:
+        words = re.findall(r"[A-Za-zРђ-РЇР°-СЏРЃС‘][A-Za-zРђ-РЇР°-СЏРЃС‘'-]{1,}", quote[:idx])
+        ctx = PREP_RX.sub("", " ".join(words[-4:])).strip()
+    return val, ctx
+
+
+# ===========================================================================
+#  РЎРњР«РЎР›РћР’РћР™ Р—РђР“РћР›РћР’РћРљ: РљРўРћ + Р§РўРћ РџР РћРР—РћРЁР›Рћ + Р—Рђ РЎР§РЃРўРћ Р§Р•Р“Рћ
+#
+#  Р—Р°РіРѕР»РѕРІРѕРє РќР• СЃРѕР±РёСЂР°РµС‚СЃСЏ РёР· СЃРїРёСЃРєР° РјРµС‚СЂРёРє Рё РЅРµ СЃРєР»РµРёРІР°РµС‚СЃСЏ РёР· СЃС‹СЂС‹С… СЃР»РѕРІ
+#  РїРµСЂРµРґ С†РёС„СЂРѕР№. РљР°Р¶РґР°СЏ evidence-С†РёС‚Р°С‚Р° СЂР°Р·Р±РёСЂР°РµС‚СЃСЏ РЅР° РєРѕРЅСЃС‚СЂСѓРєС†РёРё РґРµР»РѕРІРѕРіРѕ
+#  СЂРµР·СѓР»СЊС‚Р°С‚Р°:
+#    РїР°СЂР° "22,9% в†’ 36% РґРѕР»СЏ РєР»РёРµРЅС‚РѕРІвЂ¦"   -> В«РґРѕР»СЏ вЂ¦ РІС‹СЂРѕСЃР»Р° СЃ 22,9% РґРѕ 36%В»
+#    РјРЅРѕР¶РёС‚РµР»СЊ "Г—4,3 РІС‹СЂСѓС‡РєР° РѕС‚ вЂ¦"       -> В«РІС‹СЂСѓС‡РєР° вЂ¦ РІС‹СЂРѕСЃР»Р° РІ 4,3 СЂР°Р·Р°В»
+#    РіР»Р°РіРѕР» В«X РІС‹СЂРѕСЃР»Р° РЅР° N%В»             -> СЃСѓР±СЉРµРєС‚+РіР»Р°РіРѕР»+С†РёС„СЂР° РґРѕСЃР»РѕРІРЅРѕ
+#    РґР°С‚РµР»СЊРЅР°СЏ "+N% Рє РІС‹СЂСѓС‡РєРµ СЃ РєР»РёРєР°"    -> РґРѕСЃР»РѕРІРЅРѕ (СѓР¶Рµ РіСЂР°РјРјР°С‚РёС‡РЅРѕ)
+#    РїРѕСЂРѕРі "Р”Р Р  РЅРµ РІС‹С€Рµ 16%"              -> РґРѕСЃР»РѕРІРЅРѕ
+#    В«78% вЂ” РєРѕРЅРІРµСЂСЃРёСЏ РІ вЂ¦В»                -> СЂРµРІРµСЂСЃ СЃ С‚РёСЂРµ
+#  Р“Р»Р°РІРЅС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ вЂ” РїРѕ СЂР°РЅРіСѓ СЃРµРјСЊРё (РІС‹СЂСѓС‡РєР°/РїСЂРѕРґР°Р¶Рё > РєРѕРЅРІРµСЂСЃРёСЏ/РїРѕРІС‚РѕСЂРЅС‹Рµ
+#  > СЌРєРѕРЅРѕРјРёРєР° > РѕРїРµСЂР°С†РёРѕРЅРєР° > РїСЂРѕС‡РµРµ), Р±РѕРЅСѓСЃ Р·Р° С†РёС„СЂСѓ РІ Р·Р°РіРѕР»РѕРІРєРµ СЃС‚Р°С‚СЊРё,
+#  Р·Р°С‚РµРј РІРµР»РёС‡РёРЅР°. РњРµС…Р°РЅРёР·Рј (В«Р·Р° СЃС‡С‘С‚ вЂ¦В») вЂ” С‚РѕР»СЊРєРѕ РґРѕСЃР»РѕРІРЅРѕ РёР· evidence РёР»Рё
+#  РёР· РєРѕРЅС‚СЂРѕР»СЊРЅРѕРіРѕ Р»РµРєСЃРёРєРѕРЅР°, С‡СЊРё РїРѕРІРµСЂС…РЅРѕСЃС‚Рё РЅР°Р№РґРµРЅС‹ РІ evidence; AI/ML РЅРµ
+#  РїРѕРІС‹С€Р°СЋС‚СЃСЏ: С„РѕСЂРјСѓР»РёСЂРѕРІРєР° СЂРѕРІРЅРѕ С‚Р°, С‡С‚Рѕ РµСЃС‚СЊ РІ РёСЃС‚РѕС‡РЅРёРєРµ.
+# ===========================================================================
+
+_NAME = r"[\w\-']"
+_WORD2 = r"[\w'\-]{2,}"
+_PAIR_RX = re.compile(
+    r"(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.?)?\s*(?:в†’|->)\s*(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.?)?\s+"
+    r"([^\W\d_]" + _NAME + r"*(?:\s+[^\W\d_]" + _NAME + r"*){1,6})", re.U)
+_MULT_RX = re.compile(
+    r"[Г—]\s*(\d[\d.,]*)\s+([^\W\d_]" + _NAME + r"*(?:\s+[^\W\d_]" + _NAME + r"*){0,6})", re.U)
+_GREW_RX = re.compile(
+    r"\b(РІС‹СЂРѕСЃР»\w*|СѓРІРµР»РёС‡РёР»\w*|СѓРІРµР»РёС‡РµР»\w*|СѓРІРµР»РёС‡РµРЅ\w*|РїРѕРІС‹СЃРёР»\w*|СЃРЅРёР·РёР»\w*|СЃРѕРєСЂР°С‚РёР»\w*"
+    r"|СѓРјРµРЅСЊС€РёР»\w*|СѓРїР°Р»\w*|СѓРїР°Р»Рѕ|СѓРїР°Р»Рё|РїРѕРґРЅСЏР»\w*|СѓР»СѓС‡С€РёР»\w*|СѓСЃРєРѕСЂРёР»\w*|СѓСЃРєРѕСЂРёР»[Р°Рё]?|РІС‹СЂРѕСЃС‚\w*)\b"
+    r"\s*(?:\b(РЅР°|РґРѕ|РІ|Р·Р°)\b\s*)?[-+\u2212]?(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.|РјРёРЅСѓС‚\w*|С‡Р°СЃРѕРІ|С‡Р°СЃР°\b|РґРЅРµР№|РґРЅСЏ\b|в‚Ѕ|СЂР°Р·\w*)", re.U)
+_GREW_RX = re.compile(_GREW_RX.pattern, re.I)
+_DELTA_RX = re.compile(
+    r"([+\u2212])\s*(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.)\s+Рє\s+((?:" + r"[\w'\-]+" + r"\s){1,5}" + r"[\w'\-]+" + r")", re.U)
+_HEADVAL_RX = re.compile(
+    r"([+\u2212])\s*(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.)\s+((?:" + r"[\w'\-]+" + r"\s){1,5}" + r"[\w'\-]+" + r")", re.U)
+_THRESH_RX = re.compile(
+    r"\b(Р”Р Р |ROMI|ROI|CPA|CPC)\b[^\d%!]{0,28}?\b(РЅРµ РІС‹С€Рµ|РЅРµ Р±РѕР»РµРµ|РЅРµ РґРѕР»Р¶РµРЅ РїСЂРµРІС‹С€Р°С‚СЊ|РјРµРЅРµРµ|РЅРёР¶Рµ)\s*(\d[\d.,]*)\s*(%)", re.U)
+_REVERSE_RX = re.compile(
+    r"\b(\d[\d.,]*)\s*(%)\s*[вЂ”вЂ“\-]{1,2}\s*\b(РєРѕРЅРІРµСЂСЃРёСЏ|РґРѕР»СЏ|РІС‹СЂСѓС‡РєР°|РїСЂРѕРґР°Р¶Рё|СЂР°СЃС…РѕРґС‹|СЂРѕСЃС‚|РјР°СЂР¶РёРЅР°Р»СЊРЅ\w+|open rate|CTOR|CTR)\b"
+    r"([^+в€’Г—\d%!]{0,50})", re.U)
+# В«СѓРїР°Р»/РІС‹СЂРѕСЃР»Р° вЂ¦ СЃ A РґРѕ BВ»: РїРѕРґР»РµР¶Р°С‰РµРµ РїРµСЂРµРґ РіР»Р°РіРѕР»РѕРј РёР»Рё РѕР±СЉРµРєС‚ РїРѕСЃР»Рµ РЅРµРіРѕ
+_SLIDE_RX = re.compile(
+    r"((?:" + _WORD2 + r"\s){1,4})(РІС‹СЂРѕСЃР»\w*|СѓРІРµР»РёС‡РёР»\w*|РїРѕРІС‹СЃРёР»\w*|РїРѕРґРЅСЏР»\w*|СѓРїР°Р»\w*"
+    r"|СѓРїР°Р»Р°|СѓРїР°Р»Рё|СЃРЅРёР·РёР»\w*|СЃРѕРєСЂР°С‚РёР»\w*|СѓРјРµРЅСЊС€РёР»\w*)\s+СЃ\s+(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.?)?\s*"
+    r"РґРѕ\s+(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.)", re.I)
+_SLIDE2_RX = re.compile(
+    r"\b(РІС‹СЂРѕСЃР»\w*|СѓРІРµР»РёС‡РёР»\w*|РїРѕРІС‹СЃРёР»\w*|РїРѕРґРЅСЏР»\w*|СѓРїР°Р»\w*|СѓРїР°Р»Р°|СѓРїР°Р»Рё|СЃРЅРёР·РёР»\w*"
+    r"|СЃРѕРєСЂР°С‚РёР»\w*|СѓРјРµРЅСЊС€РёР»\w*)\s+((?:" + _WORD2 + r"\s){1,3})СЃ\s+(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.?)?\s*"
+    r"РґРѕ\s+(\d[\d.,]*)\s*(%|Рї\.\s?Рї\.)", re.I)
+_REDUCEN_RX = re.compile(
+    r"(\d[\d.,]*)\s*%\s+(?:reductions?|cuts?|decreases?|drops?|savings)\s+(?:in|of|on)\s+"
+    r"((?:[\w'\-]+\s){1,4}[\w'\-]+)", re.I)
+_INCR_EN_RX = re.compile(
+    r"(\d[\d.,]*)\s*%\s+(?:increase|boost|lift|growth|gain)s?\s+(?:in|of)\s+"
+    r"((?:[\w'\-]+\s){1,4}[\w'\-]+)", re.I)
+_REV_EN_RX = re.compile(
+    r"\b(recovered|saved|generated|unlocked|boosted)\b\s+\$?(\d[\d.,]*)\s*(K|M|B|bn|mln)?"
+    r"\s*(?:of|in)\s+(revenue|sales|costs|time)", re.I)
+
+# (СЂР°РЅРі, РєР»СЋС‡РµРІС‹Рµ СЃР»РѕРІР° СЃРµРјСЊРё) вЂ” С‡РµРј РјРµРЅСЊС€Рµ СЂР°РЅРі, С‚РµРј СЃРёР»СЊРЅРµРµ Р±РёР·РЅРµСЃ-СЃРјС‹СЃР»
+_FAM_RULES = (
+    (1, r"arppu|arpu|РІС‹СЂСѓС‡Рє|СЂРµРІРµРЅСЋ|revenue|gmv|РґРѕС…РѕРґ"),
+    (1, r"РїСЂРѕРґР°Р¶|sales|РІС‹РєСѓРї|РїСЂРёР±С‹Р»|РјР°СЂР¶РёРЅ|profit"),
+    (2, r"РїРѕРІС‚РѕСЂРЅ|РїРѕРєСѓРїРѕ?Рє|retention|СѓРґРµСЂР¶Р°РЅ|РІРѕР·РІСЂР°С‰Р°РµРјРѕСЃС‚|Р»РѕСЏР»СЊРЅ|РєРѕРЅРІРµСЂСЃРё|conversion|open rate|ctor|ctr|РІРѕРІР»РµС‡|engagement"),
+    (3, r"РґСЂСЂ|cpa|cpc|СЃС‚РѕРёРјРѕСЃС‚|СЂР°СЃС…РѕРґ|Р·Р°С‚СЂР°С‚|cost|Р±СЋРґР¶РµС‚|С†РµРЅР°|\broi\b|romi|СЌРєРѕРЅРѕРј|в‚Ѕ"),
+    (4, r"РІСЂРµРјСЏ|time|РјРёРЅСѓС‚|С‡Р°СЃ|РІРµСЂСЃС‚Рє|РѕР±СЂР°Р±РѕС‚Рє|ticket|РѕР±СЂР°С‰РµРЅРё|РѕС€РёР±Рє|error|РїРѕРґРґРµСЂР¶Рє|СЃРєРѕСЂРѕСЃС‚|response|С‚РѕС‡РЅРѕСЃС‚"),
+)
+# РіР»Р°РіРѕР» РїРѕ РіРѕР»РѕРІРЅРѕРјСѓ СЃР»РѕРІСѓ СЂРµР·СѓР»СЊС‚Р°С‚Р°; РЅРµС‚ РІ СЃР»РѕРІР°СЂРµ -> С‚РёСЂРµ-РєРѕРЅСЃС‚СЂСѓРєС†РёСЏ
+_HEAD_VERBS = {
+    "РІС‹СЂСѓС‡РєР°": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"), "РґРѕР»СЏ": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"),
+    "РєРѕРЅРІРµСЂСЃРёСЏ": ("РІС‹СЂРѕСЃР»Р°", "СѓРїР°Р»Р°"), "РїСЂРѕРґР°Р¶Рё": ("РІС‹СЂРѕСЃР»Рё", "СѓРїР°Р»Рё"),
+    "СЃС‚РѕРёРјРѕСЃС‚СЊ": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"), "СЂР°СЃС…РѕРґС‹": ("РІС‹СЂРѕСЃР»Рё", "СЃРЅРёР·РёР»РёСЃСЊ"),
+    "Р·Р°С‚СЂР°С‚С‹": ("РІС‹СЂРѕСЃР»Рё", "СЃРЅРёР·РёР»РёСЃСЊ"), "РІСЂРµРјСЏ": ("РІС‹СЂРѕСЃР»Рѕ", "СЃРѕРєСЂР°С‚РёР»РѕСЃСЊ"),
+    "С‡РёСЃР»Рѕ": ("РІС‹СЂРѕСЃР»Рѕ", "СЃРЅРёР·РёР»РѕСЃСЊ"), "РєРѕР»РёС‡РµСЃС‚РІРѕ": ("РІС‹СЂРѕСЃР»Рѕ", "СЃРЅРёР·РёР»РѕСЃСЊ"),
+    "СЂР°Р±РѕС‚Р°": ("РІС‹СЂРѕСЃР»Р°", "СЃРѕРєСЂР°С‚РёР»Р°СЃСЊ"), "rate": ("РІС‹СЂРѕСЃ", "СѓРїР°Р»"),
+    "РґСЂСЂ": ("РІС‹СЂРѕСЃ", "СЃРЅРёР·РёР»СЃСЏ"), "СЂРѕРјi": ("РІС‹СЂРѕСЃ", "СЃРЅРёР·РёР»СЃСЏ"),
+    "Р±Р°Р·Р°": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"), "РѕС…РІР°С‚": ("РІС‹СЂРѕСЃ", "СЃРЅРёР·РёР»СЃСЏ"),
+    "С‚СЂР°С„РёРє": ("РІС‹СЂРѕСЃ", "СЃРЅРёР·РёР»СЃСЏ"), "С‡РµРє": ("РІС‹СЂРѕСЃ", "СЃРЅРёР·РёР»СЃСЏ"),
+    "РїСЂРёР±С‹Р»СЊ": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"), "РІРѕРІР»РµС‡С‘РЅРЅРѕСЃС‚СЊ": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"),
+    "С‚РѕС‡РЅРѕСЃС‚СЊ": ("РІС‹СЂРѕСЃР»Р°", "СЃРЅРёР·РёР»Р°СЃСЊ"), "РѕС‚РєСЂС‹РІР°РµРјРѕСЃС‚СЊ": ("РІС‹СЂРѕСЃР»Р°", "СѓРїР°Р»Р°"),
+    "РѕС€РёР±РєРё": ("РІС‹СЂРѕСЃР»Рё", "СЃРѕРєСЂР°С‚РёР»РёСЃСЊ"), "РѕР±СЂР°С‰РµРЅРёСЏ": ("РІС‹СЂРѕСЃР»Рё", "СЃРѕРєСЂР°С‚РёР»РёСЃСЊ"),
+}
+# EN-РѕР±СЉРµРєС‚С‹ С†РёС‚Р°С‚ -> (СЂСѓСЃСЃРєРѕРµ РёРјСЏ, СЂР°РЅРі Р±РµСЂС‘С‚СЃСЏ РїРѕ РЅРµРјСѓ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё)
+_EN_LEX = (
+    ("lead response time", "РІСЂРµРјСЏ РѕС‚РІРµС‚Р° РЅР° Р·Р°СЏРІРєРё"), ("campaign prep time", "РІСЂРµРјСЏ РїРѕРґРіРѕС‚РѕРІРєРё РєР°РјРїР°РЅРёР№"),
+    ("response time", "РІСЂРµРјСЏ РѕС‚РІРµС‚Р°"),
+    ("support tickets", "РѕР±СЂР°С‰РµРЅРёСЏ РІ РїРѕРґРґРµСЂР¶РєСѓ"), ("tickets", "С‚РёРєРµС‚С‹ РїРѕРґРґРµСЂР¶РєРё"),
+    ("lead sync errors", "РѕС€РёР±РєРё СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё"), ("sync errors", "РѕС€РёР±РєРё СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё"),
+    ("errors", "РѕС€РёР±РєРё"), ("backup work", "СЂСѓС‡РЅР°СЏ СЂР°Р±РѕС‚Р° СЃ Р±СЌРєР°РїР°РјРё"),
+    ("operational costs", "РѕРїРµСЂР°С†РёРѕРЅРЅС‹Рµ СЂР°СЃС…РѕРґС‹"), ("costs", "СЂР°СЃС…РѕРґС‹"),
+    ("revenue", "РІС‹СЂСѓС‡РєР°"), ("sales", "РїСЂРѕРґР°Р¶Рё"),
+    ("orders", "Р·Р°РєР°Р·С‹"), ("participation", "РІРѕРІР»РµС‡С‘РЅРЅРѕСЃС‚СЊ"), ("accuracy", "С‚РѕС‡РЅРѕСЃС‚СЊ"),
+    ("conversion", "РєРѕРЅРІРµСЂСЃРёСЏ"), ("adoption", "РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ"),
+    ("onboarding time", "РІСЂРµРјСЏ РѕРЅР±РѕСЂРґРёРЅРіР°"), ("cumulative downloads", "С‡РёСЃР»Рѕ СЃРєР°С‡РёРІР°РЅРёР№"),
+    ("activation rates", "РґРѕР»СЏ Р°РєС‚РёРІР°С†РёР№"), ("support", "РѕР±СЂР°С‰РµРЅРёСЏ РІ РїРѕРґРґРµСЂР¶РєСѓ"),
+)
+_GROW_EN_RX = re.compile(
+    r"\b(grew|increased|rose|jumped|improved|boost\w*|up)\b\s*(?:by\s+)?"
+    r"(more than|nearly|over)?\s*(\d[\d.,]*)\s*(%)", re.I)
+_CUT_EN_RX = re.compile(
+    r"\b(cut\w*|slash\w*|reduc\w*|reduction|decreas\w*|saving\w*)\b([^.%\d]{2,50}?)(\d[\d.,]*)\s*(%)", re.I)
+_PAIR_EN_RX = re.compile(r"from\s+(\d[\d.,]*)\s*%\s+to\s+(\d[\d.,]*)\s*%\s*(\w+[\w\s]{0,30})", re.I)
+_FASTER_EN_RX = re.compile(r"(\d[\d.,]*)\s*%\s+faster\b", re.I)
+
+# РјРµС…Р°РЅРёР·Рј: РґРѕСЃР»РѕРІРЅР°СЏ СЃРІСЏР·РєР° РёР· РёСЃС‚РѕС‡РЅРёРєР° (РїР°РґРµР¶ СѓР¶Рµ РїСЂР°РІРёР»СЊРЅС‹Р№)
+_MECH_VERB_RX = re.compile(
+    r"\b(?:Р·Р°\s+СЃС‡[РµС‘]С‚|Р±Р»Р°РіРѕРґР°СЂСЏ|СЃ\s+РїРѕРјРѕС‰СЊСЋ|РїСЂРё\s+РїРѕРјРѕС‰Рё)\s+("
+    r"(?:" + _NAME + r"{2,}\s){0,3}" + _NAME + r"{2,})", re.U)
+# РјРµС…Р°РЅРёР·Рј: РїРѕРІРµСЂС…РЅРѕСЃС‚СЊ РІ evidence -> РіРѕС‚РѕРІР°СЏ СЂРѕРґРёС‚РµР»СЊРЅР°СЏ С„РѕСЂРјР°
+_MECH_LEX = (
+    (r"ml[\s\-]?СЃРµРіРјРµРЅС‚", "ML-СЃРµРіРјРµРЅС‚Р°С†РёРё"),
+    (r"ml[\s\-]?СЂРµС‚Р°СЂРіРµС‚РёРЅРі", "ML-СЂРµС‚Р°СЂРіРµС‚РёРЅРіР°"),
+    (r"РїРѕРІС‚РѕСЂРЅ\w*\s+(?:РїРѕРєСѓРїРѕ?Рє|Р·Р°РєР°Р·)", "РїРѕРІС‚РѕСЂРЅС‹С… РїРѕРєСѓРїРѕРє"),
+    (r"crm[\s\-]?РјР°СЂРєРµС‚РёРЅРі", "CRM-РјР°СЂРєРµС‚РёРЅРіР°"),
+    (r"(?:Р°РІС‚РѕРјР°С‚РёС‡РµСЃРє\w+|Р°РІС‚Рѕ)\s+СЂР°СЃСЃС‹Р»", "Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёС… СЂР°СЃСЃС‹Р»РѕРє"),
+    (r"РїСЂРѕРіСЂР°РјРј\w*\s+Р»РѕСЏР»СЊРЅРѕСЃС‚", "РїСЂРѕРіСЂР°РјРјС‹ Р»РѕСЏР»СЊРЅРѕСЃС‚Рё"),
+    (r"С‚СЂРёРіРіРµСЂРЅ\w*\s+СЃС†РµРЅР°СЂ", "С‚СЂРёРіРіРµСЂРЅС‹С… СЃС†РµРЅР°СЂРёРµРІ"),
+    (r"РјР°СЂРєРµС‚РёРЅРі\s+СѓРґРµСЂР¶Р°РЅРёСЏ", "РјР°СЂРєРµС‚РёРЅРіР° СѓРґРµСЂР¶Р°РЅРёСЏ"),
+    (r"РїРµСЂСЃРѕРЅР°Р»РёР·", "РїРµСЂСЃРѕРЅР°Р»РёР·Р°С†РёРё"),
+    (r"pop[\s\-]?up|РїРѕРїР°Рї", "РїРѕРїР°РїРѕРІ"),
+    (r"push|РїСѓС€", "push-РјРµС…Р°РЅРёРє"),
+    (r"(?:С‡Р°С‚|РіРѕР»РѕСЃРѕРІ\w+)\s*[\s\-]?\bР±РѕС‚", "С‡Р°С‚-Р±РѕС‚Р°"),
+    (r"СЃРєРѕСЂРёРЅРі", "СЃРєРѕСЂРёРЅРіР°"),
+    (r"СЂРµС‚Р°СЂРіРµС‚РёРЅРі", "СЂРµС‚Р°СЂРіРµС‚РёРЅРіР°"),
+    (r"email[\s\-]?СЂР°СЃСЃС‹Р»|СЂР°СЃСЃС‹Р»", "email-СЂР°СЃСЃС‹Р»РѕРє"),
+    (r"СЃРµРіРјРµРЅС‚", "СЃРµРіРјРµРЅС‚Р°С†РёРё"),
+    (r"workflow automation|automation", "Р°РІС‚РѕРјР°С‚РёР·Р°С†РёРё"),
+)
+_PREPS = {"Рє", "РѕС‚", "РґРѕ", "Р±РµР·", "РґР»СЏ", "РїРѕСЃР»Рµ", "Р·Р°", "СЃС‡С‘С‚", "РїРѕРјРѕС‰СЊСЋ", "РЅР°", "РІ",
+          "РїРѕ", "РїСЂРё", "РѕРєРѕР»Рѕ", "Р±РѕР»РµРµ", "РјРµРЅРµРµ", "СЃ", "СѓСЂРѕРІРЅРµ", "Р±Р»Р°РіРѕРґР°СЂСЏ", "РёР·"}
+_DANGLING = {"РїСЂРёРјРµРЅРµРЅРёРµРј", "РїСЂРёРјРµРЅРµРЅРёРµ", "РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРµРј", "РІРЅРµРґСЂРµРЅРёРµРј", "СЃС‡РµС‚Сѓ",
+             "СЃС‡С‘С‚Сѓ", "РѕСЃРЅРѕРІРµ", "РґРѕР±Р°РІРєРµ", "РїРѕРјРѕС‰СЊ"}
+_ANCHOR_VB_RX = re.compile(
+    r"(РІС‹СЂРѕСЃР»|РІС‹СЂРѕСЃ|СѓРІРµР»РёС‡|СЃРЅРёР·РёР»|СЃРѕРєСЂР°С‚|РїРѕРІС‹СЃ|СѓРїР°Р»|РїРѕРґРЅСЏР»|СѓРјРµРЅСЊС€|СѓР»СѓС‡С€|СѓСЃРєРѕСЂ"
+    r"|РґРѕСЃС‚РёРі|РґРѕС€Р»|СЃС‚Р°Р»|РІРµСЂРЅСѓР»|РїРѕР»СѓС‡РёР»|СЃРѕР±РёСЂ|РїСЂРµРІС‹С€|РЅРµ РІС‹С€Рµ|РЅРµ Р±РѕР»РµРµ|РЅРµ РґРѕР»Р¶РµРЅ|РјРµРЅРµРµ|РЅРёР¶Рµ"
+    r"|\bСЂРѕСЃС‚\b|\bРїСЂРёСЂРѕСЃС‚\b|СЃРЅРёР¶РµРЅРёРµ|РїР°РґРµРЅРёРµ|СѓРІРµР»РёС‡РµРЅРёРµ|СЃРѕРєСЂР°С‰РµРЅРёРµ)", re.I)
+_OBLIG_RX = re.compile(
+    r"\b(РІС‹СЂСѓС‡РєРµ|РІС‹СЂСѓС‡РєРё|СЂРѕСЃС‚Рµ|РїСЂРѕРґР°Р¶Р°С…|РїСЂРѕРґР°Р¶Р°Рј|РїРѕРєСѓРїР°С‚РµР»СЋ|РєР»РёРµРЅС‚Сѓ|СЃС‚РѕРёРјРѕСЃС‚Рё|Р·Р°СЏРІРєР°Рј"
+    r"|РѕР±СЂР°С‰РµРЅРёСЏРј|РїСЂРёРјРµРЅРµРЅРёРё|РїСЂРёРјРµРЅРµРЅРёРµРј|РІРµСЂСЃС‚РєРµ|РІРµСЂСЃС‚РєСѓ|РЅР°СЃС‚СЂРѕР№РєРµ|Р±СЋРґР¶РµС‚Рµ|Р»РѕСЏР»СЊРЅРѕСЃС‚Рё"
+    r"|РїРѕРєСѓРїРєРµ|РїРѕРєСѓРїРєРѕР№|РєРѕРЅРІРµСЂСЃРёРё|РєРѕРЅРІРµСЂСЃРёРµР№|РјР°СЂРєРµС‚РёРЅРіРµ|РѕР±СЂР°Р±РѕС‚РєРµ|РїРѕРґРґРµСЂР¶РєРµ|Р°СѓРґРёС‚РѕСЂРёРё"
+    r"|Р±Р°Р·Рµ|СЃС†РµРЅР°СЂРёРё|СЂР°СЃСЃС‹Р»РєРµ|СЃРµРіРјРµРЅС‚Р°С†РёРё|РїСЂРѕРіСЂР°РјРјРµ|Р°РІС‚РѕРјР°С‚РёР·Р°С†РёРё)\b", re.I)
+_BAD_START_RX = re.compile(r"^(РєР°РєРёРµ|РєР°РєРѕР№|РєР°РєР°СЏ|СЌС‚Рѕ|СЌС‚РѕС‚|СЌС‚Р°|С‚Р°РєРѕР№|РѕРЅРё|РѕРЅ|РѕРЅР°|РµРіРѕ|РµС‘|РёС…|РЅР°СЃ|РІР°СЃ)\b")
+
+
+def _family(text):
+    t = ws_norm(text)
+    for rank, rx in _FAM_RULES:
+        if re.search(rx, t):
+            return rank
+    return 5
+
+
+def _mag(num, unit):
+    try:
+        v = float((num or "0").replace(",", ".").rstrip("."))
+    except ValueError:
+        return 0.0
+    u = (unit or "%").lower()
+    if u.startswith("Рї"):
+        return v * 3
+    if u.startswith("СЂР°Р·"):
+        return v * 100
+    return v
+
+
+def _agree(name, grew=True):
+    """Р“Р»Р°РіРѕР» СЂРµР·СѓР»СЊС‚Р°С‚Р° РїРѕ РѕРїРѕСЂРЅРѕРјСѓ СЃР»РѕРІСѓ РёРјРµРЅРё (РїРµСЂРІРѕРµ СЃР»РѕРІРѕ РёРјРµРЅРё РёР»Рё
+    РїРµСЂРІРѕРµ СЃР»РѕРІРѕ Р»РµРєСЃРёРєРѕРЅР° families); РЅРµС‚ РІ СЃР»РѕРІР°СЂРµ -> None (С‚РёСЂРµ-С„РѕСЂРјР°)."""
+    for w in ws_norm(name).replace("В«", "").replace("В»", "").split(" "):
+        forms = _HEAD_VERBS.get(w)
+        if forms:
+            return forms[0] if grew else forms[1]
+    return None
+
+
+def _u(unit):
+    """РџРµС‡Р°С‚РЅР°СЏ РµРґРёРЅРёС†Р° Р·РЅР°С‡РµРЅРёСЏ: 'Рї. Рї.' -> 'Рї.Рї.', Р±РµР· РІРёСЃСЏС‰РµР№ С‚РѕС‡РєРё."""
+    u = (unit or "%").strip()
+    if u.startswith("Рї"):
+        return "Рї.Рї."
+    return u.rstrip(".")
+
+
+def _trim_phrase(phrase, limit=7):
+    """РЎР»РѕРІР° С„СЂР°Р·С‹-РёРјРµРЅРё: РѕР±СЂРµР·Р°РµРј РЅР° РіСЂР°РЅРёС†Рµ СЃР»РµРґСѓСЋС‰РµРіРѕ Р±Р»РѕРєР° (СЃ СЃР»РѕРІР° СЃ
+    Р·Р°РіР»Р°РІРЅРѕР№ Р±СѓРєРІС‹ РёР»Рё СЃ С†РёС„СЂРѕР№ РІРЅСѓС‚СЂРё вЂ” С‚Р°Рј СѓР¶Рµ РґСЂСѓРіР°СЏ РјРµС‚СЂРёРєР°/РїСЂРµРґР»РѕР¶РµРЅРёРµ)
+    Рё РЅР° РІРёСЃСЏС‰РёС… РїСЂРµРґР»РѕРіР°С…/РїСЂРёР»Р°РіР°С‚РµР»СЊРЅС‹С…. РћРґРЅРѕР±СѓРєРІРµРЅРЅС‹Рµ РїСЂРµРґР»РѕРіРё СЃРѕС…СЂР°РЅСЏРµРј."""
+    words = re.findall(r"[^\W\d_][\w'\-]*", phrase or "")
+    for i in range(1, len(words)):
+        w = words[i]
+        if re.match(r"^[A-ZРђ-РЇРЃ]", w) and "-" not in w and "вЂ‘" not in w:
+            words = words[:i]  # В«вЂ¦РєР»РёРєР° Р—Р°РґР°С‡Р°вЂ¦В», В«вЂ¦РґРµР№СЃС‚РІРёРµ Р’ РЅРµРєРѕС‚РѕСЂС‹С…вЂ¦В»
+            break
+        if re.search(r"\d", w):  # В«РёРіСЂРµ70%В» вЂ” РіСЂР°РЅРёС†Р° СЃР»РµРґСѓСЋС‰РµРіРѕ С‡РёСЃР»Р°
+            stem = re.match(r"^[^\W\d_]+", w)
+            words = words[:i] + ([stem.group(0)] if stem and len(stem.group(0)) >= 2 else [])
+            break
+    words = words[:limit]
+    while words and (len(words[-1]) < 3 or ws_norm(words[-1]) in _PREPS
+                     or ws_norm(words[-1]) in _DANGLING
+                     or re.search(r"С‹Рµ$", ws_norm(words[-1]))):
+        words.pop()
+    return " ".join(words)
+
+
+def _result_candidates(val, quote):
+    """Р’СЃРµ headline-РєРѕРЅСЃС‚СЂСѓРєС†РёРё СЂРµР·СѓР»СЊС‚Р°С‚Р° РёР· РѕРґРЅРѕР№ С†РёС‚Р°С‚С‹, СЃРѕРґРµСЂР¶Р°С‰РёРµ С‡РёСЃР»Рѕ
+    РјРµС‚СЂРёРєРё. -> [dict(rank, mag, text)]."""
+    out = []
+    vd = digits_of(val)
+
+    def push(rank, mag, text):
+        text = textclean.clean(re.sub(r"\s{2,}", " ", text)).strip(" ,;:вЂ”вЂ“-")
+        if text.endswith(".") and not text.endswith("Рї.Рї."):
+            text = text[:-1]
+        if not text or (digits_of(text) and vd not in digits_of(text)):
+            return
+        if rank >= 5:
+            return  # Р·Р°РіРѕР»РѕРІРѕРє СЃ РЅРµРїРѕРЅСЏС‚РЅРѕР№ СЃРµРјСЊС‘Р№ = РЅРµС‚ Р±РёР·РЅРµСЃ-СЃРјС‹СЃР»Р°
+        out.append({"rank": rank, "mag": mag, "text": text})
+
+    for m in _PAIR_RX.finditer(quote):
+        if vd not in (digits_of(m.group(1)), digits_of(m.group(3))):
+            continue
+        a, ua, b, ub, name = m.groups()
+        name = _trim_phrase(name)
+        ua = ua or "%"
+        ub = ub or ua
+        unit = ub
+        grew = _mag(b, unit) >= _mag(a, ua)
+        verb = _agree(name, grew)
+        pair = "СЃ %s%s РґРѕ %s%s" % (a, ua, b, ub)
+        if verb:
+            push(_family(name), abs(_mag(b, unit) - _mag(a, ua)),
+                 "%s %s %s" % (name, verb, pair))
+        else:
+            push(_family(name), abs(_mag(b, unit) - _mag(a, ua)), "%s вЂ” %s" % (name, pair))
+
+    for m in _MULT_RX.finditer(quote):
+        if vd != digits_of(m.group(1)):
+            continue
+        num, name = m.groups()
+        name = _trim_phrase(name)
+        rank = _family(name)
+        if rank >= 5 and _mag(num, "СЂР°Р·") < 2:
+            continue
+        if not name:
+            continue
+        push(rank, _mag(num, "СЂР°Р·"),
+             "%s %s РІ %s СЂР°Р·Р°" % (name, _agree(name, True) or "РІС‹СЂРѕСЃР»Р°", num))
+
+    for m in _GREW_RX.finditer(quote):
+        if vd != digits_of(m.group(3)):
+            continue
+        verb, p0, num, unit = m.groups()
+        subj_raw = quote[:m.start()]
+        subj_raw = re.split(r"[.!?,;:\n]", subj_raw)[-1]
+        subj = " ".join(re.findall(_NAME + r"{2,}", subj_raw)[-6:])
+        fam = _family(subj)
+        if fam >= 5:
+            continue
+        # СЃСѓР±СЉРµРєС‚ вЂ” РѕС‚ РєР»СЋС‡РµРІРѕРіРѕ СЃР»РѕРІР° СЃРµРјСЊРё (РѕР±СЂРµР·Р°РµРј В«С‡РµСЂРµР· РіРѕРґ/РІ РёС‚РѕРіРµВ»)
+        low = ws_norm(subj)
+        for _, rx in _FAM_RULES:
+            mm = re.search(rx, low)
+            if mm:
+                subj = " ".join(re.findall(_NAME + r"{2,}", subj[mm.start():])[:6])
+                break
+        if not subj:
+            continue
+        u = (unit or "%").rstrip(".")
+        if p0:
+            prep = p0
+        elif u.startswith("СЂР°Р·"):
+            prep = "РІ"
+        elif u.startswith(("РјРёРЅСѓС‚", "С‡Р°СЃ", "РґРЅРµР№", "РґРЅСЏ", "СЃРµРєСѓРЅРґ")):
+            prep = "Р·Р°"
+        else:
+            prep = "РЅР°"
+        tail = "%s%%" % num if u == "%" else "%s %s" % (num, u)
+        push(fam, _mag(num, unit), "%s %s %s %s" % (subj, verb, prep, tail))
+
+    for m in _DELTA_RX.finditer(quote):
+        if vd != digits_of(m.group(2)):
+            continue
+        sign, num, unit, phrase = m.groups()
+        phrase = _trim_phrase(phrase)
+        if not phrase or _family(phrase) >= 5:
+            continue
+        push(_family(phrase), _mag(num, unit), "%s%s%s Рє %s" % (sign, num, _u(unit), phrase))
+
+    for m in _HEADVAL_RX.finditer(quote):
+        if vd != digits_of(m.group(2)):
+            continue
+        sign, num, unit, phrase = m.groups()
+        if ws_norm(phrase).startswith("Рє "):
+            continue
+        phrase = _trim_phrase(phrase)
+        if not phrase or _family(phrase) >= 5:
+            continue
+        if re.fullmatch(r"[A-ZРђ-РЇРЃ]{2,}", phrase.split(" ")[0]):
+            # РјРµС‚РєР°-Р°Р±Р±СЂРµРІРёР°С‚СѓСЂР° вЂ” С‚РµРјРѕР№ РІРїРµСЂС‘Рґ: В«Р”Р Р  в€’1,6 Рї.Рї.В», В«CPA в€’14%В»
+            push(_family(phrase), _mag(num, unit), "%s %s%s%s" % (phrase, sign, num, _u(unit)))
+        else:
+            push(_family(phrase), _mag(num, unit), "%s%s%s %s" % (sign, num, _u(unit), phrase))
+
+    for m in _THRESH_RX.finditer(quote):
+        if vd != digits_of(m.group(3)):
+            continue
+        name, words, num, unit = m.groups()
+        push(3, _mag(num, unit), "%s %s %s%%" % (name, " ".join(re.findall(_NAME + r"{2,}", words)), num))
+
+    for m in _REVERSE_RX.finditer(quote):
+        if vd != digits_of(m.group(1)):
+            continue
+        num, unit, name, tail = m.groups()
+        name = _trim_phrase(name + " " + tail)
+        if not name:
+            continue
+        push(_family(name), _mag(num, unit), "%s вЂ” %s%%" % (name, num))
+
+    for rx in (_SLIDE_RX, _SLIDE2_RX):
+        for m in rx.finditer(quote):
+            g = m.groups()
+            if rx is _SLIDE_RX:
+                name, verb, a, ua, b, ub = g
+            else:
+                verb, name, a, ua, b, ub = g
+            if vd not in (digits_of(a), digits_of(b)):
+                continue
+            name = _trim_phrase(name)
+            if not name or _family(name) >= 5:
+                continue
+            ua = ua or "%"
+            ub = ub or ua
+            grew = _mag(b, ub) >= _mag(a, ua)
+            if rx is _SLIDE2_RX:  # В«РїРѕРґРЅСЏР»Р° X СЃ A РґРѕ BВ» -> РёРјРµРЅРёС‚РµР»СЊРЅС‹Р№ + СЃРѕРіР»Р°СЃРѕРІР°РЅРЅС‹Р№ РіР»Р°РіРѕР»
+                verb = _agree(name, grew) or ("РІС‹СЂРѕСЃ" if grew else "СЃРЅРёР·РёР»СЃСЏ")
+            push(_family(name), abs(_mag(b, ub) - _mag(a, ua)),
+                 "%s %s СЃ %s%s РґРѕ %s%s" % (name, verb, a, ua, b, ub))
+
+    # ---- EN-РєРѕРЅСЃС‚СЂСѓРєС†РёРё -> СЂСѓСЃСЃРєРёРµ РёРјРµРЅР° (С‡РёСЃР»Р° РґРѕСЃР»РѕРІРЅС‹Рµ РёР· С†РёС‚Р°С‚С‹) ----
+    for m in _GROW_EN_RX.finditer(quote):
+        if vd != digits_of(m.group(3)):
+            continue
+        num, more = m.group(3), ws_norm(m.group(2) or "")
+        pre = ws_norm(quote[:m.start()])[-60:]
+        qual = "Р±РѕР»РµРµ С‡РµРј " if more in ("more than", "over") else ("РїРѕС‡С‚Рё " if more == "nearly" else "")
+        for en, ru in _EN_LEX:
+            if en in pre:
+                verb = _agree(ru, True)
+                if verb:
+                    push(_family(ru), _mag(num, "%"), "%s %s %sРЅР° %s%%" % (ru, verb, qual, num))
+                break
+    for m in _CUT_EN_RX.finditer(quote):
+        if vd != digits_of(m.group(3)):
+            continue
+        num = m.group(3)
+        pre = (ws_norm(quote[max(0, m.start() - 60):m.start()]) + " " + ws_norm(m.group(2)))
+        for en, ru in _EN_LEX:
+            if en in pre:
+                verb = _agree(ru, False)
+                if verb:
+                    push(_family(ru), _mag(num, "%"), "%s %s РЅР° %s%%" % (ru, verb, num))
+                else:
+                    push(_family(ru), _mag(num, "%"), "%s вЂ” РЅР° %s%% РјРµРЅСЊС€Рµ" % (ru, num))
+                break
+    for m in _FASTER_EN_RX.finditer(quote):
+        if vd != digits_of(m.group(1)):
+            continue
+        num = m.group(1)
+        post = ws_norm(quote[m.end():m.end() + 40])
+        pre = ws_norm(quote[max(0, m.start() - 60):m.start()])
+        for en, ru in _EN_LEX:
+            if en in post or en in pre:
+                verb = _agree(ru, False) or "СЃРѕРєСЂР°С‚РёР»РѕСЃСЊ"
+                push(_family(ru), _mag(num, "%") * 2, "%s %s РЅР° %s%%" % (ru, verb, num))
+                break
+    for m in _PAIR_EN_RX.finditer(quote):
+        if vd not in (digits_of(m.group(1)), digits_of(m.group(2))):
+            continue
+        a, b, tail = m.groups()
+        ru = None
+        ctxw = ws_norm(quote[max(0, m.start() - 60):m.start()]) + " " + ws_norm(tail[:40])
+        for en, name in _EN_LEX:
+            if en in ctxw:
+                ru = name
+                break
+        if ru:
+            verb = _agree(ru, True) or "РІС‹СЂРѕСЃР»Р°"
+            push(_family(ru), _mag(b, "%") - _mag(a, "%"), "%s %s СЃ %s%% РґРѕ %s%%" % (ru, verb, a, b))
+    for m in _REDUCEN_RX.finditer(quote):
+        if vd != digits_of(m.group(1)):
+            continue
+        num, tail = m.group(1), ws_norm(m.group(2))
+        for en, ru in _EN_LEX:
+            if en in tail:
+                verb = _agree(ru, False)
+                if verb:
+                    push(_family(ru), _mag(num, "%"), "%s %s РЅР° %s%%" % (ru, verb, num))
+                else:
+                    push(_family(ru), _mag(num, "%"), "%s вЂ” РЅР° %s%% РјРµРЅСЊС€Рµ" % (ru, num))
+                break
+    for m in _INCR_EN_RX.finditer(quote):
+        if vd != digits_of(m.group(1)):
+            continue
+        num, tail = m.group(1), ws_norm(m.group(2))
+        pre = ws_norm(quote[max(0, m.start() - 60):m.start()])
+        for en, ru in _EN_LEX:
+            if en in tail or en in pre:
+                verb = _agree(ru, True)
+                if verb:
+                    push(_family(ru), _mag(num, "%"), "%s %s РЅР° %s%%" % (ru, verb, num))
+                break
+    for m in _REV_EN_RX.finditer(quote):
+        if vd != digits_of(m.group(2)):
+            continue
+        kind, num, suf, noun = m.groups()
+        ru_nom = {"revenue": "РІС‹СЂСѓС‡РєР°", "sales": "РїСЂРѕРґР°Р¶Рё", "costs": "СЂР°СЃС…РѕРґС‹",
+                  "time": "РІСЂРµРјСЏ"}.get(ws_norm(noun))
+        v_ru = {"recovered": "РІРµСЂРЅСѓР»", "saved": "СЃСЌРєРѕРЅРѕРјРёР»", "generated": "РїСЂРёРЅС‘СЃ",
+                "unlocked": "РґР°Р»", "boosted": "СѓРІРµР»РёС‡РёР»"}.get(ws_norm(kind))
+        ru_gen = {"РІС‹СЂСѓС‡РєР°": "РІС‹СЂСѓС‡РєРё", "РїСЂРѕРґР°Р¶Рё": "РїСЂРѕРґР°Р¶", "СЂР°СЃС…РѕРґС‹": "СЂР°СЃС…РѕРґРѕРІ",
+                  "РІСЂРµРјСЏ": "РІСЂРµРјРµРЅРё"}.get(ru_nom or "", "")
+        suf_ru = {"k": "С‚С‹СЃ", "m": "РјР»РЅ", "b": "РјР»СЂРґ", "bn": "РјР»СЂРґ",
+                  "mln": "РјР»РЅ"}.get(ws_norm(suf or ""), "")
+        if ru_gen and v_ru:
+            push(_family(ru_nom), float(num or 0) * 60,
+                 "%s $%s %s %s" % (v_ru, num, (suf_ru + " ").rstrip(), ru_gen))
+    return out
+
+
+def _headline_mechanism(case, head_text):
+    """В«Р·Р° СЃС‡С‘С‚ XВ» вЂ” С‚РѕР»СЊРєРѕ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅС‹Р№ evidence: РїРѕРІРµСЂС…РЅРѕСЃС‚СЊ РёР·
+    РєРѕРЅС‚СЂРѕР»СЊРЅРѕРіРѕ Р»РµРєСЃРёРєРѕРЅР° (СЃ РіРѕС‚РѕРІС‹Рј СЂРѕРґРёС‚РµР»СЊРЅС‹Рј РїР°РґРµР¶РѕРј), РёРЅР°С‡Рµ РґРѕСЃР»РѕРІРЅР°СЏ
+    СЃРІСЏР·РєР° РёСЃС‚РѕС‡РЅРёРєР°. AI/ML РЅРµ РїРѕРІС‹С€Р°СЋС‚СЃСЏ: entry СЃСЂР°Р±Р°С‚С‹РІР°РµС‚ Р»РёС€СЊ РїРѕ
+    СЂРµР°Р»СЊРЅРѕРјСѓ СЃР»РѕРІСѓ РІ evidence."""
+    blob = textclean.clean(" ".join([case.get("implementation") or "",
+                                     case.get("solution") or "",
+                                     case.get("problem") or "",
+                                     " ".join(case.get("results") or [])]))
+    low = ws_norm(blob)
+    head_low = ws_norm(head_text)
+    for rx, gen in _MECH_LEX:
+        if re.search(rx, low):
+            core = ws_norm(gen).split(" ")[0]
+            if core and core in head_low:
+                continue  # РјРµС…Р°РЅРёР·Рј СѓР¶Рµ РЅР°Р·РІР°РЅ РІ СЃР°РјРѕРј СЂРµР·СѓР»СЊС‚Р°С‚Рµ вЂ” РЅРµ С‚Р°РІС‚РѕР»РѕРіРёСЏ
+            return "Р·Р° СЃС‡С‘С‚ " + gen
+    m = _MECH_VERB_RX.search(blob)
+    if m:
+        whole = ws_norm(m.group(0))
+        phrase = " ".join(re.findall(r"[\w'\-]{2,}", m.group(1))[:3])
+        if not phrase or digits_of(phrase) or len(phrase) > 34:
+            return ""
+        if whole.startswith("Р±Р»Р°РіРѕРґР°СЂСЏ"):
+            cand = "Р±Р»Р°РіРѕРґР°СЂСЏ " + phrase
+        elif "РїРѕРјРѕС‰СЊСЋ" in whole or "РїРѕРјРѕС‰Рё" in whole:
+            cand = "СЃ РїРѕРјРѕС‰СЊСЋ " + phrase
+        else:
+            cand = "Р·Р° СЃС‡С‘С‚ " + phrase
+        if ws_norm(phrase).split(" ")[0] in head_low:
+            return ""
+        return cand
+    return ""
+
+
+def _candidate_map(case):
+    """value(РѕС‡РёС‰.) -> РѕС‚СЃРѕСЂС‚РёСЂРѕРІР°РЅРЅС‹Рµ РєР°С‡РµСЃС‚РІРµРЅРЅС‹Рµ headline-РєРѕРЅСЃС‚СЂСѓРєС†РёРё СЌС‚РѕРіРѕ
+    Р·РЅР°С‡РµРЅРёСЏ. РћРґРёРЅ РёСЃС‚РѕС‡РЅРёРє РєРѕРЅСЃС‚СЂСѓРєС†РёР№ Рё РґР»СЏ Р·Р°РіРѕР»РѕРІРєР°, Рё РґР»СЏ Р±Р»РѕРєР° В«Р¦РёС„СЂС‹В»."""
+    m = {}
+    for mtr in case.get("metrics") or []:
+        val = textclean.clean((mtr.get("value") or "").strip())
+        quote = textclean.clean((mtr.get("evidence") or {}).get("quote") or "")
+        if not val or not quote:
+            continue
+        lst = [c for c in _result_candidates(val, quote) if not headline_issues(c["text"])]
+        if lst:
+            m.setdefault(val, []).extend(lst)
+    for v in m:
+        seen, uniq = set(), []
+        for c in sorted(m[v], key=lambda c: (c["rank"], -c["mag"])):
+            if c["text"] not in seen:
+                seen.add(c["text"])
+                uniq.append(c)
+        m[v] = uniq
+    return m
+
+
+def _semantic_headline(case, comp, cmap=None):
+    """-> СЃС‚СЂРѕРєР° Р·Р°РіРѕР»РѕРІРєР° (Р±РµР· В«вљЎВ» Рё Р±РµР· В«РљРѕРјРїР°РЅРёСЏ: В») РёР»Рё "". РљР°Р¶РґР°СЏ
+    РєРѕРЅСЃС‚СЂСѓРєС†РёСЏ РѕР±СЏР·Р°РЅР° РїСЂРѕР№С‚Рё headline_issues(): РІ Р·Р°РіРѕР»РѕРІРѕРє РЅРµ РїРѕРїР°РґР°РµС‚
+    С‚Рѕ, С‡С‚Рѕ РЅРµ РїСЂРѕС€Р»Рѕ Р±С‹ Рё РІ РїСѓР±Р»РёРєР°С†РёСЋ."""
+    cmap = cmap if cmap is not None else _candidate_map(case)
+    title_digits = digits_of(ws_norm(case.get("source_title") or ""))
+    cands, seen = [], set()
+    for i, mtr in enumerate(case.get("metrics") or []):
+        val = textclean.clean((mtr.get("value") or "").strip())
+        for c in cmap.get(val, []):
+            if c["text"] in seen:
+                continue
+            seen.add(c["text"])
+            c["idx"] = i
+            c["title"] = 1 if digits_of(val) and digits_of(val) in title_digits else 0
+            cands.append(c)
+    if not cands:
+        return ""
+    best = sorted(cands, key=lambda c: (c["rank"], -c["title"], -c["mag"], c["idx"]))[0]
+    text = best["text"]
+    mech = _headline_mechanism(case, text)
+    if mech:
+        trial = "%s вЂ” %s" % (text, mech)
+        if len(re.findall(r"[\w'\-]{2,}", ws_norm(trial))) <= 13 and len(trial) <= 96 \
+                and not headline_issues(trial):
+            text = trial
+    return text
+
+
+def _head_body(line):
+    """РЎР°РјР° СЃРјС‹СЃР»РѕРІР°СЏ С‡Р°СЃС‚СЊ Р·Р°РіРѕР»РѕРІРєР° РёР· РїРµСЂРІРѕР№ СЃС‚СЂРѕРєРё РїРѕСЃС‚Р°: Р±РµР· РІРµРґСѓС‰РёС…
+    СЃРёРјРІРѕР»РѕРІ (В«вљЎВ», markdown) Рё Р±РµР· РїСЂРµС„РёРєСЃР° В«РљРѕРјРїР°РЅРёСЏ: В»."""
+    b = re.sub(r"^[^\wРЃС‘Рђ-РЇР°-СЏA-Za-z]+", "", (line or "").strip())
+    m = re.match(r"^([^:\n]{2,48}?):\s+(.+)$", b, re.S)
+    if m and len(re.findall(_WORD2, ws_norm(m.group(1)))) <= 4:
+        return m.group(2)
+    return b
+
+
+def headline_issues(body):
+    """Р РµРґР°РєС†РёРѕРЅРЅС‹Р№ РіРµР№С‚ Р·Р°РіРѕР»РѕРІРєР°: РќР• РіСЂР°РјРјР°С‚РёС‡РµСЃРєРёР№ checker, Р°
+    РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№ СЃС‚РѕРї-Р»РёСЃС‚ РјСѓСЃРѕСЂРЅС‹С… СЃС‚СЂСѓРєС‚СѓСЂ вЂ” РїРµСЂРµС‡РёСЃР»РµРЅРёРµ С†РёС„СЂ С‡РµСЂРµР·
+    СЃР»СЌС€, В«СЃС‹СЂР°СЏВ» РїР°СЂР° СЃРѕ СЃС‚СЂРµР»РєРѕР№, С‡РёСЃР»Рѕ Р±РµР· СЂСѓСЃСЃРєРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°, РѕР±СЂС‹РІРѕРє
+    РїР°РґРµР¶Р° Р±РµР· РїСЂРѕРґРѕР»Р¶РµРЅРёСЏ, РЅР°С‡Р°Р»Рѕ СЃ РјРµСЃС‚РѕРёРјРµРЅРёСЏ, СЃСѓРї РёР· Р°Р±Р±СЂРµРІРёР°С‚СѓСЂ.
+    Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃРїРёСЃРѕРє РѕС€РёР±РѕРє (РїСѓСЃС‚Рѕ = РѕРє)."""
+    errs = []
+    b = ws_norm(body or "")
+    if not b.strip():
+        return errs
+    if re.search(r"\d[\d.,]*\s*/\s*[-+\u2212]?\d", b) or \
+            re.search(r"\d[\d.,]*[^\n]{0,25}?\s/\s*[-+\u2212]?\d", b):
+        errs.append("headline: bare numbers separated by slashes")
+    if "в†’" in b or "->" in b:
+        errs.append("headline: raw metric pair вЂ” РїРёС€РёС‚Рµ В«СЃ X РґРѕ YВ» СЃР»РѕРІР°РјРё")
+    has_num = bool(re.search(r"\d", b))
+    if has_num and not re.search(r"[Р°-СЏС‘]{3,}", b):
+        errs.append("headline: С†РёС„СЂР° Р±РµР· СЂСѓСЃСЃРєРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°")
+    if _BAD_START_RX.match(b):
+        errs.append("headline: РЅР°С‡Р°Р»Рѕ СЃ РјРµСЃС‚РѕРёРјРµРЅРёСЏ/РІРѕРїСЂРѕСЃРёС‚РµР»СЊРЅРѕРіРѕ СЃР»РѕРІР°")
+    if has_num and not _ANCHOR_VB_RX.search(b):
+        toks = b.split(" ")
+        for j, t in enumerate(toks):
+            if not _OBLIG_RX.fullmatch(t.strip(".,;:!?В«В»%")):
+                continue
+            pre = [x.strip(".,;:!?") for x in toks[max(0, j - 2):j]]
+            if any(p in _PREPS for p in pre):
+                continue  # РєРѕСЃРІРµРЅРЅС‹Р№ РїР°РґРµР¶ Р»РµРіР°Р»РµРЅ: В«+34% Рє РІС‹СЂСѓС‡РєРµвЂ¦В»
+            if j == 0 or any(re.search(r"\d", x) for x in toks[j + 1:j + 5]):
+                errs.append("headline: РѕР±СЂС‹РІРѕРє РїР°РґРµР¶Р° В«%sвЂ¦В»" % t)
+                break
+    abbs = {w for w in re.findall(r"[A-ZРђ-РЇРЃ]{2,6}", body or "")}
+    if len(abbs) >= 2 and len(re.findall(r"[Р°-СЏС‘]{3,}", b)) < 2:
+        errs.append("headline: СЃСѓРї РёР· Р°Р±Р±СЂРµРІРёР°С‚СѓСЂ")
+    return errs
+
+
+# В«Р§С‚Рѕ Р°РІС‚РѕРјР°С‚РёР·РёСЂРѕРІР°Р»РёВ»: С†РёС‚Р°С‚Р°-РїРµСЂРµС‡РёСЃР»РµРЅРёРµ СЃРµСЂРІРёСЃРѕРІ Р±РµР· РјРµС…Р°РЅРёРєРё РїРѕРґР°С‘С‚СЃСЏ
+# С†РµРїРѕС‡РєРѕР№ (С‚РѕС‚ Р¶Рµ РєР°СЂРєР°СЃ, С‡С‚Рѕ РІ РІС‹РІРѕРґР°С… РєР°РЅР°Р»Р°), СЃ СЃРѕС…СЂР°РЅРµРЅРёРµРј С†РёС‚Р°С‚С‹.
+MECHANISM_RX = re.compile(
+    r"(РґР°РЅРЅС‹Рµ|РѕР±СЂР°Р±РѕС‚Рє|Р°РЅР°Р»РёР·|РјРѕРґРµР»[СЊСЏРё]|Р°Р»РіРѕСЂРёС‚Рј|РїСЂР°РІРёР»|\bР±РѕС‚\b|СЃС†РµРЅР°СЂ|РёРЅС‚РµРіСЂР°С†|"
+    r"РјР°СЂС€СЂСѓС‚РёР·|РєР»Р°СЃСЃРёС„|РёР·РІР»РµС‡РµРЅРё|Р°РІС‚РѕРѕС‚РІРµС‚|РЅР°СЃС‚СЂРѕР№Рє|в†’|data|process|analy|model|"
+    r"rule|workflow|trigger|routing|predict|enrich|scoring)", re.I)
+SERVICES_LIST_RX = re.compile(
+    r"^[^.,;!?]{3,40}(?:,| Рё) ?[^.,;!?]{2,40}(?:,| Рё)?[^.,;!?]{0,40}$")
+
+
+def _mechanics(impl):
+    impl = textclean.clean(impl or "")
+    if not impl:
+        return ""
+    has_list = (SERVICES_LIST_RX.match(impl) or impl.count(",") >= 2
+                or re.search(r"\s+\w+\s*(?:,| Рё)\s+\w+\s*(?:,| Рё)\s+\w+", impl))
+    if not MECHANISM_RX.search(impl) and has_list:
+        return ("С†РµРїРѕС‡РєР°: РґР°РЅРЅС‹Рµ в†’ AI-РѕР±СЂР°Р±РѕС‚РєР° в†’ РґРµР№СЃС‚РІРёРµ РІ Р±РёР·РЅРµСЃ-СЃРёСЃС‚РµРјРµ "
+                "(РІ РёСЃС‚РѕС‡РЅРёРєРµ: %s)" % _short(impl, 160).rstrip("."))
+    return impl
+
+
+def clean_for_publish(text):
+    """РќРѕСЂРјР°Р»РёР·Р°С†РёСЏ СѓР¶Рµ СЃРѕС…СЂР°РЅС‘РЅРЅРѕРіРѕ РїРѕСЃС‚Р° (РїСѓС‚СЊ backlog). -> (text, ok)."""
+    t = textclean.clean(text or "")
+    return t, not textclean.has_artifacts(t)
+
+
+def tags_for_case(case):
+    """РљРѕРЅС‚СЂРѕР»РёСЂСѓРµРјС‹Рµ С‚РµРіРё РїРѕСЃС‚Р° (1 TYPE + 1вЂ“2 DOMAIN + 1 COMPANY)."""
+    blob = ws_norm(" ".join([case.get("problem", ""), case.get("implementation", ""),
+                             " ".join(case.get("results") or []),
+                             ", ".join(case.get("technology") or [])]))
+    tags = hashtags.build("case", blob, case.get("company_name"))
+    
+    # РџСЂРѕРІРµСЂСЏРµРј, СЏРІР»СЏРµС‚СЃСЏ Р»Рё РјР°С‚РµСЂРёР°Р» Р°РіСЂРѕ-С‚РµРјР°С‚РёС‡РµСЃРєРёРј
+    from .classifier_lib import classifier_v2
+    if classifier_v2.is_agro(case.get("problem", "") + " " + case.get("implementation", "")):
+        tags.extend(AGRO_HASHTAGS)
+    
+    return tags
+
+
+def render_template(case, tags=None):
+    """RU-РєР°СЂРєР°СЃ; fact-СЃС‚СЂРѕРєРё вЂ” С†РёС‚Р°С‚С‹ РёСЃС‚РѕС‡РЅРёРєР° (EN РґРѕРїСѓСЃС‚РёРјС‹, РґР°Р»СЊС€Рµ guard).
+
+    Р РµРґР°РєС†РёРѕРЅРЅС‹Рµ РїСЂР°РІРёР»Р° (post-review В«Р§РёС‚Р°Р№-РіРѕСЂРѕРґВ»):
+    * Р·Р°РіРѕР»РѕРІРѕРє вЂ” РѕСЃРјС‹СЃР»РµРЅРЅР°СЏ С„СЂР°Р·Р° В«РєРѕРЅС‚РµРєСЃС‚ + С†РёС„СЂР°В» РёР· С†РёС‚Р°С‚С‹ РёСЃС‚РѕС‡РЅРёРєР°,
+      Р° РЅРµ В«+56% / +1,4 Рї. Рї. / 16%В» (РїРµСЂРµС‡РёСЃР»РµРЅРёРµ РіРѕР»С‹С… С†РёС„СЂ Р·Р°РїСЂРµС‰РµРЅРѕ);
+    * Р±Р»РѕРє В«Р¦РёС„СЂС‹В» вЂ” С‚РѕР»СЊРєРѕ РїРѕРєР°Р·Р°С‚РµР»Рё, СЂРµР°Р»СЊРЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹Рµ РІ С‚РµРєСЃС‚Рµ РїРѕСЃС‚Р°
+      Р РёРјРµСЋС‰РёРµ РєРѕРЅС‚РµРєСЃС‚; РіРѕР»С‹Рµ С†РёС„СЂС‹ РЅРµ РІС‹РІРѕРґСЏС‚СЃСЏ;
+    * HTML-Р°СЂС‚РµС„Р°РєС‚С‹/СЃРєР»РµР№РєРё РЅРµР№С‚СЂР°Р»РёР·СѓСЋС‚СЃСЏ textclean РЅР° РІСЃРµС… source-СЃС‚СЂРѕРєР°С…."""
+    tags = tags or tags_for_case(case)
+    comp = textclean.clean(case.get("company_name") or "РєРѕРјРїР°РЅРёСЏ")
+    problem = textclean.clean(case.get("problem") or "")
+    impl = textclean.clean(case.get("implementation") or "")
+    results = [textclean.clean(r) for r in (case.get("results") or []) if r]
+
+    parsed = [_metric_parts(m) for m in (case.get("metrics") or []) if m.get("value")]
+    parsed = [(v, c) for v, c in parsed if v]
+    body_txt = ws_norm(" ".join([problem, impl] + results))
+    body_nums, body_cores = _num_members(body_txt)
+    # В«РёСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹Рµ СЃ РєРѕРЅС‚РµРєСЃС‚РѕРјВ»: Р·РЅР°С‡РµРЅРёРµ СЂРµР°Р»СЊРЅРѕ СѓРїРѕРјРёРЅР°РµС‚СЃСЏ РІ С‚РµР»Рµ РїРѕСЃС‚Р°
+    used = [(v, c) for v, c in parsed if c and _num_used(v, body_nums, body_cores)]
+    # Р·Р°РіРѕР»РѕРІРѕРє Рё Р±Р»РѕРє В«Р¦РёС„СЂС‹В» СЃС‚СЂРѕСЏС‚СЃСЏ РѕРґРЅРёРј СЃРјС‹СЃР»РѕРІС‹Рј РјРµС…Р°РЅРёР·РјРѕРј РёР·
+    # evidence-РєРѕРЅСЃС‚СЂСѓРєС†РёР№; legacy В«РєРѕРЅС‚РµРєСЃС‚+С†РёС„СЂР°В» вЂ” С‚РѕР»СЊРєРѕ РµСЃР»Рё РѕРЅ РїСЂРѕС…РѕРґРёС‚
+    # С‚РѕС‚ Р¶Рµ РіРµР№С‚ РєР°С‡РµСЃС‚РІР° headline_issues()
+    cmap = _candidate_map(case)
+    hl_body = _semantic_headline(case, comp, cmap)
+    if not hl_body:
+        for v, c in used:
+            cand = _short("%s %s" % (c, v), 90)
+            if cand and not headline_issues(cand):
+                hl_body = cand
+                break
+    if not hl_body:
+        hl_body = "РїСЂР°РєС‚РёС‡РµСЃРєРёР№ СЌС„С„РµРєС‚ Р°РІС‚РѕРјР°С‚РёР·Р°С†РёРё"
+    headline = "%s: %s" % (comp, hl_body)
+
+    lines = []
+    lines.append("вљЎ " + headline)
+    lines.append("")
+    lines.append("рџЏў РљС‚Рѕ: %s (%s)" % (comp, case.get("source_domain", "")))
+    if problem:
+        lines.append("вќ—пёЏ РџСЂРѕР±Р»РµРјР°: В«%sВ»" % _short(problem, 200))
+    if impl:
+        mech = _mechanics(impl)
+        if mech.startswith("С†РµРїРѕС‡РєР°:"):
+            lines.append("рџ”§ Р§С‚Рѕ Р°РІС‚РѕРјР°С‚РёР·РёСЂРѕРІР°Р»Рё: %s" % _short(mech, 240))
+        else:
+            lines.append("рџ”§ Р§С‚Рѕ Р°РІС‚РѕРјР°С‚РёР·РёСЂРѕРІР°Р»Рё: В«%sВ»" % _short(mech, 220))
+    tech = ", ".join((case.get("technology") or [])[:4])
+    if tech:
+        lines.append("вљ™пёЏ РўРµС…РЅРѕР»РѕРіРёРё: %s" % tech)
+    if results:
+        lines.append("рџ“€ Р РµР·СѓР»СЊС‚Р°С‚: В«%sВ»" % _short(results[0], 200))
+    if used:
+        lines.append("рџ”ў Р¦РёС„СЂС‹:")
+        shown = set()
+        for v, c in used[:3]:
+            if cmap.get(v):
+                # Сѓ Р·РЅР°С‡РµРЅРёСЏ РµСЃС‚СЊ РѕСЃРјС‹СЃР»РµРЅРЅС‹Рµ РєРѕРЅСЃС‚СЂСѓРєС†РёРё: РїРѕРєР°Р·С‹РІР°РµРј Р»СѓС‡С€СѓСЋ
+                # РёР· РµС‰С‘ РЅРµ РїРѕРєР°Р·Р°РЅРЅС‹С…; РїРѕРІС‚РѕСЂ (С‚РѕС‚ Р¶Рµ С‚РµРєСЃС‚ Сѓ РґСЂСѓРіРѕР№ РјРµС‚СЂРёРєРё)
+                # РїСЂРѕРїСѓСЃРєР°РµРј вЂ” legacy-РѕР±СЂС‹РІРѕРє РІРјРµСЃС‚Рѕ РЅРµРіРѕ РЅРµ РїРµС‡Р°С‚Р°РµРј
+                cand = next((t["text"] for t in cmap[v] if t["text"] not in shown), None)
+                if cand:
+                    shown.add(cand)
+                    lines.append("- " + _short(cand, 90))
+                continue
+            line = "- %s %s" % (_short(c, 60), v)
+            if line not in shown:
+                shown.add(line)
+                lines.append(line)
+    lines.append("")
+    lines.append("рџ’Ў Р’С‹РІРѕРґ РґР»СЏ Р±РёР·РЅРµСЃР°: СЃРІСЏР·РєР° В«РґР°РЅРЅС‹Рµ в†’ AI-РѕР±СЂР°Р±РѕС‚РєР° в†’ "
+                 "Р±РёР·РЅРµСЃ-СЃРёСЃС‚РµРјР°В» СѓР±РёСЂР°РµС‚ СЂСѓС‡РЅРѕР№ РїРµСЂРµРЅРѕСЃ РёРЅС„РѕСЂРјР°С†РёРё РјРµР¶РґСѓ "
+                 "СЃРµСЂРІРёСЃР°РјРё вЂ” СЃР°РјС‹Р№ С‡Р°СЃС‚С‹Р№ РёСЃС‚РѕС‡РЅРёРє РїРѕС‚РµСЂСЊ РІСЂРµРјРµРЅРё Рё РґРµРЅРµРі.")
+    lines.append(pick_cta(case))
+    lines.append("")
+    src = case.get("source_url") or ""
+    if src:
+        lines.append("РСЃС‚РѕС‡РЅРёРє: %s" % src)
+    lines.append(hashtags.render(tags))
+    return "\n".join(lines)
+
+
+POLISH_SYSTEM_TMPL = (
+    "РўС‹ вЂ” СЂРµРґР°РєС‚РѕСЂ РєР°РЅР°Р»Р° В«AI РђРІС‚РѕРјР°С‚РёР·Р°С†РёСЏ | Р‘РёР·РЅРµСЃВ». РџРµСЂРµРїРёС€Рё РјР°С‚РµСЂРёР°Р» "
+    "РЎРўР РћР“Рћ РїРѕ С„Р°РєС‚Р°Рј РёР· РїРµСЂРµРґР°РЅРЅРѕРіРѕ JSON CASE, РЅР° СЂСѓСЃСЃРєРѕРј, РїСЂР°РєС‚РёС‡РµСЃРєРёРј СЏР·С‹РєРѕРј.\n"
+    "РЎРўР РЈРљРўРЈР Рђ: Р·Р°РіРѕР»РѕРІРѕРє СЃС‚СЂРѕРёС‚СЃСЏ РїРѕ СЃРјС‹СЃР»Сѓ, Р° РЅРµ РїРѕ СЃРїРёСЃРєСѓ С†РёС„СЂ: РљРўРћ + "
+    "Р§РўРћ РџР РћРР—РћРЁР›Рћ (РіР»Р°РІРЅС‹Р№ РёР·РјРµСЂРёРјС‹Р№ Р±РёР·РЅРµСЃ-СЂРµР·СѓР»СЊС‚Р°С‚) + Р—Рђ РЎР§РЃРўРћ Р§Р•Р“Рћ "
+    "(РєРѕСЂРѕС‚РєР°СЏ РїСЂРёС‡РёРЅР°, РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅР°СЏ CASE). Р”Рѕ 12 СЃР»РѕРІ, С†РёС„СЂС‹ вЂ” СЃР»РѕРІР°РјРё РІ "
+    "РїСЂРµРґР»РѕР¶РµРЅРёРё: В«CNS: РІС‹СЂСѓС‡РєР° СЃ РїРѕРєСѓРїР°С‚РµР»СЏ РІС‹СЂРѕСЃР»Р° РЅР° 34% вЂ” Р·Р° СЃС‡С‘С‚ "
+    "РїРѕРІС‚РѕСЂРЅС‹С… РїРѕРєСѓРїРѕРєВ», В«РґРѕР»СЏ РєР»РёРµРЅС‚РѕРІ СЃ РїРѕРІС‚РѕСЂРЅС‹РјРё РїРѕРєСѓРїРєР°РјРё РІС‹СЂРѕСЃР»Р° СЃ "
+    "22,9% РґРѕ 36%В». Р—РђРџР Р•Р©Р•РќРћ РІ Р·Р°РіРѕР»РѕРІРєРµ: РїРµСЂРµС‡РёСЃР»РµРЅРёРµ С†РёС„СЂ С‡РµСЂРµР· СЃР»СЌС€ "
+    "(В«+56% / 16%В»), СЃС‚СЂРµР»РєР° В«в†’В» Рё РїР°СЂС‹ РІРёРґР° В«22,9% в†’ 36%В», РѕР±СЂС‹РІРєРё РІ "
+    "РєРѕСЃРІРµРЅРЅРѕРј РїР°РґРµР¶Рµ Р±РµР· СЃРєР°Р·СѓРµРјРѕРіРѕ (В«РІС‹СЂСѓС‡РєРµ РЅР° РїРѕРєСѓРїР°С‚РµР»СЏ ARPPUВ»), "
+    "Р·Р°РіРѕР»РѕРІРѕРє РёР· РѕРґРЅРѕР№ С†РёС„СЂС‹, СЃР»РѕРІР° AI/РР/ML/РЅРµР№СЂРѕСЃРµС‚Рё вЂ” РµСЃР»Рё РІ CASE РЅРµС‚ "
+    "С‚РµС… Р¶Рµ СЃР»РѕРІ (РЅРµ РїРѕРІС‹С€Р°Р№ СѓСЂРѕРІРµРЅСЊ СѓС‚РІРµСЂР¶РґРµРЅРёР№ РёСЃС‚РѕС‡РЅРёРєР°; В«Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёРµ "
+    "СЂР°СЃСЃС‹Р»РєРёВ» РѕСЃС‚Р°С‘С‚СЃСЏ СЂР°СЃСЃС‹Р»РєР°РјРё). Р”Р°Р»РµРµ: РєС‚Рѕ РєРѕРјРїР°РЅРёСЏ; "
+    "РїСЂРѕР±Р»РµРјР°; С‡С‚Рѕ Р°РІС‚РѕРјР°С‚РёР·РёСЂРѕРІР°Р»Рё Рё РєР°Рє СЌС‚Рѕ СЂР°Р±РѕС‚Р°Р»Рѕ вЂ” РћРџРРЎР«Р’РђР™ РњР•РҐРђРќРРљРћР™ "
+    "Р¦Р•РџРћР§РљРћР™ В«РґР°РЅРЅС‹Рµ в†’ РѕР±СЂР°Р±РѕС‚РєР°/РјРѕРґРµР»СЊ в†’ РґРµР№СЃС‚РІРёРµ РІ Р±РёР·РЅРµСЃ-СЃРёСЃС‚РµРјРµВ», Р° РЅРµ "
+    "РїСЂРѕСЃС‚Рѕ СЃРїРёСЃРєРѕРј СЃРµСЂРІРёСЃРѕРІ; СЂРµР·СѓР»СЊС‚Р°С‚; С†РёС„СЂС‹; С‡С‚Рѕ РѕС‚СЃСЋРґР° РјРѕР¶РµС‚ РїСЂРёРјРµРЅРёС‚СЊ "
+    "РѕР±С‹С‡РЅС‹Р№ Р±РёР·РЅРµСЃ; CTA-Р°Р±Р·Р°С†; СЃСЃС‹Р»РєР°; "
+    "С…СЌС€С‚РµРіРё РІ РїРѕСЃР»РµРґРЅРµР№ СЃС‚СЂРѕРєРµ СЂРѕРІРЅРѕ С‚Р°РєРёРµ: {tags}.\n"
+    "Р‘Р»РѕРє В«Р¦РёС„СЂС‹В»: С‚РѕР»СЊРєРѕ РїРѕРєР°Р·Р°С‚РµР»Рё, РєРѕС‚РѕСЂС‹Рµ СѓР¶Рµ РЅР°Р·РІР°РЅС‹ РІ С‚РµРєСЃС‚Рµ РїРѕСЃС‚Р° Рё РёРјРµСЋС‚ "
+    "РїРѕРЅСЏС‚РЅС‹Р№ С‡РёС‚Р°С‚РµР»СЋ РєРѕРЅС‚РµРєСЃС‚ (РїРѕ СЃС‚СЂРѕРєРµ РЅР° РїРѕРєР°Р·Р°С‚РµР»СЊ); РіРѕР»С‹Рµ С‡РёСЃР»Р° Р±РµР· "
+    "РїРѕСЏСЃРЅРµРЅРёСЏ вЂ” РЅРµ РІС‹РІРѕРґРёС‚СЊ.\n"
+    "РЎРёРјРІРѕР»С‹ '<' Рё '>' РЅРµ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ: РїРёС€Рё В«РјРµРЅРµРµ 16% Р”Р Р В», В«Р±РѕР»РµРµ 2 СЂР°Р·В»; "
+    "HTML-С‚РµРіРё, СЃСѓС‰РЅРѕСЃС‚Рё (&lt; Рё С‚.Рї.) Рё СЃРєР»РµР№РєРё РІРёРґР° В«16%Р”Р Р В» РЅРµРґРѕРїСѓСЃС‚РёРјС‹.\n"
+    "Р—РђРџР Р•Р©Р•РќРћ: Р»СЋР±С‹Рµ С‡РёСЃР»Р°/РїСЂРѕС†РµРЅС‚С‹/СЃСѓРјРјС‹, РєРѕС‚РѕСЂС‹С… РЅРµС‚ РІ CASE; СѓСЃРёР»РµРЅРёРµ С„РѕСЂРјСѓР»РёСЂРѕРІРѕРє; "
+    "С„СЂР°Р·С‹ В«СЂРµРІРѕР»СЋС†РёРѕРЅРЅС‹Р№ РїСЂРѕСЂС‹РІВ», В«РР РјРµРЅСЏРµС‚ РІСЃС‘В», В«СЌС‚Рѕ Р±СѓРґСѓС‰РµРµ Р±РёР·РЅРµСЃР°В»; РїРµСЂРµСЃРєР°Р·-В«РІРѕРґСѓВ»; "
+    "СЃРІРѕРё РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ С…СЌС€С‚РµРіРё.\n"
+    "Р•СЃР»Рё РёСЃС‚РѕС‡РЅРёРє Р°РЅРіР»РёР№СЃРєРёР№ вЂ” РІРµСЃСЊ С‚РµРєСЃС‚ РїРѕСЃС‚Р° (РєСЂРѕРјРµ РЅР°Р·РІР°РЅРёР№/РїСЂРѕРґСѓРєС‚РѕРІ) РїРµСЂРµРІРѕРґРё РЅР° СЂСѓСЃСЃРєРёР№.\n"
+    "Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ С‚РµРєСЃС‚ РїРѕСЃС‚Р° (Р±РµР· JSON, Р±РµР· markdown-РѕР±С‘СЂС‚РєРё)."
+)
+
+
+def render_post(case, source_text, provider=None):
+    """-> (text, mode, lang_ok). РљР°РЅРґРёРґР°С‚С‹: ai_polish (РµСЃР»Рё РїСЂРѕРІР°Р№РґРµСЂ Р¶РёРІРѕР№),
+    template. РљР°Р¶РґС‹Р№ РїСЂРѕС…РѕРґРёС‚ validate_post + Russian Language Guard
+    (1 retry). РќРё РѕРґРёРЅ РЅРµ РїСЂРѕС€С‘Р» guard -> lang_ok=False (review, РЅРµ РїСѓР±Р»РёРєР°С†РёСЏ)."""
+    tags = tags_for_case(case)
+    template = render_template(case, tags)
+    provider = provider or ai_mod.get_provider()
+    candidates = []
+    if type(provider).__name__ == "GigaChatProvider" and provider.available:
+        try:
+            payload = {k: case.get(k) for k in
+                       ("company_name", "problem", "implementation", "technology",
+                        "results", "metrics", "economic_effect", "source_url", "source_title")}
+            msgs = [{"role": "system", "content": POLISH_SYSTEM_TMPL.format(
+                         tags=hashtags.render(tags))},
+                    {"role": "user", "content": "CASE JSON:\n" +
+                     json.dumps(payload, ensure_ascii=False)[:7000] +
+                     "\n\nCTA-Р±Р»РѕРє РѕР±СЏР·Р°РЅ РїСЂРёСЃСѓС‚СЃС‚РІРѕРІР°С‚СЊ РІ РєРѕРЅС†Рµ (Р±РёР·РЅРµСЃ-РїСЂРёРіР»Р°С€РµРЅРёРµ Рє "
+                     "Р°РІС‚РѕРјР°С‚РёР·Р°С†РёРё, Р±РµР· Р°РіСЂРµСЃСЃРёРІРЅРѕР№ СЂРµРєР»Р°РјС‹)."}]
+            text = textclean.clean((provider.complete(msgs) or "").strip())
+            if text and len(text) > 300:
+                ok, errors = validate_post(text, case, source_text)
+                if ok:
+                    candidates.append((text, "ai_polish"))
+                else:
+                    log.info("ai polish rejected: %s", errors[:2])
+        except Exception as e:
+            log.warning("ai polish failed: %s", e)
+    candidates.append((template, "template"))
+
+    for cand, mode in candidates:
+        cand = hashtags.apply_to_post(cand, tags)
+        final, ok, note = langguard.ensure_russian(cand, provider)
+        if not ok:
+            log.info("language guard FAIL (%s): %s", mode, note)
+            continue
+        final = hashtags.apply_to_post(final, tags)
+        vok, verr = validate_post(final, case, source_text)
+        if not vok:
+            log.info("post invalid after guard (%s): %s", mode, verr[:2])
+            continue
+        if final != cand:
+            mode += "+ru"
+        return final, mode, True
+    return template, "template_langfail", False
+
+
+def editorial_check(text):
+    """Р РµРґР°РєС†РёРѕРЅРЅС‹Рµ РіРµР№С‚С‹, РЅРµ С‚СЂРµР±СѓСЋС‰РёРµ source-С‚РµРєСЃС‚Р°: HTML-Р°СЂС‚РµС„Р°РєС‚С‹,
+    Р·Р°РіРѕР»РѕРІРѕРє-РїРµСЂРµС‡РёСЃР»РµРЅРёРµ С†РёС„СЂ, В«РіРѕР»С‹РµВ» С†РёС„СЂС‹ РІ Р±Р»РѕРєРµ В«Р¦РёС„СЂС‹В»."""
+    errors = []
+    if textclean.has_artifacts(text):
+        errors.append("html artifact in post")
+    first = next((l for l in (text or "").splitlines() if l.strip()), "")
+    errors.extend(headline_issues(_head_body(first)))
+    dm = re.search(r"(?mi)^[^\w\n]*С†РёС„СЂС‹[^\w\n]*:\s*\n"
+                   r"((?:[-вЂў*].+(?:\n|$))+)", (text or "") + "\n")
+    if dm:
+        block = dm.group(1)
+        rest = (text or "").replace(block, " ")
+        rest_nums, rest_cores = _num_members(rest)
+        naked = [n for n in sorted(extract_numbers(norm_num_text(ws_norm(block))))
+                 if digits_of(n) and n not in {"1", "2", "3"}
+                 and not _num_used(n, rest_nums, rest_cores)]
+        if naked:
+            errors.append("digits block not used in text: %s" % naked[:4])
+    return (not errors), errors
+
+
+def validate_post(text, case, source_text):
+    """Р¤РёРЅР°Р»СЊРЅС‹Р№ security-РіРµР№С‚ РїРѕСЃС‚Р°: РЅРё РѕРґРЅРѕРіРѕ С‡РёСЃР»Р° РІРЅРµ РёСЃС‚РѕС‡РЅРёРєР°, РєРѕРјРїР°РЅРёСЏ
+    СѓРїРѕРјСЏРЅСѓС‚Р°, Р±РµР· С…Р°Р№РїР°, РІР°Р»РёРґРЅР°СЏ РґР»РёРЅР° + СЂРµРґР°РєС†РёРѕРЅРЅС‹Рµ РїСЂР°РІРёР»Р°."""
+    errors = []
+    if not text or len(text) > 3900:
+        errors.append("bad length %s" % (len(text or "")))
+    if HYPE_RX.search(text or ""):
+        errors.append("hype phrase in post")
+    src_norm = norm_num_text(ws_norm(source_text))
+    src_nums = extract_numbers(src_norm)
+    post_nums = extract_numbers(norm_num_text(ws_norm(text)))
+    src_cores = {digits_of(n) for n in src_nums if digits_of(n)}
+    invented = [n for n in post_nums if n not in src_nums
+                and re.sub(r"[^\d.,]", "", n) not in src_norm
+                and digits_of(n) not in src_cores]
+    invented = [n for n in invented if re.search(r"\d", n) and n not in
+                {"1", "2", "3"}]  # Р·Р°РіРѕР»РѕРІРѕС‡РЅС‹Рµ СЃС‡С‘С‚С†С‹ РєР°СЂРєР°СЃР°
+    if invented:
+        errors.append("numbers not in source: %s" % invented[:5])
+    comp = ws_norm(case.get("company_name") or "").split()[0:1]
+    if comp and comp[0] not in ws_norm(text):
+        errors.append("company missing in post")
+    # Р·Р°РіРѕР»РѕРІРѕРє РЅРµ РёРјРµРµС‚ РїСЂР°РІР° РїРѕРІС‹С€Р°С‚СЊ СѓСЂРѕРІРµРЅСЊ СѓС‚РІРµСЂР¶РґРµРЅРёСЏ РёСЃС‚РѕС‡РЅРёРєР°:
+    # AI/РР/ML-С„РѕСЂРјСѓР»РёСЂРѕРІРєР° РґРѕРїСѓСЃС‚РёРјР°, С‚РѕР»СЊРєРѕ РµСЃР»Рё С‚Рѕ Р¶Рµ СЃР»РѕРІРѕ РµСЃС‚СЊ РІ source/evidence
+    hl = ws_norm(_head_body(next((l for l in (text or "").splitlines() if l.strip()), "")))
+    srcb = ws_norm(source_text or "") + " " + ws_norm(
+        json.dumps(case.get("evidence") or {}, ensure_ascii=False)) + " " + ws_norm(
+        " ".join([case.get("implementation") or "", case.get("solution") or "",
+                  case.get("source_title") or ""]))
+    if re.search(r"\bai\b|\bРёРё\b|РЅРµР№СЂРѕСЃРµС‚|РёСЃРєСѓСЃСЃС‚РІРµРЅРЅ", hl) and \
+            not re.search(r"\bai\b|artificial|РЅРµР№СЂРѕСЃРµС‚|РёСЃРєСѓСЃСЃС‚РІРµРЅРЅ|\bРёРё\b", srcb):
+        errors.append("headline: AI-claim not backed by source")
+# ---------------- AGRO HASHTAGS ----------------
+AGRO_HASHTAGS = [
+    "#РЎР°Рґ", "#РћРіРѕСЂРѕРґ", "#Р¤РµСЂРјРµСЂСЃС‚РІРѕ", "#РђРіСЂРѕС‚РµС…РЅРѕР»РѕРіРёРё", "#РђРіСЂРѕР±РёР·РЅРµСЃ",
+    "#Р Р°СЃС‚РµРЅРёСЏ", "#РЈСЂРѕР¶Р°Р№", "#РђРіСЂРѕР°РІС‚РѕРјР°С‚РёР·Р°С†РёСЏ", "#РџСЂР°РєС‚РёРєР°",
+    "#РџРѕРіРѕРґР°", "#РўРµС…РЅРёРєР°", "#Р­РєРѕРЅРѕРјРёРєР°", "#Р‘РѕР»РµР·РЅРё", "#Р’СЂРµРґРёС‚РµР»Рё"
+]
+
+# ---------------- END AGRO HASHTAGS ----------------
+
+        not re.search(r"\\bml\\b|machine|машинн", srcb):
+        errors.append("headline: ML-claim not backed by source")
+    ok_e, err_e = editorial_check(text)
+    errors.extend(err_e)
+    return (not errors), errors

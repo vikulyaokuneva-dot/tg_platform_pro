@@ -1,0 +1,55 @@
+========================= botanichka
+OK https://botanichka.ru/  http=200 len=256655
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="Ботаничка.ru RSS лента активности сайта" href="https://www.botanichka.ru/activity/feed/" />
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="Ботаничка &raquo; Лента" href="https://www.botanichka.ru/feed/" />
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="Ботаничка &raquo; Лента комментариев" href="https://www.botanichka.ru/comments/feed/" />
+  top path sections: [('category', 6), ('topics', 3), ('activity', 2), ('forum', 2), ('feed', 2), ('register', 1), ('abc', 1), ('best', 1)]
+  article-like: []
+OK https://botanichka.ru/feed/  http=200 len=163045
+  RSS items: 8
+     https://www.botanichka.ru
+     https://www.botanichka.ru
+     https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-inache/
+     https://www.botanichka.ru/article/pochemu-zhivotnye-v-hozyajstve-hudeyut-hotya-edyat-normalno/
+     https://www.botanichka.ru/article/chem-luchshe-belit-derevya-osenyu-izvest-mel-ili-sadovaya-kraska/
+     https://www.botanichka.ru/article/8-czvetov-dlya-osennego-samoseva-kotorye-ne-stoit-srezat-ranshe-vremeni/
+     https://www.botanichka.ru/article/borba-s-krysami-v-chastnom-dome-ekstrennye-mery-i-bezopasnye-sposoby/
+     https://www.botanichka.ru/article/kuda-pristroit-opavshuyu-listvu-v-sadu-8-poleznyh-primenenij/
+  pubDates: ['Tue, 15 Sep 2026 14:48:28 +0000', 'Tue, 15 Sep 2026 14:45:37 +0000', 'Mon, 14 Sep 2026 15:26:24 +0000']
+FETCH FAIL https://botanichka.ru/category/sad-i-ogorod FetchError https://botanichka.ru/category/sad-i-ogorod 404 permanent
+========================= svoe_fermerstvo
+OK https://svoefermerstvo.ru/  http=200 len=287368
+  top path sections: [('services', 2), ('catalog', 1), ('uslugi', 1), ('companies', 1), ('gospodderzhka-apk', 1), ('svoemedia', 1), ('obyavleniya', 1), ('analytics', 1)]
+  article-like: ['/analytics']
+FETCH FAIL https://agroexpedition.ru/ FetchError https://agroexpedition.ru/  ConnectionError
+FETCH FAIL https://svoefermerstvo.ru/feed/ FetchError https://svoefermerstvo.ru/feed/ 404 permanent
+========================= gismeteo
+OK https://www.gismeteo.ru/news/  http=200 len=193823
+  top path sections: [('news', 30), ('page', 4), ('maps', 1), ('soft', 1), ('sitemap', 1)]
+  article-like: ['/news/', '/news/weather/', '/news/weather/', '/news/science/', '/news/science/', '/news/nature/']
+OK https://www.gismeteo.ru/  http=200 len=187277
+  top path sections: [('weather-putevka-131225', 33), ('maps', 10), ('page', 4), ('nowcast-putevka-131225', 2), ('news', 1), ('soft', 1), ('catalog', 1), ('weather-barnaul-4720', 1), ('weather-belgorod-5039', 1), ('weather-volgograd-5089', 1), ('weather-voronezh-5026', 1), ('weather-yekaterinburg-4517', 1)]
+  article-like: ['/news/']
+========================= agroinvestor
+OK https://www.agroinvestor.ru/  http=200 len=119959
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор»" href="https://www.agroinvestor.ru/feed/public-agroinvestor-articles.xml">
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор: PRO технику и технологии»" href="https://www.agroinvestor.ru/feed/public-agrot
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS новости, фото, видео" href="https://www.agroinvestor.ru/feed/public-agronews.xml">
+  top path sections: [('markets', 16), ('about', 15), ('business-pages', 14), ('agroinvestor', 8), ('agrotechnika', 8), ('analytics', 7), ('column', 7), ('regions', 5), ('companies', 5), ('conference', 4), ('subscribe', 4), ('archive', 4)]
+  article-like: ['/analytics/', '/analytics/', '/regions/news/46539-krasnodarskiy-kray-nachal-uborku-risa/', '/regions/news/46539-krasnodarskiy-kray-nachal-uborku-risa/', '/archive/news/46515-samoe-interesnoe-za-nedelyu-s-7-po-13-sentyabrya/', '/archive/news/46515-samoe-interesnoe-za-nedelyu-s-7-po-13-sentyabrya/']
+OK https://www.agroinvestor.ru/news/  http=200 len=166468
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор»" href="https://www.agroinvestor.ru/feed/public-agroinvestor-articles.xml">
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор: PRO технику и технологии»" href="https://www.agroinvestor.ru/feed/public-agrot
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS новости, фото, видео" href="https://www.agroinvestor.ru/feed/public-agronews.xml">
+  top path sections: [('markets', 24), ('about', 14), ('analytics', 7), ('column', 6), ('regions', 5), ('companies', 5), ('conference', 4), ('subscribe', 4), ('agroinvestor', 4), ('agrotechnika', 4), ('archive', 4), ('afisha', 3)]
+  article-like: ['/analytics/', '/analytics/', '/regions/news/46539-krasnodarskiy-kray-nachal-uborku-risa/', '/regions/news/46539-krasnodarskiy-kray-nachal-uborku-risa/', '/analytics/news/46533-v-rossii-vvedut-monitoring-tsen-na-24-vida-produktov/', '/analytics/']
+OK https://www.agroinvestor.ru/rss/  http=200 len=74704
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор»" href="https://www.agroinvestor.ru/feed/public-agroinvestor-articles.xml">
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS журнал «Агроинвестор: PRO технику и технологии»" href="https://www.agroinvestor.ru/feed/public-agrot
+  RSS tag: <link rel="alternate" type="application/rss+xml" title="RSS новости, фото, видео" href="https://www.agroinvestor.ru/feed/public-agronews.xml">
+  RSS items: 0
+  pubDates: []
+========================= extraction probes
+https://www.gismeteo.ru/news/ -> article candidates: 0 []
+https://botanichka.ru/ -> article candidates: 185 ['https://cdn2.botanichka.ru/wp-content/uploads/2015/12/cropped-icon-big-210x210.png', 'https://cdn2.botanichka.ru/wp-content/uploads/2015/12/cropped-icon-big-210x210.png', 'https://cdn2.botanichka.ru/wp-content/uploads/2015/12/cropped-icon-big-210x210.png', 'https://www.botanichka.ru/article/7-komnatnyh-rastenij-kotorye-v-prirode-vyglyadyat-sovsem-inache/']
+probe fail https://botanichka.ru/ AttributeError module 'case_pipeline.extraction' has no attribute 'extract'

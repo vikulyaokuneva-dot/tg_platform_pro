@@ -687,7 +687,14 @@ def tags_for_case(case):
     blob = ws_norm(" ".join([case.get("problem", ""), case.get("implementation", ""),
                              " ".join(case.get("results") or []),
                              ", ".join(case.get("technology") or [])]))
-    return hashtags.build("case", blob, case.get("company_name"))
+    tags = hashtags.build("case", blob, case.get("company_name"))
+    
+    # Проверяем, является ли материал агро-тематическим
+    from .classifier_lib import classifier_v2
+    if classifier_v2.is_agro(case.get("problem", "") + " " + case.get("implementation", "")):
+        tags.extend(AGRO_HASHTAGS)
+    
+    return tags
 
 
 def render_template(case, tags=None):
@@ -906,8 +913,16 @@ def validate_post(text, case, source_text):
     if re.search(r"\bai\b|\bии\b|нейросет|искусственн", hl) and \
             not re.search(r"\bai\b|artificial|нейросет|искусственн|\bии\b", srcb):
         errors.append("headline: AI-claim not backed by source")
-    if re.search(r"\bml\b|машинн", hl) and \
-            not re.search(r"\bml\b|machine|машинн", srcb):
+# ---------------- AGRO HASHTAGS ----------------
+AGRO_HASHTAGS = [
+    "#Сад", "#Огород", "#Фермерство", "#Агротехнологии", "#Агробизнес",
+    "#Растения", "#Урожай", "#Агроавтоматизация", "#Практика",
+    "#Погода", "#Техника", "#Экономика", "#Болезни", "#Вредители"
+]
+
+# ---------------- END AGRO HASHTAGS ----------------
+
+        not re.search(r"\\bml\\b|machine|������", srcb):
         errors.append("headline: ML-claim not backed by source")
     ok_e, err_e = editorial_check(text)
     errors.extend(err_e)

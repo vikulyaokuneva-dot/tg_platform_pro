@@ -1,0 +1,6 @@
+﻿names differ in <module> {'editorial_check', 'render_template', 'POLISH_SYSTEM_TMPL', 'validate_post', 'render_post'}
+const differ  98 (220,) REF: ('render_template', ('tags_for_case', 'textclean', 'clean', 'get', '_metric_parts', 'ws_no
+const differ  99 (True,) REF: "�� � �������� ������ �AI ������������� | ������. �������� �������� ������ �� ������ �� �
+const differ  100 (7,) REF: ('render_post', ('tags_for_case', 'render_template', 'ai_mod', 'get_provider', 'type', '__
+const differ  101 (None,) REF: ('editorial_check', ('textclean', 'has_artifacts', 'append', 'next', 'splitlines', 'extend
+const count <module> 102 vs 107

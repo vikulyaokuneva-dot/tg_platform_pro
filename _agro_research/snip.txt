@@ -1,0 +1,8 @@
+    tags = hashtags.build("case", blob, case.get("company_name"))
+    
+    # Проверяем, является ли материал агро-тематическим
+    from .classifier_lib import classifier_v2
+    if classifier_v2.is_agro(case.get("problem", "") + " " + case.get("implementation", "")):
+        tags.extend(AGRO_HASHTAGS)
+    
+    return tags

@@ -1,0 +1,3 @@
+DIRECT {'url': 'https://www.botanichka.ru/article/kogda-sazhat-chesnok-osenyu/', 'source': 'botanichka', 'status': 'published', 'reason': '', 'agro_type': 'practical', 'confidence': 0.95, 'hashtags': ['#Практика', '#Огород', '#Растения', '#Ботаничка'], 'telegram_message_id': 7}
+RUN {'checked': 1, 'post_ready': 0, 'published': 1, 'rejected': 0, 'review': 0, 'news_hold': 0, 'failed': 0, 'skipped': 0, 'dry_run': False}
+sent [('t', 'C'), ('t', 'C')]

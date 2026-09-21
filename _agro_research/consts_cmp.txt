@@ -1,0 +1,12 @@
+module names cand-only: set()
+module names ref-only: {'editorial_check', 'POLISH_SYSTEM_TMPL', 'validate_post', 'render_post', 'render_template'}
+--- REF
++++ CAND
+@@ -98,7 +98,2 @@
+ <code tags_for_case>
+-<code render_template>
+-S:'Ты — редактор канала «AI Автоматизация | Бизнес». Переп'
+-<code render_post>
+-<code editorial_check>
+-<code validate_post>
+ (220,)

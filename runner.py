@@ -18,8 +18,10 @@ def save_stats(path, stats):
 
 def discover_jobs():
     for name in sorted(os.listdir(JOBS_DIR)):
-        if os.path.isdir(f"{JOBS_DIR}/{name}") and os.path.exists(f"{JOBS_DIR}/{name}/job.py"):
-            yield name
+        job_dir = f"{JOBS_DIR}/{name}"
+        if os.path.isdir(job_dir) and os.path.exists(f"{job_dir}/job.py"):
+            if not os.path.exists(f"{job_dir}/.disabled"):
+                yield name
 
 def run_jobs():
     for job_name in discover_jobs():
@@ -47,8 +49,6 @@ def run_jobs():
             stats["success"] += 0 if error else 1
             stats["last_run"] = datetime.utcnow().isoformat()
             save_stats(stats_path, stats)
-
-        time.sleep(JOB_DELAY_SECONDS)
 
 if __name__ == "__main__":
     run_jobs()
