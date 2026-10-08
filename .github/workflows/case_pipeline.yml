@@ -27,8 +27,12 @@ jobs:
       # простое возможен повторный просмотр старых URL; публикации при этом
       # защищены Telegram-side? НЕТ — см. README §11 (рекомендация: периодический
       # запуск не реже раза в неделю или миграция на внешний volume).
+      # restore/save РАЗДЕЛЕНЫ (вместо единого actions/cache@v4 c
+      # post-if: success()): журнал публикаций сохраняется всегда, даже если
+      # шаг пайплайна упал после отправки — иначе следующий run восстановил бы
+      # состояние ДО публикации. См. также daily_jobs.yml (та же схема).
       - name: Restore pipeline DB
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data
           key: case-db-${{ github.run_id }}
@@ -51,3 +55,11 @@ jobs:
           name: case-run-${{ github.run_id }}
           path: runs/
           retention-days: 14
+
+      # Save всегда (if: always()): см. комментарий у restore-шага.
+      - name: Save pipeline DB
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}

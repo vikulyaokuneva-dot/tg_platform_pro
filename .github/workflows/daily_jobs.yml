@@ -31,8 +31,13 @@ jobs:
       # сохранённый ЛЮБЫМ из двух workflow; save-ключ уникален по run_id.
       # actions/cache эвиктится после ~7 дней неактивности; два запуска в
       # сутки держат кэш живым (и для case_pipeline.yml тоже).
+      # restore/save РАЗДЕЛЕНЫ: единый actions/cache@v4 объявляет
+      # post-if: success() — при падении шага запуска журнал публикаций не
+      # сохранялся бы и следующий run восстановил бы состояние ДО публикации
+      # (риск повторной отправки в Telegram). Отдельный save-шаг с
+      # if: always() фиксирует data/ в любом исходе job.
       - name: Restore pipeline DB
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data
           key: case-db-${{ github.run_id }}
@@ -48,3 +53,14 @@ jobs:
           AGRO_CHAT_ID: ${{ secrets.AGRO_CHAT_ID }}
           AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
           AI_AUTOMATION_CHAT_ID: ${{ secrets.AI_AUTOMATION_CHAT_ID }}
+
+      # Save выполняется всегда (в т.ч. при падении runner.py): журнал
+      # публикаций, записанный до падения, обязан пережить прогон — иначе
+      # следующий run восстановит кэш ДО публикации и повторит отправку.
+      # Ключ с тем же префиксом и уникален по run_id (как у restore).
+      - name: Save pipeline DB
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}
