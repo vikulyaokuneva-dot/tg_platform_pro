@@ -98,6 +98,34 @@ def main():
                  (gm.get("result") or {}).get("status") if gm.get("ok") else None,
                  safe(gm.get("description") or "", token)))
 
+    # --- can_post_messages ( Bot API getChatAdministratorPermissions ) ---
+    if bot_id and chat:
+        st, gp = call("getChatAdministratorPermissions",
+                      {"chat_id": chat, "user_id": bot_id})
+        if gp.get("ok"):
+            p = gp.get("result") or {}
+            print("getChatAdministratorPermissions: can_post_messages=%s "
+                  "can_edit_messages=%s" % (p.get("can_post_messages"),
+                                            p.get("can_edit_messages")))
+        else:
+            print("getChatAdministratorPermissions: http=%s ok=False description=%s"
+                  % (st, safe(gp.get("description") or "", token)))
+
+    # --- тот же ТОКЕН против AI-канала: общий secret безопасно ли менять? ---
+    ai_chat = config.CHAT_ID or ""
+    st, ga = call("getChat", {"chat_id": ai_chat})
+    a = ga.get("result") or {}
+    print("getChat(AI %r): http=%s ok=%s description=%s"
+          % (ai_chat, st, ga.get("ok"), safe(ga.get("description") or "", token)))
+    print("  ai chat: id=%s type=%s title=%r" % (a.get("id"), a.get("type"),
+                                                 a.get("title")))
+    if bot_id and ai_chat:
+        st, gm2 = call("getChatMember", {"chat_id": ai_chat, "user_id": bot_id})
+        print("getChatMember(bot in AI chat): http=%s ok=%s status=%s description=%s"
+              % (st, gm2.get("ok"),
+                 (gm2.get("result") or {}).get("status") if gm2.get("ok") else None,
+                 safe(gm2.get("description") or "", token)))
+
     # --- read-only: terminal-строки агро-БД (риск повторной публикации) ---
     db_path = config.AGRO_DB_PATH
     print("agro db: %s exists=%s" % (db_path, os.path.exists(db_path)))
