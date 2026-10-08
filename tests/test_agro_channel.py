@@ -247,6 +247,40 @@ def test_stale_and_thin_rejected(st, tmp_path, monkeypatch):
     assert r["status"] == "rejected" and r["reason"] == "thin"
 
 
+def test_editorial_gate_is_review_not_post_ready(tmp_path, monkeypatch):
+    """Регрессия к прогону CI 2026-10-07 20:32 (run 72).
+
+    Единственная практическая статья того прогона прошла classifier_agro, но
+    провалила editorial_agro («number not in source»: двузначное число из
+    заголовка отсутствует в извлечённом тексте). Итог: status='review',
+    а НЕ post_ready/published — поэтому в publish-режиме summary дал
+    review=1, post_ready=0, published=0 и НИ ОДНОЙ отправки в Telegram не было
+    (все остальные 23 прогона с review>=1 сопровождались telegram publish
+    failed). Поведение фильтра штатное; тест фиксирует, что гейт не «лечится»
+    повторным проходом и не попадает в published."""
+    title = ART_TITLE.replace("3 схемы", "77 схем")
+    html = ARTICLE_HTML % (title, title, _today(), PAR1, PAR2)
+    _fake_network(monkeypatch, {ART_URL: html})
+
+    st1 = storage_mod.Storage(str(tmp_path / "editorial.db"))
+    r = agro.process_url(st1, ART_URL, "botanichka", publish=False, dry_run=True)
+    assert r["status"] == "review" and r["reason"] == "editorial gate", r
+    row = st1.get(st1.add(ART_URL, "botanichka"))
+    assert row["status"] == "review"
+    assert "number not in source: 77" in row["reason"], row["reason"]
+    # review входит в _known_skip: повторный проход статус не меняет
+    r2 = agro.process_url(st1, ART_URL, "botanichka", publish=False, dry_run=True)
+    assert r2["status"] == "skipped" and "already review" in r2["reason"]
+
+    # сводка прогона — как в CI run 72: review=1, post_ready=0, published=0
+    st2 = storage_mod.Storage(str(tmp_path / "editorial_run.db"))
+    monkeypatch.setattr(agro.adapters.ADAPTERS["botanichka"], "discover",
+                        lambda: [ART_URL])
+    s = agro.run(dry_run=True, publish=False, sources=["botanichka"], st=st2)
+    assert s["checked"] == 1 and s["review"] == 1, s
+    assert s["post_ready"] == 0 and s["published"] == 0, s
+
+
 # ---------- dedup и изоляция каналов ----------
 
 def test_dedup_repeat_not_reprocessed(st, monkeypatch):
