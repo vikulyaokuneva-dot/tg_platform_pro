@@ -532,3 +532,183 @@ def test_completeness_gate_checks_article_sections():
     complete = YAB_TITLE + "\n\n" + YAB_INTRO + "\n\n" + \
         "\n\n".join("%s: %s" % (s, b) for s, b in zip(secs, bodies))
     assert agro._completeness_errors(complete, text, html) == []
+
+
+# ---------- регрессия msg82/83 (aif «Что посадить на даче до первого снега») --
+
+AIF_URL = ("https://aif.ru/dacha/ogorod/chto-posadit-na-dache-"
+           "do-pervogo-snega")
+AIF_TITLE = "Что посадить на даче до первого снега?"
+# дословное вступление реально опубликованного поста msg82/83
+AIF_MODEL_INTRO = ("Осенью можно вырастить ранние овощи, которые порадуют "
+                   "урожаем уже весной. Агроном Людмила Воинкова советует "
+                   "обратить внимание на лук, морковь и чеснок.")
+# первая половина статьи: вступление источника (для дефектного «только
+# вступление» оно должно быть в первой половине текста)
+AIF_INTRO = (AIF_MODEL_INTRO +
+             " Ориентир — не календарь, а погода: посадка идёт только в "
+             "устоявшуюся холодную почву, иначе семена уйдут в рост и "
+             "погибнут от первых морозов. Ниже — сводка основных правил "
+             "посадки перед первым снегом.")
+# хвост статьи — ведущая часть (о пользе посадки) и те самые рекомендации,
+# которых не хватало в коротком посте (во второй половине текста)
+AIF_TAIL = (
+    "Осенняя посадка экономит время весной: всходы появляются сразу после "
+    "схода снега, и первый урожай собирают на несколько недель раньше, чем "
+    "при посадке весной. Отсюда и главная польза статьи — ранний урожай "
+    "овощей и экономия времени садовода.\n\n"
+    "Практические рекомендации. Посадочный материал берите сухой, без "
+    "следов плесени; норму высева увеличьте на 25-30% — часть семян "
+    "всего равно не взойдёт. Ориентируйтесь не на дату, а на температуру "
+    "почвы: сажайте, когда на глубине 5-10 см почва остынет до +2...+4°C. "
+    "Грядки готовьте за 10-14 дней: земля должна осесть самостоятельно, "
+    "а свежие суглинки задерживают ростки.\n\n"
+    "Полив после осенней посадки запрещён: влага вымывает семена и "
+    "провоцирует гниение. Укрывать посадки тоже не нужно — снег сам "
+    "сделает это лучше любого укрывного материала. Зубчик сажают на "
+    "глубину 5-10 см, а мелкий севок — на 3-4 см: мельче заглублять "
+    "нельзя, иначе луковица не взойдёт.\n\n"
+    "Весной останется проредить всходы и снять лишнюю влагу: как только "
+    "почва оттает, посадки открывают, рыхлят и подкармливают по "
+    "инструкции. Если всходы появились слишком густо, излишки убирают, "
+    "оставляя между растениями 3-5 см.")
+AIF_TEXT = AIF_INTRO + "\n\n" + AIF_TAIL
+AIF_HTML = ARTICLE_HTML % (AIF_TITLE, AIF_TITLE, _today(), AIF_INTRO, AIF_TAIL)
+
+# дефектный пост msg82/83: структура и длина в порядке, но это только
+# вступление со ссылкой — рекомендаций и вывода нет
+AIF_INTRO_ONLY_POST = AIF_TITLE + "\n\n" + AIF_INTRO
+# как модель ответила ФАКТИЧЕСКИ в msg83: заголовок-«пункт» и список,
+# склеенный одинарными переносами строки
+AIF_AI_BULLET_POST = (
+    "• " + AIF_TITLE + "\n\n"
+    + AIF_MODEL_INTRO + "\n\n"
+    "Главная польза статьи: Получить ранний урожай овощей и сэкономить "
+    "время весной.\n\n"
+    "Ключевые рекомендации:\n"
+    "• Ориентируйтесь не на дату, а на температуру почвы: сажайте, когда на "
+    "глубине 5-10 см почва остынет до +2...+4°C.\n"
+    "• Увеличьте норму высева на 25-30% — часть семян зимой не взойдёт.\n"
+    "• Грядки готовьте за 10-14 дней, а полив после осенней посадки "
+    "запрещён: влага вымывает семена.\n\n"
+    "Вывод: сажайте лук, морковь и чеснок в устоявшуюся холодную почву "
+    "и не поливайте — весной останется проредить всходы."
+)
+
+
+def test_clean_ai_output_heals_bullet_headline_and_merged_list():
+    """msg82/83 (очистка вывода): «•» в заголовке снимается, буллеты,
+    разделённые одним переносом строки, становятся отдельными абзацами;
+    текст советов дословно не переписывается."""
+    cleaned = agro._clean_ai_output(AIF_AI_BULLET_POST)
+    blocks = [b for b in cleaned.split("\n\n") if b.strip()]
+    assert blocks[0] == AIF_TITLE                       # без маркера «•»
+    bullets = [b for b in blocks if b.startswith("• ")]
+    assert len(bullets) == 3, blocks                    # каждый совет — абзац
+    assert "Ключевые рекомендации:\n• " not in cleaned  # склейка разобрана
+    assert "• Ориентируйтесь не на дату" in cleaned     # текст не переписан
+
+
+def test_regression_msg83_intro_only_ai_post_is_reviewed_not_published(
+        st, monkeypatch):
+    """Регрессия msg82/83: ИИ вернул только вступление со ссылкой (длина
+    и структура в порядке, рекомендаций нет) — 1 повтор, затем review с диагностикой
+    «incomplete», публикации нет."""
+    _fake_network(monkeypatch, {AIF_URL: AIF_HTML})
+    _publish_traps(monkeypatch)
+    prov = StubProvider(AIF_INTRO_ONLY_POST, AIF_INTRO_ONLY_POST)
+    r = agro.process_url(st, AIF_URL, "aif", publish=True,
+                         dry_run=False, provider=prov)
+    assert r["status"] == "review" and len(prov.calls) == 2, r
+    assert r["ai"] == "failed"
+    row = st.get(st.add(AIF_URL, "x"))
+    assert row["status"] == "review" and not row["post_text"]
+    assert "incomplete" in row["reason"], row["reason"]
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+
+
+def test_regression_msg83_fallback_and_cache_cannot_bypass_completeness(
+        st, monkeypatch):
+    """Регрессия msg82/83: запрет публикации «только вступления» не обходится
+    ни extractive-фолбэком (провайдер недоступен), ни кэшем post_text при
+    повторном прогоне после сбоя."""
+    _fake_network(monkeypatch, {AIF_URL: AIF_HTML})
+    _publish_traps(monkeypatch)
+    # (a) фолбэк: провайдер недоступен -> extractive = вступление -> review
+    r1 = agro.process_url(st, AIF_URL, "aif", publish=True,
+                          dry_run=False, provider=None)
+    assert r1["status"] == "review" and r1["ai"] == "skipped", r1
+    assert r1["reason"] == "editorial gate"
+    mid = st.add(AIF_URL, "x")
+    row = st.get(mid)
+    assert row["status"] == "review" and "incomplete" in row["reason"]
+    assert not row["post_text"]        # неполный пост НЕ закэширован вовсе
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+    # (b) «отравленный» кэш (строка post_text из прогона до гейта, статус
+    # failed): повторная обработка пере-проверяет кэш и НЕ публикует его
+    # мимо проверки полноты
+    tags_line = " ".join("#" + t for t in sorted(agro.AGRO_ALLOWED_TAGS)[:3])
+    poisoned = (AIF_INTRO_ONLY_POST + "\n\nИсточник: " + AIF_URL +
+                "\n" + tags_line)
+    st.update(mid, status="failed", reason="image fetch: 403",
+              post_text=poisoned)
+    prov = StubProvider()      # любой вызов ИИ здесь = AssertionError
+    r2 = agro.process_url(st, AIF_URL, "aif", publish=True,
+                          dry_run=False, provider=prov)
+    assert r2["status"] == "review", r2
+    assert len(prov.calls) == 0            # кэш не пересобирался ИИ
+    assert st.get(mid)["status"] == "review"
+    assert "incomplete" in st.get(mid)["reason"]
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+
+
+def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
+        st, monkeypatch):
+    """Регрессия msg82/83 (формат+дедуп): пост модели с заголовком-«пунктом»
+    и склеенными буллетами публикуется парой «фото+текст» с чистым заголовком
+    и отдельными абзацами советов; вступление уходит в подпись и НЕ
+    дублируется в тексте; повторный запуск не создаёт повторную
+    публикацию."""
+    _fake_network(monkeypatch, {AIF_URL: AIF_HTML})
+    _publish_traps(monkeypatch)
+    seen, sent = {}, []
+
+    def spy_photo(token, chat_id, photo_url=None, photo_bytes=None,
+                  caption=None, dry_run=False, retries=2, parse_mode=None):
+        seen["caption"] = caption
+        sent.append("photo")
+        return telegram.PublishResult(True, message_id=820)
+
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        seen["full"] = text
+        sent.append("text")
+        return telegram.PublishResult(True, message_id=821)
+    monkeypatch.setattr(telegram, "send_photo", spy_photo)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
+
+    prov = StubProvider(AIF_AI_BULLET_POST)
+    r1 = agro.process_url(st, AIF_URL, "aif", publish=True,
+                          dry_run=False, provider=prov)
+    assert r1["status"] == "published" and r1["ai"] == "edited", r1
+
+    cap = postformat.unescape_markdownv2(seen["caption"])
+    full = postformat.unescape_markdownv2(seen["full"])
+    assert cap.startswith("**%s**" % AIF_TITLE)        # заголовок без «•»
+    fb = [b for b in full.split("\n\n") if b.strip()]
+    assert fb[0] == "**%s**" % AIF_TITLE               # и в тексте тоже
+    assert sum(1 for b in fb if b.startswith("• ")) == 3, fb  # советы по абзацам
+    assert "Ключевые рекомендации:\n• " not in full    # склейки нет
+    assert "Вывод:" in full and "проредить всходы" in full
+    assert AIF_MODEL_INTRO in cap                      # вступление -> подпись
+    assert AIF_MODEL_INTRO not in full                 # и не дублируется в тексте
+    assert "Источник: " + AIF_URL in cap and "Источник: " + AIF_URL in full
+    assert "…" not in full and len(seen["full"]) <= 4090
+    assert len(seen["caption"]) <= 1024
+
+    # идемпотентность: повторная обработка опубликованной статьи не публикует дубль
+    r2 = agro.process_url(st, AIF_URL, "aif", publish=True,
+                          dry_run=False, provider=prov)
+    assert r2["status"] == "skipped" and "already" in r2["reason"], r2
+    assert len(prov.calls) == 1                        # редактура не повторилась
+    assert sent == ["photo", "text"]                   # photo+text ровно один раз
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 1
