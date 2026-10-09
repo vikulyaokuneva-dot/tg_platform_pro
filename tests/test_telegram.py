@@ -40,3 +40,23 @@ def test_dry_run_no_http(monkeypatch):
 def test_no_token_blocked(monkeypatch):
     res = telegram.send_message(None, "-100", "x")
     assert not res.ok and "token" in str(res.error).lower()
+
+
+def test_fit_caption_keeps_source_and_tags():
+    """Caption ≤1024 для sendPhoto: «Источник:» и хэштеги сохраняются,
+    тело ужимается по границам слов, MarkdownV2 остаётся валидным."""
+    from case_pipeline import postformat
+    body = ("Абзац про сад и огород: " +
+            "подкормите розы, укройте грядку, проверьте теплицу. " * 40)
+    post = ("Когда сажать чеснок осенью\n\n" + body + "\n\n"
+            "Источник: https://example.com/article/kogda-sazhat-chesnok-osenyu\n\n"
+            "#Практика #Сад #Ботаничка")
+    md = postformat.to_markdownv2(postformat.format_post(post))
+    assert len(md) > 1024, len(md)
+    cap = telegram.fit_caption(md, 1024)
+    assert len(cap) <= 1024, len(cap)
+    plain = postformat.unescape_markdownv2(cap)
+    assert "Источник: https://example.com/article/kogda-sazhat-chesnok-osenyu" in plain
+    assert "#Практика #Сад #Ботаничка" in plain
+    # жирные сегменты не разрезаны — парность ** сохранена
+    assert cap.count("**") % 2 == 0

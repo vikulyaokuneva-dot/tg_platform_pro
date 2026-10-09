@@ -5,6 +5,7 @@
 В dry-run ничего не отправляет. Токен НЕ логируется и в отчёты не попадает.
 """
 import logging
+import re
 import time
 
 import requests
@@ -70,14 +71,62 @@ def credentials(channel="ai"):
     return config.BOT_TOKEN, config.CHAT_ID
 
 
-def publish_post(text, chat_id=None, dry_run=False, channel="ai"):
+def _cut_words(s, n):
+    """Обрезка до n символов по границе слова: в MarkdownV2 резать можно
+    только по пробелам — иначе можно разрезать escape-последовательность."""
+    if len(s) <= n:
+        return s
+    piece = s[:n]
+    i = piece.rfind(" ")
+    if i <= 0:
+        i = n
+    return s[:i].rstrip().rstrip("\\") + "…"
+
+
+def fit_caption(md, limit=1024):
+    """Caption ≤ limit для sendPhoto: заголовок, строка «Источник:» и хэштеги
+    сохраняются всегда, тело ужимается по границам слов (лимит считается по
+    уже экранированному тексту — как его считает Telegram)."""
+    if len(md) <= limit:
+        return md
+    blocks = md.split("\n\n")
+    head = blocks[0]
+    src_i = next((i for i, b in enumerate(blocks)
+                  if b.lstrip().startswith("Источник")), len(blocks))
+    tail = blocks[src_i:]
+    middle = blocks[1:src_i]
+
+    def total():
+        return len("\n\n".join([head] + middle + tail))
+
+    for _ in range(100):
+        if total() <= limit:
+            break
+        over = total() - limit
+        if middle:
+            joined = "\n\n".join(middle)
+            new = _cut_words(joined, max(40, len(joined) - over))
+            middle = new.split("\n\n") if new != joined else middle[:-1]
+        else:
+            inner = head[2:-2] if (head.startswith("**") and len(head) > 4
+                                   and head.endswith("**")) else head
+            new = _cut_words(inner, max(20, len(inner) - over))
+            if new == inner:
+                break
+            head = ("**%s**" % new) if head.startswith("**") else new
+    return "\n\n".join([head] + middle + tail)
+
+
+def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     """Финальная подача поста: целевой макет канала (жирный заголовок/поля,
     пустые строки между блоками) + валидный MarkdownV2 с полным экранированием
     (postformat). Механизм отправки и ретраи — прежние. Откат безопасный: если
     API отверг разметку (400 parse) или длина после экранирования близка к
     лимиту — тот же текст уходит plain text (без parse_mode).
 
-    channel: 'ai' (default, поведение идентично прежнему) | 'agro'."""
+    channel: 'ai' (default, поведение идентично прежнему) | 'agro'.
+    image: bytes — пост уходит sendPhoto с caption ≤1024 (fit_caption
+    сохраняет «Источник:» и хэштеги); без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     formatted = postformat.format_post(text)
     if dry_run:
@@ -87,6 +136,22 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai"):
         # честный стоп: без секретов канала НЕ уходим в чужой токен/чат
         return PublishResult(False, error="no credentials for channel %s" % channel)
     md = postformat.to_markdownv2(formatted)
+    if image:
+        caption = fit_caption(md, 1024)
+        res = send_photo(token, chat_id or target_chat, photo_bytes=image,
+                         caption=caption, parse_mode="MarkdownV2")
+        if res.ok:
+            return res
+        err = str(res.error or "").lower()
+        if "400" not in err or "parse" not in err:
+            log.error("telegram photo publish failed: %s", res.error)
+            return res
+        log.warning("caption markdown rejected (400 parse) — повтор без parse_mode")
+        res = send_photo(token, chat_id or target_chat, photo_bytes=image,
+                         caption=postformat.unescape_markdownv2(caption))
+        if not res.ok:
+            log.error("telegram photo publish failed: %s", res.error)
+        return res
     if len(md) <= 4090:
         res = send_message(token, chat_id or target_chat, md,
                            parse_mode="MarkdownV2")
@@ -104,11 +169,12 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai"):
 
 
 def send_photo(token, chat_id, photo_url=None, photo_bytes=None,
-               caption=None, dry_run=False, retries=2):
+               caption=None, dry_run=False, retries=2, parse_mode=None):
     """Отправка фото в Telegram (sendPhoto). Поддерживает два режима:
       - photo_url: Telegram сам скачивает (может вернуть 400 failed to get HTTP URL content);
       - photo_bytes: multipart upload (надёжнее для CDN с защитой от ботов).
-    Token/chat_id обязательны; fallback нет. Caption <= 1024 символов."""
+    Token/chat_id обязательны; fallback нет. Caption <= 1024 символов;
+    parse_mode — разметка caption (по умолчанию plain, без parse_mode)."""
     label = (photo_url or "(bytes)")[:80]
     if dry_run:
         log.info("DRY-RUN: send_photo не выполняется (%s)", label)
@@ -118,15 +184,15 @@ def send_photo(token, chat_id, photo_url=None, photo_bytes=None,
     if photo_bytes is not None:
         files = {"photo": ("photo.jpg", photo_bytes, "image/jpeg")}
         data_payload = {"chat_id": chat_id}
-        if caption:
-            data_payload["caption"] = caption
     elif photo_url:
         files = None
         data_payload = {"chat_id": chat_id, "photo": photo_url}
-        if caption:
-            data_payload["caption"] = caption
     else:
         return PublishResult(False, error="send_photo: no photo_url or photo_bytes")
+    if caption:
+        data_payload["caption"] = caption
+    if parse_mode:
+        data_payload["parse_mode"] = parse_mode
     last = None
     for attempt in range(retries + 1):
         try:

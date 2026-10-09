@@ -187,5 +187,68 @@ class GismeteoNewsAdapter(SourceAdapter):
         return urls
 
 
+# ---------- Расширение агро-пула 09.10.2026 (пробниками проверено ~110 доменов;
+# добавлены только источники с живым авто-получением, свежими датами, объёмом
+# текста и изображениями; мёртвые/магазинные/JS-каталоги отклонены — список
+# с причинами в отчёте по задаче).
+
+class AifDachaAdapter(SourceAdapter):
+    """АиФ «Дача»: два практических каталога (огород + сад), ссылки абсолютные,
+    даты свежие (проверено живым прогоном)."""
+    name = "aif"
+    catalogs_list = ("https://aif.ru/dacha/ogorod", "https://aif.ru/dacha/garden")
+    url_rx = r"https://aif\.ru/dacha/(?:ogorod|garden)/[a-z0-9\-]+"
+
+    def catalogs(self):
+        return list(self.catalogs_list)
+
+    def accept(self, url):
+        return bool(re.fullmatch(r"https://aif\.ru/dacha/(?:ogorod|garden)/[a-z0-9\-]+",
+                                 url))
+
+
+class SupersadovnikAdapter(RssAdapter):
+    """Суперсадовник — смешанный журнал: принимаем только садовые разделы
+    /text/ и /plant/; регулярно видимые не-садовые рубрики (гороскопы,
+    аквариумы, бассейны, красота, зоопарки) отсекаем по slug ещё на discovery."""
+    name = "supersadovnik"
+    catalog = "https://www.supersadovnik.ru/rss/"
+    _NOGARDEN = re.compile(
+        r"astrolog|fjenshuj|fenshuj|goroskop|ognennoj-kozy|novogodn|bassejn|"
+        r"akvarium|ekran-v-sumerkah|handra|loshadej|zhivotnyh|zooparkov|"
+        r"kardionagruzki|klimaks|kosmet|makijazh|prichesk", re.I)
+
+    def accept(self, url):
+        if not re.match(r"https://www\.supersadovnik\.ru/(?:text|plant)/[a-z0-9\-]+",
+                        url):
+            return False
+        return not self._NOGARDEN.search(url)
+
+
+class OgorodnikBlogAdapter(SourceAdapter):
+    """Огородник (ogorodnik.ru): контентный блог /blog/<рубрика>/<slug>/
+    (каталог магазина не трогаем)."""
+    name = "ogorodnik"
+    catalog = "https://ogorodnik.ru/blog/"
+    href_rx = r'href="(/blog/[a-z0-9\-]+/[a-z0-9\-]+/?)"'
+    base = "https://ogorodnik.ru"
+    trailing_slash = True
+
+
+class SevenDachNewAdapter(RssAdapter):
+    """7dach: свежая лента /rss/new (заметки огородников, ежедневно).
+    Только статьи <slug>-<id>.html; раздел /zdorovie/ (здоровье) не берём."""
+    name = "7dach"
+    catalog = "https://7dach.ru/rss/new"
+
+    def accept(self, url):
+        if "/zdorovie/" in url:
+            return False
+        return bool(re.fullmatch(
+            r"https://7dach\.ru/[A-Za-z0-9_]+/[a-z0-9\-]+-\d+\.html", url))
+
+
 ADAPTERS = {a.name: a() for a in (MindboxAdapter, IBMAdapter, ZapierAdapter, SalesforceAdapter,
-                                  BotanichkaAdapter, AgroinvestorAdapter, GismeteoNewsAdapter)}
+                                  BotanichkaAdapter, AgroinvestorAdapter, GismeteoNewsAdapter,
+                                  AifDachaAdapter, SupersadovnikAdapter,
+                                  OgorodnikBlogAdapter, SevenDachNewAdapter)}

@@ -17,6 +17,7 @@ httpclient/extraction, публикация — telegram(channel='agro'), дед
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin
 
 from . import (adapters, case_model, classifier_agro, config, extraction,
                hashtags, httpclient, langguard, storage as storage_mod,
@@ -25,13 +26,17 @@ from . import (adapters, case_model, classifier_agro, config, extraction,
 log = logging.getLogger("case.agro")
 
 SOURCE_LABELS = {"botanichka": "Ботаничка", "agroinvestor": "Агроинвестор",
-                 "gismeteo": "Gismeteo"}
+                 "gismeteo": "Gismeteo", "aif": "АиФ Дача",
+                 "supersadovnik": "Суперсадовник", "ogorodnik": "Огородник",
+                 "7dach": "7dach"}
 # Контролируемый словарь рубрик — из classifier_agro.TOPICS (единый источник).
 AGRO_DOMAIN_RULES = [(tag, rx) for _, _, tag, rx in classifier_agro.TOPICS]
 AGRO_FALLBACK_DOMAIN = "#Агро"
 AGRO_ALLOWED_TAGS = {t for _, _, t, _ in classifier_agro.TOPICS} | {AGRO_FALLBACK_DOMAIN}
 
-MIN_BODY_CHARS = 700          # тоньше — вода/объявление
+# тоньше 300 символов содержательный пост не бывает (лойальность к коротким,
+# но полезным инструкциям); ~20-символьные заглушки по-прежнему отсекаются
+MIN_BODY_CHARS = 300
 MAX_BODY_CHARS = 750          # 2 абзаца-потолка, дальше — ссылка на источник
 MAX_POST_CHARS = 1800
 
@@ -84,6 +89,40 @@ def _pick_paragraphs(text):
             parts = [p]
     joined = "\n\n".join(parts)
     return [_cut_sentences(joined, MAX_BODY_CHARS)] if joined else []
+
+
+_IMG_SRC_RX = re.compile(r"<img[^>]+?src=[\"']([^\"']+)[\"']", re.I)
+_IMG_BAD_RX = re.compile(r"logo|icon|sprite|avatar|banner|1x1|pixel|placeholder|"
+                         r"blank|loading|\.svg(?:\?|$)", re.I)
+
+
+def _norm_image(src, page_url):
+    """Абсолютизация URL изображения: «//host/...» → https:, относительный
+    путь — urljoin по странице. Не-http(s)/data: → '' (фиктивные URL не
+    выдумываем — материал уйдёт в missing_image)."""
+    src = (src or "").strip()
+    if not src or src.lower().startswith("data:"):
+        return ""
+    if src.startswith("//"):
+        src = "https:" + src
+    elif not re.match(r"https?://", src):
+        src = urljoin(page_url, src)
+    return src if src.startswith("http") else ""
+
+
+def _content_image(html, url):
+    """Fallback изображения (контракт TEXT+IMAGE+SOURCE): ext['image']
+    (JSON-LD/og) отсутствует — первый содержательный <img> статьи.
+    Логотипы/иконки/трекеры отсекаем; фиктивные URL не выдумываем:
+    если подходящего нет — пусто (материал уйдёт в missing_image)."""
+    for m in _IMG_SRC_RX.finditer(html or ""):
+        raw = (m.group(1) or "").strip()
+        if not raw or _IMG_BAD_RX.search(raw):
+            continue
+        src = _norm_image(raw, url)
+        if src:
+            return src
+    return ""
 
 
 def build_post(title, text, url, source, verdict):
@@ -178,21 +217,39 @@ def process_url(st, url, source, publish=False, dry_run=True):
         out.update(status="news_hold" if news_hold else "rejected")
         return out
 
+    # контракт TEXT+IMAGE+SOURCE: без изображения материал НЕ готовится
+    # к публикации (publish=NO, reason=missing_image; в published не попадает)
+    image_url = _norm_image(ext.get("image"), url) or _content_image(html, url)
+    if not image_url:
+        st.update(mid, status="rejected", reason="missing_image")
+        out.update(status="rejected", reason="missing_image")
+        return out
+
     post, tags = build_post(ext.get("title") or "", text, url, source, verdict)
     errs = editorial_agro(post, text)
     if errs:
         st.update(mid, status="review", reason="agro editorial: %s" % "; ".join(errs)[:300])
         out.update(status="review", reason="editorial gate")
         return out
-    st.update(mid, status="post_ready", post_text=post,
+    st.update(mid, status="post_ready", post_text=post, image_url=image_url,
               reason="agro %s" % verdict["type"])
     out.update(status="post_ready", hashtags=tags)
 
     if publish and not dry_run:
+        # байты изображения скачиваем и валидируем ДО claim: ошибка скачивания
+        # -> status=failed (не в _known_skip — авто-ретрай следующим прогоном),
+        # claim не трогаем
+        try:
+            photo = httpclient.fetch_bytes(image_url)
+        except Exception as e:
+            st.update(mid, status="failed", reason="image fetch: %s" % str(e)[:200])
+            out.update(status="failed", reason="image fetch")
+            return out
         if not st.claim_for_publish(mid):
             out.update(reason="claim lost (parallel run)")
             return out
-        res = telegram.publish_post(post, dry_run=False, channel="agro")
+        res = telegram.publish_post(post, dry_run=False, channel="agro",
+                                    image=photo)
         if res.ok:
             st.mark_published(mid, res.message_id, config.AGRO_CHAT_ID,
                               case_model.case_id_for(url, text[:2000]),

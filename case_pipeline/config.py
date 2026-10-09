@@ -84,8 +84,10 @@ PUBLISH = env("CASE_PUBLISH", "0") == "1"
 PUBLISH_LIMIT = int(env("CASE_PUBLISH_LIMIT", "1"))
 MAX_PER_SOURCE = int(env("CASE_MAX_PER_SOURCE", "4"))
 SOURCES = [s.strip() for s in env("CASE_SOURCES", "mindbox,ibm,zapier,salesforce").split(",") if s.strip()]
+# CI не задаёт AGRO_SOURCES — новые источники попадают через default.
 AGRO_SOURCES = [s.strip() for s in env(
-    "AGRO_SOURCES", "botanichka,agroinvestor,gismeteo").split(",") if s.strip()]
+    "AGRO_SOURCES", "botanichka,agroinvestor,gismeteo,aif,supersadovnik,"
+                    "ogorodnik,7dach").split(",") if s.strip()]
 
 FETCH_TIMEOUT_SEC = int(env("FETCH_TIMEOUT_SEC", "40"))
 FETCH_RETRIES = int(env("FETCH_RETRIES", "2"))

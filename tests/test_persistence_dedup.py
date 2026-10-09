@@ -47,9 +47,12 @@ def test_run2_skips_url_published_in_run1(tmp_path, monkeypatch):
 
     db = str(tmp_path / "agro.db")
 
-    # RUN1: полный путь до mark_published (Telegram подменён фейком)
+    # RUN1: полный путь до mark_published (Telegram подменён фейком;
+    # байты изображения — image-контракт перед publish)
     monkeypatch.setattr(agro.httpclient, "fetch",
                         lambda url, timeout=30, **kw: (200, _art_html()))
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes",
+                        lambda url, **kw: b"\xff\xd8" + b"x" * 20000)
     monkeypatch.setattr(agro.telegram, "publish_post",
                         lambda *a, **k: telegram.PublishResult(True, message_id=777))
     st1 = storage_mod.Storage(db)
@@ -66,6 +69,7 @@ def test_run2_skips_url_published_in_run1(tmp_path, monkeypatch):
     def _blocked(*a, **k):
         raise AssertionError("RUN2 must not fetch/publish — already published")
     monkeypatch.setattr(agro.httpclient, "fetch", _blocked)
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes", _blocked)
     monkeypatch.setattr(agro.telegram, "publish_post", _blocked)
 
     st2 = storage_mod.Storage(db)   # «новый прогон»: свежее соединение

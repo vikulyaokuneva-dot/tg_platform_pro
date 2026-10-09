@@ -204,5 +204,6 @@ def to_markdownv2(text):
 
 
 def unescape_markdownv2(text):
-    """Только для тестов: снимает экранирование спецсимволов MarkdownV2."""
+    """Снимает экранирование спецсимволов MarkdownV2 (тесты + plain-fallback
+    подписи фото, когда API отвергает parse_mode)."""
     return re.sub(r"\\([_*\[\]()~`>#+\-=|{}.!\\])", r"\1", text)

@@ -58,3 +58,38 @@ def fetch(url, polite=True, timeout=None, use_cache=True):
             last = FetchError(key, reason=type(e).__name__)
         time.sleep(1.5 * (attempt + 1))
     raise last or FetchError(key, reason="unknown")
+
+
+IMAGE_MIN_BYTES = 15 * 1024        # меньше — трекер/превью/1x1, не материал
+IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+
+def fetch_bytes(url, timeout=None):
+    """Скачивание изображения для публикации (контракт TEXT+IMAGE+SOURCE).
+    Возвращает bytes; честный Fail — FetchError. Условия: 200, content-type
+    image/*, размер 15KB..10MB. Кэш не используется — байты нужны под отправку.
+    Контрактные ошибки (не-картинка/размер) не ретраятся."""
+    timeout = timeout or config.FETCH_TIMEOUT_SEC
+    last = None
+    for attempt in range(config.FETCH_RETRIES + 1):
+        try:
+            r = requests.get(url, headers=UA, timeout=timeout, allow_redirects=True)
+            if r.status_code == 200:
+                ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                data = r.content or b""
+                if not ctype.startswith("image/"):
+                    raise FetchError(url, status=200, reason="not an image (%s)" % ctype)
+                if len(data) < IMAGE_MIN_BYTES:
+                    raise FetchError(url, status=200, reason="image too small (%d B)" % len(data))
+                if len(data) > IMAGE_MAX_BYTES:
+                    raise FetchError(url, status=200, reason="image too large (%d B)" % len(data))
+                return data
+            if r.status_code in (403, 404, 410):
+                raise FetchError(url, status=r.status_code, reason="permanent")
+            last = FetchError(url, status=r.status_code, reason="retryable")
+        except FetchError:
+            raise
+        except Exception as e:
+            last = FetchError(url, reason=type(e).__name__)
+        time.sleep(1.5 * (attempt + 1))
+    raise last or FetchError(url, reason="unknown")

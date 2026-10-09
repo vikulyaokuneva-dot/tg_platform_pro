@@ -176,6 +176,9 @@ def test_agro_publish_failure_is_not_counted_as_published(monkeypatch, tmp_path)
     monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100WRONG", raising=False)
     monkeypatch.setattr(agro_mod.httpclient, "fetch",
                         lambda url, timeout=30, **kw: (200, _art_html()))
+    # image-контракт: байты изображения валидируются ДО отправки
+    monkeypatch.setattr(agro_mod.httpclient, "fetch_bytes",
+                        lambda url, **kw: b"\xff\xd8" + b"x" * 20000)
     monkeypatch.setattr(agro_mod.telegram, "publish_post",
                         lambda *a, **k: telegram.PublishResult(
                             False, error="400 Bad Request: chat not found"))

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS materials (
     reason TEXT,
     case_json TEXT,
     post_text TEXT,
+    image_url TEXT,
     telegram_message_id INTEGER,
     attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
@@ -62,6 +63,8 @@ CREATE TABLE IF NOT EXISTS publications (
 _PUB_COLS = (("hashtags", "TEXT DEFAULT ''"), ("content_type", "TEXT DEFAULT 'case'"),
              ("company", "TEXT"), ("canonical_url", "TEXT"),
              ("content_hash", "TEXT"), ("status", "TEXT DEFAULT 'ok'"))
+# материалы: изображение поста (контракт TEXT+IMAGE+SOURCE agro-канала)
+_MAT_COLS = (("image_url", "TEXT"),)
 
 
 class Storage:
@@ -81,6 +84,10 @@ class Storage:
             if name not in cols:
                 self.db.execute("ALTER TABLE publications ADD COLUMN %s %s" % (name, ddl))
         self.db.execute("UPDATE publications SET content_type='case' WHERE content_type IS NULL")
+        mcols = {r["name"] for r in self.db.execute("PRAGMA table_info(materials)")}
+        for name, ddl in _MAT_COLS:
+            if name not in mcols:
+                self.db.execute("ALTER TABLE materials ADD COLUMN %s %s" % (name, ddl))
 
     # ---------- dedup ----------
     def seen_url(self, url):
