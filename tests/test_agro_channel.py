@@ -301,16 +301,26 @@ def test_publish_marks_agro_chat_in_agro_history_only(st, tmp_path, monkeypatch)
     # контракт TEXT+IMAGE+SOURCE: байты изображения скачиваются, отправка — sendPhoto
     monkeypatch.setattr(agro.httpclient, "fetch_bytes",
                         lambda url, **kw: b"\xff\xd8" + b"x" * 20000)
+    events = []
 
     def spy(token, chat_id, photo_url=None, photo_bytes=None, caption=None,
             dry_run=False, retries=2, parse_mode=None):
         assert (token, chat_id) == ("t", "-100AGRO")  # НЕ prod-пары
         assert photo_bytes, "публикация агро обязана уходить с изображением"
+        events.append("photo")
         return telegram.PublishResult(True, message_id=501)
     monkeypatch.setattr(telegram, "send_photo", spy)
 
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        # второй шаг публикации: полный текст отдельным сообщением
+        assert (token, chat_id) == ("t", "-100AGRO")
+        events.append("text")
+        return telegram.PublishResult(True, message_id=502)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
+
     r = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
     assert r["status"] == "published" and r["telegram_message_id"] == 501
+    assert events == ["photo", "text"]  # фото раньше полного текста
     assert st.get(st.add(ART_URL, "x"))["status"] == "published"
     pubs = st.db.execute("SELECT chat_id, content_type FROM publications").fetchall()
     assert [dict(p) for p in pubs] == [{"chat_id": "-100AGRO",
@@ -338,6 +348,10 @@ def test_run_respects_publish_limit(st, monkeypatch):
         sent.append(caption)
         return telegram.PublishResult(True, message_id=7)
     monkeypatch.setattr(telegram, "send_photo", spy)
+
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        return telegram.PublishResult(True, message_id=8)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
     s = agro.run(dry_run=False, publish=True, sources=["botanichka"], st=st)
     assert s["published"] == 1, s
     assert s["checked"] >= 1 and len(sent) == 1
@@ -445,9 +459,11 @@ def test_logo_img_is_not_a_material_image(st, monkeypatch):
 
 
 def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
-    """Реальная публикация: байты скачиваются fetch_bytes (валидация до
-    отправки), уходит sendPhoto с caption ≤1024; «Источник:» и хэштеги в
-    caption сохранены."""
+    """Реальная публикация в два шага: байты скачиваются fetch_bytes
+    (валидация до отправки), затем (1) sendPhoto с короткой законченной
+    подписью ≤1024 (заголовок + лид + «Источник:») и (2) ПОЛНЫЙ текст
+    отдельным сообщением (заголовок, тело, «Источник:», хэштеги — без
+    обрыва по лимиту caption)."""
     _fake_network(monkeypatch, {ART_URL: _art_html()})
     fetched = {}
 
@@ -467,15 +483,31 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
         return telegram.PublishResult(True, message_id=707)
     monkeypatch.setattr(telegram, "send_photo", spy)
 
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        seen.update(full_text=text, text_parse_mode=parse_mode,
+                    full_chat=chat_id)
+        return telegram.PublishResult(True, message_id=708)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
+
     r = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
     assert r["status"] == "published" and r["telegram_message_id"] == 707, r
     assert fetched["url"] == "https://cdn.example.test/agro/chesnok.jpg"
     assert seen["photo"] and seen["parse_mode"] == "MarkdownV2"
     assert (seen["token"], seen["chat"]) == ("t", "-100AGRO")
+    # (1) короткая законченная подпись: целые предложения, источник на месте
     assert len(seen["caption"]) <= 1024
     plain = telegram.postformat.unescape_markdownv2(seen["caption"])
     assert "Источник: " + ART_URL in plain
-    assert "#Практика" in plain
+    assert plain.split("\n\n")[0]  # заголовок присутствует
+    # (2) полный текст вторым сообщением: хэштеги и всё тело — здесь
+    full_plain = telegram.postformat.unescape_markdownv2(seen["full_text"])
+    assert seen["text_parse_mode"] == "MarkdownV2"
+    assert seen["full_chat"] == "-100AGRO"
+    assert "Источник: " + ART_URL in full_plain
+    assert "#Практика" in full_plain
+    assert full_plain.split("\n\n")[0] == plain.split("\n\n")[0]  # связка: тот же заголовок
+    row = st.get(st.add(ART_URL, "x"))
+    assert row["url"] == ART_URL  # URL не изменён редактурой/отправкой
 
 
 def test_image_fetch_failure_is_failed_not_published(st, monkeypatch):

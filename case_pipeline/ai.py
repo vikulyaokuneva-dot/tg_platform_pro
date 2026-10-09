@@ -125,6 +125,9 @@ class GigaChatProvider(BaseAI):
     def __init__(self):
         self._token = None
         self._token_exp = 0.0
+        # usage последнего успешного вызова — для честной отчётности
+        # (сколько токенов ушло на редактуру); None если провайдер не дал
+        self.last_usage = None
 
     def _get_token(self):
         import time
@@ -165,7 +168,16 @@ class GigaChatProvider(BaseAI):
             self._token = None   # протух — следующий вызов обновит
         if r.status_code != 200:
             raise RuntimeError("chat HTTP %s: %s" % (r.status_code, r.text[:200]))
-        return r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            self.last_usage = {k: usage[k] for k in
+                               ("total_tokens", "prompt_tokens",
+                                "completion_tokens")
+                               if usage.get(k) is not None} or None
+        else:
+            self.last_usage = None
+        return data["choices"][0]["message"]["content"]
 
     def complete(self, messages):
         """Гeneric text completion с candidates-models (как в legacy ai_writer)."""

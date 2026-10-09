@@ -125,8 +125,13 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     лимиту — тот же текст уходит plain text (без parse_mode).
 
     channel: 'ai' (default, поведение идентично прежнему) | 'agro'.
-    image: bytes — пост уходит sendPhoto с caption ≤1024 (fit_caption
-    сохраняет «Источник:» и хэштеги); без image — прежний текстовый путь."""
+    image: bytes — публикация в ДВА шага: (1) sendPhoto с короткой
+    законченной подписью ≤1024 (postformat.caption_for_photo: заголовок,
+    лид по границе предложения, «Источник:»), затем (2) ПОЛНЫЙ текст
+    отдельным сообщением (та же подача, что у текстовых каналов; лимит
+    сообщения 4096 с безопасной страховкой). Длинный пост раньше целиком
+    уходил в caption и обрезался fit_caption по словам — материал терял
+    рекомендации (обрыв в msg78). Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     formatted = postformat.format_post(text)
     if dry_run:
@@ -137,21 +142,47 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
         return PublishResult(False, error="no credentials for channel %s" % channel)
     md = postformat.to_markdownv2(formatted)
     if image:
-        caption = fit_caption(md, 1024)
-        res = send_photo(token, chat_id or target_chat, photo_bytes=image,
+        target = chat_id or target_chat
+        # 1) фото с короткой подписью (без хэштегов — они в полном тексте)
+        cap_plain = postformat.caption_for_photo(formatted)
+        caption = fit_caption(postformat.to_markdownv2(cap_plain), 1024)
+        res = send_photo(token, target, photo_bytes=image,
                          caption=caption, parse_mode="MarkdownV2")
-        if res.ok:
-            return res
-        err = str(res.error or "").lower()
-        if "400" not in err or "parse" not in err:
-            log.error("telegram photo publish failed: %s", res.error)
-            return res
-        log.warning("caption markdown rejected (400 parse) — повтор без parse_mode")
-        res = send_photo(token, chat_id or target_chat, photo_bytes=image,
-                         caption=postformat.unescape_markdownv2(caption))
         if not res.ok:
-            log.error("telegram photo publish failed: %s", res.error)
-        return res
+            err = str(res.error or "").lower()
+            if "400" in err and "parse" in err:
+                log.warning("caption markdown rejected (400 parse) — повтор без parse_mode")
+                res = send_photo(token, target, photo_bytes=image,
+                                 caption=postformat.unescape_markdownv2(caption))
+            if not res.ok:
+                log.error("telegram photo publish failed: %s", res.error)
+                return res
+        # 2) полный текст отдельным сообщением (фото — над текстом в ленте)
+        full_md = md
+        if len(full_md) > 4090:
+            # страховка: контракт ИИ-редактуры держит пост ≤3400 символов,
+            # так что путь не должен срабатывать (см. agro.MAX_POST_CHARS)
+            log.warning("full text %d chars > 4090 после экранирования — clamping",
+                        len(full_md))
+            full_md = fit_caption(full_md, 4090)
+        res2 = send_message(token, target, full_md, parse_mode="MarkdownV2")
+        if not res2.ok:
+            err = str(res2.error or "").lower()
+            if "400" in err and "parse" in err:
+                log.warning("markdownv2 rejected (400 parse) — повтор plain text")
+                res2 = send_message(token, target, formatted)
+        if not res2.ok:
+            # фото ушло, текст нет -> честный отказ (-> review без
+            # авто-повтора, чтобы фото не задублировалось)
+            log.error("telegram text publish failed (photo sent #%s): %s",
+                      res.message_id, res2.error)
+            return PublishResult(False, message_id=res.message_id,
+                                 error="text message: %s" % res2.error,
+                                 http_status=res2.http_status)
+        log.info("pair published: photo #%s + text #%s",
+                 res.message_id, res2.message_id)
+        return PublishResult(True, message_id=res.message_id,
+                             http_status=res.http_status)
     if len(md) <= 4090:
         res = send_message(token, chat_id or target_chat, md,
                            parse_mode="MarkdownV2")

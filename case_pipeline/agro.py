@@ -9,19 +9,27 @@ httpclient/extraction, публикация — telegram(channel='agro'), дед
 
 Почему не case_model/postgen: у агро-статей (вырастить/обработать/укрыть) нет
 корпоративных problem/implementation/results — натягивать их на модель бизнес-
-кейсов означало бы ломать гейты E/F и frozen-классификатор. Пост extractive:
-заголовок и абзацы — дословно текст источника (числа выдумать нечем), отбор —
-правилами classifier_agro («что читатель сможет сделать/узнать»). LLM-_polish
-и news-полоса агро — следующий этап (зафиксировано в отчёте).
+кейсов означало бы ломать гейты E/F и frozen-классификатор.
+
+ИИ-редактура (следующий этап из старого отчёта — реализован): ПОЛНЫЙ текст
+статьи проходит через СУЩЕСТВУЮЩИЙ GigaChatProvider (case_pipeline.ai, того же
+провайдера использует AI-канал; второго клиента НЕТ): выбрать 5-7 полезных
+советов, сохранить числа/условия, убрать повторы/SEO, короткий заголовок,
+вывод, уместные эмодзи (AI_EDIT_SYSTEM). Контракт валидируется
+(_edit_contract_ok), при неудаче после повтора — review, сырой текст НЕ
+публикуется. Без
+провайдера (нет GIGACHAT_API_KEY, напр. в CI) — прежний extractive-макет.
+Публикация — двумя сообщениями: фото с короткой подписью + полный текст
+(telegram.publish_post с image), чтобы длинный пост не обрезался на caption.
 """
 import logging
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 
-from . import (adapters, case_model, classifier_agro, config, extraction,
-               hashtags, httpclient, langguard, storage as storage_mod,
-               telegram, textclean, utils)
+from . import (adapters, ai as ai_mod, case_model, classifier_agro, config,
+               extraction, hashtags, httpclient, langguard,
+               storage as storage_mod, telegram, textclean, utils)
 
 log = logging.getLogger("case.agro")
 
@@ -37,8 +45,11 @@ AGRO_ALLOWED_TAGS = {t for _, _, t, _ in classifier_agro.TOPICS} | {AGRO_FALLBAC
 # тоньше 300 символов содержательный пост не бывает (лойальность к коротким,
 # но полезным инструкциям); ~20-символьные заглушки по-прежнему отсекаются
 MIN_BODY_CHARS = 300
-MAX_BODY_CHARS = 750          # 2 абзаца-потолка, дальше — ссылка на источник
-MAX_POST_CHARS = 1800
+MAX_BODY_CHARS = 750          # extractive-fallback: 2 абзаца-потолка
+# Потолок всего поста: полный текст уходит отдельным сообщением Telegram
+# (4096 с учётом экранирования MarkdownV2), поэтому лимит снят с 1800 до
+# 3400 — ИИ-пост на 5-7 советов + вывод спокойно помещается, обрезка не нужна
+MAX_POST_CHARS = 3400
 
 _SKIP_PAR_RX = re.compile(r"^(фото|видео|читайте также|подписк|реклама|похожие "
                           r"материалы|источник:)", re.I)
@@ -134,7 +145,12 @@ def build_post(title, text, url, source, verdict):
     t = re.split(r"\s+[—–]\s+[^—–]{2,30}$", t)[0].strip() or t
     if len(t) > 110:  # обрезка по границе слова, без многоточия/обрыва смысла
         t = t[:110].rsplit(" ", 1)[0].rstrip(",;:—– ")
-    emoji = verdict["topics"][0][1] if verdict.get("topics") else "🌱"
+    # рубрику в заголовок НЕ склеиваем («Технологии выращивания 10 шагов…» —
+    # был виден брак публикации msg78): в первой строке только ведущий эмодзи
+    # рубрики, имя рубрики живёт в хэштегах
+    label = verdict["topics"][0][1] if verdict.get("topics") else ""
+    lead = (label.split() or [""])[0]
+    emoji = lead if lead and re.match(r"[^\w\s]", lead) else "🌱"
     blob = t + " " + (text or "")[:2500]
     tags = hashtags.build("agro", text_blob=blob, company=SOURCE_LABELS.get(source),
                           domain_rules=AGRO_DOMAIN_RULES,
@@ -180,8 +196,133 @@ def _known_skip(row_status):
     return row_status in ("published", "post_ready", "review", "publishing")
 
 
-def process_url(st, url, source, publish=False, dry_run=True):
-    """Один материал агро-линии. -> dict(status, ...) как pipeline.process_candidate."""
+# ---------- ИИ-редактура: ПОЛНЫЙ текст статьи через существующий GigaChatProvider
+
+AI_EDIT_SYSTEM = (
+    "Ты — редактор Telegram-канала «Сад без хлопот» (сад, огород, дача).\n"
+    "Тебе даны заголовок, URL и ПОЛНЫЙ текст статьи. Изучай материал ЦЕЛИКОМ, "
+    "а не только начало.\n"
+    "Задача:\n"
+    "1. Определи тему и главную пользу статьи для садовода.\n"
+    "2. Найди в материале ключевые рекомендации и выбери 5-7 самых полезных "
+    "практических советов. Все пункты исходника сохранять не обязательно — "
+    "отбирай главное по пользе для садовода; если в источнике действительно "
+    "важные последовательные шаги — сохрани их логику и порядок.\n"
+    "3. Сохрани условия, ограничения и все числа из источника: НЕ придумывай "
+    "советы, дозировки, сроки, температуры и результаты, которых нет в тексте.\n"
+    "4. Убери повторы, длинные вступления, SEO-фразы и рекламные вставки.\n"
+    "5. Придумай короткий заголовок без кликбейта и сенсационности.\n"
+    "6. Напиши законченную самостоятельную публикацию на естественном русском "
+    "языке, добавь уместные тематические эмодзи (без эмодзи в каждом "
+    "предложении), а в конце — конкретный вывод, что делать читателю.\n"
+    "ФОРМАТ: первая строка — заголовок; затем пустая строка; абзацы через "
+    "пустую строку. Строку «Источник:» и хэштеги НЕ пиши — они добавляются "
+    "автоматически. Длина до 3000 символов. Верни только текст поста, без "
+    "markdown-обёрток и пояснений."
+)
+
+
+def _clean_ai_output(raw):
+    """Очистка вывода модели перед контрактной проверкой: markdown-фенсы,
+    служебные строки «Источник:»/хэштегов (их дописывает _finalize_post —
+    иначе будут дубли), жирные/решётки первой строки."""
+    s = (raw or "").strip()
+    s = re.sub(r"^```[A-Za-z]*\s*", "", s)
+    s = re.sub(r"\s*```$", "", s)
+    lines = s.split("\n")
+    while lines and not lines[-1].strip():
+        lines.pop()
+    while lines:
+        last = lines[-1].strip()
+        if last and (re.match(r"^(?:\*\*)?Источник\b", last, re.I) or
+                     re.fullmatch(r"(?:#\S+\s*)+", last)):
+            lines.pop()
+            while lines and not lines[-1].strip():
+                lines.pop()
+        else:
+            break
+    if lines:
+        head = lines[0].strip()
+        head = re.sub(r"^\*\*(.+?)\*\*$", r"\1", head)
+        head = re.sub(r"^#{1,6}\s*", "", head)
+        lines[0] = head
+    return "\n".join(lines).strip()
+
+
+def _edit_contract_ok(post):
+    """Контракт ИИ-редактуры: непустой, первая строка — заголовок, есть
+    структура «заголовок + абзацы», объём полноценного поста. Слишком
+    длинный результат НЕ режем — он уходит на повтор, а затем в review:
+    оборванный текст не публикуем."""
+    if not post or not post.strip():
+        return False, "empty result"
+    blocks = [b for b in post.split("\n\n") if b.strip()]
+    if len(blocks) < 2:
+        return False, "no paragraph structure"
+    head = re.sub(r"^\*\*(.+?)\*\*$", r"\1",
+                  blocks[0].split("\n")[0].strip()).lstrip("#").strip()
+    if not head or len(head) > 160:
+        return False, "bad headline (%d)" % len(head)
+    if len(post) < 300:
+        return False, "too short: %d" % len(post)
+    if len(post) > MAX_POST_CHARS:
+        return False, "too long: %d" % len(post)
+    return True, ""
+
+
+def _ai_edit_post(text, title, url, source, provider, attempts=2):
+    """Редактура ПОЛНОГО текста статьи через существующий GigaChatProvider
+    (тот же клиент, что у AI-канала; нового ИИ-клиента в проекте нет).
+    -> (post_body, note): пустое тело = неудача. Максимум `attempts` вызовов
+    (1 повтор — паттерн langguard), бесконечных ретраев нет."""
+    user = ("Заголовок: %s\nURL: %s\nИсточник: %s\n\nПОЛНЫЙ ТЕКСТ СТАТЬИ:\n%s"
+            % ((title or "").strip()[:300], url, source, text or ""))
+    msgs = [{"role": "system", "content": AI_EDIT_SYSTEM},
+            {"role": "user", "content": user}]
+    note = "empty result"
+    for i in range(attempts):
+        try:
+            raw = provider.complete(msgs)
+        except Exception as e:
+            note = "error: %s: %s" % (type(e).__name__, str(e)[:120])
+            log.warning("agro ai edit attempt %d/%d: %s", i + 1, attempts, note)
+            continue
+        post = _clean_ai_output(raw)
+        ok, why = _edit_contract_ok(post)
+        if ok:
+            return post, ""
+        note = why
+        log.warning("agro ai edit attempt %d/%d failed: %s", i + 1, attempts, why)
+    return "", note
+
+
+def _finalize_post(row, draft, tags, text, title, url, source, provider):
+    """Итоговый пост. Порядок: кэш (post_text уже готов после прошлой
+    попытки) -> ИИ-редактура (живой провайдер) -> extractive-черновик
+    (провайдера нет — прежнее поведение). ИИ доступен, но после повтора
+    контракт не пройден -> ('', 'failed', note): материал уходит в review,
+    сырой/оборванный текст НЕ публикуется.
+    -> (post, ai_state, note); ai_state: cached|edited|skipped|failed."""
+    cached = (row.get("post_text") or "").strip()
+    if cached:
+        return cached, "cached", ""
+    if provider is None or not getattr(provider, "available", False) \
+            or not callable(getattr(provider, "complete", None)):
+        return draft, "skipped", ""
+    body, note = _ai_edit_post(text, title, url, source, provider)
+    if not body:
+        return "", "failed", note
+    post = "%s\n\nИсточник: %s\n%s" % (body.rstrip(), url, hashtags.render(tags))
+    return post, "edited", ""
+
+
+def process_url(st, url, source, publish=False, dry_run=True, provider=None):
+    """Один материал агро-линии. -> dict(status, ...) как pipeline.process_candidate.
+
+    provider — существующий ИИ-провайдер (GigaChatProvider/NullProvider);
+    по умолчанию резолвится ai_mod.get_provider(). ИИ вызывается ТОЛЬКО после
+    всех гейтов (thin/stale/classifier/missing_image) и не влияет на
+    URL/image_url/дедуп."""
     out = {"url": url, "source": source, "status": "skipped", "reason": ""}
     mid = st.add(url, source)
     row = st.get(mid) or {}
@@ -225,14 +366,29 @@ def process_url(st, url, source, publish=False, dry_run=True):
         out.update(status="rejected", reason="missing_image")
         return out
 
-    post, tags = build_post(ext.get("title") or "", text, url, source, verdict)
+    # ИИ-редактура ПОЛНОГО текста — после всех гейтов, до редакционной
+    # проверки; при неудаче (после повтора) — review, сырое не публикуем
+    provider = provider if provider is not None else ai_mod.get_provider()
+    draft, tags = build_post(ext.get("title") or "", text, url, source, verdict)
+    post, ai_state, ai_note = _finalize_post(row, draft, tags, text,
+                                             ext.get("title") or "", url,
+                                             source, provider)
+    if ai_state == "failed":
+        st.update(mid, status="review", reason="ai edit: %s" % ai_note[:250])
+        out.update(status="review", reason="ai edit failed", ai=ai_state)
+        return out
+    out["ai"] = ai_state
+    if ai_state == "edited":
+        log.info("agro ai edit ok (%d chars, usage=%s)", len(post),
+                 getattr(provider, "last_usage", None))
     errs = editorial_agro(post, text)
     if errs:
         st.update(mid, status="review", reason="agro editorial: %s" % "; ".join(errs)[:300])
         out.update(status="review", reason="editorial gate")
         return out
     st.update(mid, status="post_ready", post_text=post, image_url=image_url,
-              reason="agro %s" % verdict["type"])
+              reason="agro %s%s" % (verdict["type"],
+                                    "+ai" if ai_state == "edited" else ""))
     out.update(status="post_ready", hashtags=tags)
 
     if publish and not dry_run:
@@ -262,15 +418,19 @@ def process_url(st, url, source, publish=False, dry_run=True):
 
 
 def run(dry_run=True, publish=False, sources=None, st=None,
-        limit_per_source=None):
+        limit_per_source=None, provider=None):
     """Один цикл агро-канала. Публикация только publish=1 и AGRO_PUBLISH=1
-    (job передаёт), иначе — honest dry-run без отправки. Возвращает summary."""
+    (job передаёт), иначе — honest dry-run без отправки. Возвращает summary
+    (включая диагностику ИИ: ai_edited/ai_failed/ai_cached/ai_skipped)."""
     st = st or storage_mod.Storage(config.AGRO_DB_PATH)
     srcs = sources or config.AGRO_SOURCES
     per = limit_per_source or config.AGRO_MAX_PER_RUN
     allow_publish = publish and config.AGRO_PUBLISH
+    provider = provider if provider is not None else ai_mod.get_provider()
     summary = {"checked": 0, "post_ready": 0, "published": 0, "rejected": 0,
                "review": 0, "news_hold": 0, "failed": 0, "skipped": 0,
+               "ai_edited": 0, "ai_failed": 0, "ai_cached": 0,
+               "ai_skipped": 0,
                "dry_run": dry_run or not allow_publish}
     published = 0
     for name in srcs:
@@ -292,14 +452,19 @@ def run(dry_run=True, publish=False, sources=None, st=None,
                 break
             if allow_publish and published >= config.AGRO_PUBLISH_LIMIT:
                 break
-            r = process_url(st, u, name, publish=allow_publish, dry_run=dry_run)
+            r = process_url(st, u, name, publish=allow_publish, dry_run=dry_run,
+                            provider=provider)
             summary["checked"] += 1
             key = r.get("status")
             if key in summary:
                 summary[key] += 1
+            ai_key = r.get("ai")
+            if ai_key in ("edited", "failed", "cached", "skipped"):
+                summary["ai_" + ai_key] += 1
             if key in ("post_ready", "published", "review", "news_hold"):
                 useful += 1
             if r.get("status") == "published":
                 published += 1
-            log.info("agro %s: %s %s", r.get("status"), name, u[:80])
+            log.info("agro %s%s: %s %s", r.get("status"),
+                     " [ai=%s]" % ai_key if ai_key else "", name, u[:80])
     return summary

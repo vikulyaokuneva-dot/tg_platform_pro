@@ -90,6 +90,40 @@ def _paragraphs(text):
     return blocks
 
 
+def _clamp_sentences(s, limit):
+    """Обрезка до limit символов по ГРАНИЦЕ ПРЕДЛОЖЕНИЯ: подпись к фото
+    обязана заканчиваться целой мыслью, а не обрываться на полуслове."""
+    s = (s or "").strip()
+    if len(s) <= limit:
+        return s
+    cut = s[:limit]
+    m = list(re.finditer(r"[.!?…]", cut))
+    if m:
+        return cut[:m[-1].end()].strip()
+    return cut.rsplit(" ", 1)[0].rstrip(",;:— ") + "…"
+
+
+def caption_for_photo(text, lead_limit=320):
+    """Короткая законченная подпись к фото (полный пост уходит вторым
+    сообщением — иначе длинный текст упирается в лимит caption=1024 и
+    обрывался на полуслове): жирный заголовок + первый абзац целиком (по
+    границе предложения) + строка «Источник:». Хэштеги и полный текст —
+    во второй части публикации."""
+    body, src, _tags = _extract_tail(text)
+    blocks = [b for b in body.split("\n\n") if b.strip()]
+    if not blocks:
+        return (text or "").strip()
+    parts = [blocks[0]]
+    if len(blocks) > 1:
+        lead = blocks[1].strip()
+        # label-блоки («**Компания:** …») и жирные вставки в лид не берём
+        if not lead.startswith("**") and not LABEL_LINE_RX.match(lead):
+            parts.append(_clamp_sentences(lead, lead_limit))
+    if src:
+        parts.append(src)
+    return "\n\n".join(p for p in parts if p).strip()
+
+
 def _parse_blocks(text):
     """[ {label, mode, lines} ]; label=None — безымянный текстовый блок.
 
