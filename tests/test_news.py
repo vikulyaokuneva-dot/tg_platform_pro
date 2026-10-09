@@ -2,17 +2,23 @@
 """«Новость дня»: настраиваемый источник, извлечение, 2-3 предложения,
 evidence-гейты, дедуп, изоляция ошибок, сброс счётчика."""
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from case_pipeline import ai, config, httpclient, news, pipeline, storage as storage_mod
 
-NEWS_URL = "https://news.example.com/news/2026/09/11/42/"
+# Дата в URL фикстуры извлекается extraction'ом в published_at и проверяется
+# гейтом NEWS_MAX_AGE_DAYS от «сегодня»: жёстко заданная дата стареет и роняет
+# 4 теста с 'news: too old'. Держим вчерашнюю дату (UTC), чтобы фикстура
+# всегда была свежей; сам гейт свежести production-кода не ослабляется.
+NEWS_DAY = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y/%m/%d")
+NEWS_URL = "https://news.example.com/news/%s/42/" % NEWS_DAY
 LISTING_HTML = """<html><body>
-<a href="/news/2026/09/11/42/">Нейросеть сократила обработку заявок в банке на 60 процентов</a>
+<a href="/news/%s/42/">Нейросеть сократила обработку заявок в банке на 60 процентов</a>
 <a href="/tags/ai">тег</a>
 <a href="https://other.example/x/y">чужой домен ссылка новостная</a>
-</body></html>"""
+</body></html>""" % NEWS_DAY
 ARTICLE_TEXT = ("Банк Заря внедрил нейросеть для разбора обращений клиентов. "
                 "Время обработки заявки сократилось на 60 процентов, рутина "
                 "исчезла из работы колл-центра. Операторы подключаются только "
