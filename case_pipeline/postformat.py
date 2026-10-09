@@ -103,25 +103,48 @@ def _clamp_sentences(s, limit):
     return cut.rsplit(" ", 1)[0].rstrip(",;:— ") + "…"
 
 
-def caption_for_photo(text, lead_limit=320):
-    """Короткая законченная подпись к фото (полный пост уходит вторым
-    сообщением — иначе длинный текст упирается в лимит caption=1024 и
-    обрывался на полуслове): жирный заголовок + первый абзац целиком (по
-    границе предложения) + строка «Источник:». Хэштеги и полный текст —
-    во второй части публикации."""
-    body, src, _tags = _extract_tail(text)
+ANNOUNCE_CHARS = 220
+
+
+def split_for_photo(text):
+    """Разложение поста на (подпись к фото, полное текстовое сообщение).
+
+    Подпись: жирный заголовок + КОРОТКИЙ анонс (префикс тела по границе
+    предложения ≤ANNOUNCE_CHARS) + строка «Источник:» — целая мысль, без
+    обрыва на полуслове и без хэштегов (лимит caption=1024 не рвёт тело).
+
+    Сообщение: тот же заголовок + тело БЕЗ скопированного дословно анонса
+    (регрессия msg80/81: вступление повторялось в подписи и в полном тексте)
+    + «Источник:» + хэштеги. Анонс — всегда префикс тела по границе
+    предложения, поэтому из тела удаляется ровно его префикс, а не кусок
+    середины: сообщение начинается с целого предложения и продолжается
+    рекомендациями.
+
+    Вырожденный случай (после вырезания анонса остаток <120 символов —
+    тело почти целиком состоит из анонса): полнота текста важнее антидубля,
+    сообщение уходит целиком, дубль фиксируется логом publish_post."""
+    body, src, tags = _extract_tail(text or "")
     blocks = [b for b in body.split("\n\n") if b.strip()]
-    if not blocks:
-        return (text or "").strip()
-    parts = [blocks[0]]
-    if len(blocks) > 1:
-        lead = blocks[1].strip()
-        # label-блоки («**Компания:** …») и жирные вставки в лид не берём
-        if not lead.startswith("**") and not LABEL_LINE_RX.match(lead):
-            parts.append(_clamp_sentences(lead, lead_limit))
-    if src:
-        parts.append(src)
-    return "\n\n".join(p for p in parts if p).strip()
+    if len(blocks) < 2:              # тела нет — делить нечего, не режем
+        return (text or "").strip(), (text or "").strip()
+    head = blocks[0].strip()
+    rest = "\n\n".join(blocks[1:]).strip()
+    if not rest:
+        return (text or "").strip(), (text or "").strip()
+    # анонс — префикс ПЕРВОГО абзаца тела (не захватываем начало советов)
+    rest0 = rest.split("\n\n")[0].strip()
+    announce = _clamp_sentences(rest0, ANNOUNCE_CHARS)
+    # анонс — префикс тела (fallback _clamp_sentences добавляет «…»,
+    # её в теле нет): вырезаем ровно этот префикс, сообщение начинается
+    # с целого предложения
+    prefix = announce if rest.startswith(announce) else announce.rstrip("…")
+    remainder = rest[len(prefix):].lstrip("\n ") if rest.startswith(prefix) \
+        else rest
+    if len(remainder) < 120:
+        remainder = rest            # вырожденный случай — см. docstring
+    cap = "\n\n".join(x for x in (head, announce, src) if x)
+    msg = "\n\n".join(x for x in (head, remainder, src, tags) if x)
+    return cap.strip(), msg.strip()
 
 
 def _parse_blocks(text):

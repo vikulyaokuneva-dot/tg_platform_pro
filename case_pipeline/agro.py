@@ -51,6 +51,28 @@ MAX_BODY_CHARS = 750          # extractive-fallback: 2 абзаца-потолк
 # 3400 — ИИ-пост на 5-7 советов + вывод спокойно помещается, обрезка не нужна
 MAX_POST_CHARS = 3400
 
+# Содержательная полнота (гейт против «вступление вместо поста» — дефект
+# msg80/81: длина/структура в порядке, а рекомендаций и вывода нет).
+# 1) позиционный гейт: доля слов поста, впервые встречающихся во второй
+#    половине исходника. Вырезка начала статьи даёт ~0.02; полноценный пост,
+#    отражающий рекомендации/итоги, — существенно выше порога.
+#    matched < COMP_MIN_MATCHED (пост сильно перефразирован) — проверка
+#    неинформативна и пропускается, её страхует гейт секций.
+COMP_MIN_MATCHED = 10
+COMP_MIN_TAIL_SHARE = 0.10
+# 2) гейт секций: заголовки H2/H3 статьи, найденные в её тексте; пост должен
+#    отражать большинство секций (≥2 ключевых слова на секцию). Материал без
+#    структуры (секций <3) — проверка не применяется.
+COMP_MIN_SECTION_COVER = 0.50
+_HEADING_RX = re.compile(r"<h[23][^>]*>(.*?)</h[23]>", re.I | re.S)
+_TAG_RX = re.compile(r"<[^>]+>")
+_KW_RX = re.compile(r"[А-Яа-яЁё][А-Яа-яЁё-]{4,}")
+# слова-связки в заголовках секций (не несут темы); сравниваются стемами
+_SEC_STOP = {"какой", "какие", "каких", "почему", "можно", "нужно", "очень",
+             "также", "является", "которые", "который", "перед", "после",
+             "этого", "этих"}
+_SEC_STOP_STEMS = {w[:5] for w in _SEC_STOP}
+
 _SKIP_PAR_RX = re.compile(r"^(фото|видео|читайте также|подписк|реклама|похожие "
                           r"материалы|источник:)", re.I)
 
@@ -168,10 +190,69 @@ def _strip_urls_and_tags(post):
     return body
 
 
-def editorial_agro(post, source_text):
+def _kw_keys(s):
+    """Ключевые слова (≥5 символов) -> префиксы-стемы 5 символов: сглаживают
+    разницу словоформ между заголовком секции и текстом поста."""
+    return {w[:5] for w in _KW_RX.findall((s or "").lower())} - _SEC_STOP_STEMS
+
+
+def _article_sections(html, text):
+    """Заголовки H2/H3 самой статьи: берём только те, что найдены в
+    извлечённом тексте (виджеты «читайте также» в текст статьи не входят —
+    их заголовков в нём нет)."""
+    if not html or not text:
+        return []
+    norm = utils.ws_norm(text).lower()
+    out = []
+    for raw in _HEADING_RX.findall(html):
+        h = utils.ws_norm(_TAG_RX.sub(" ", raw))
+        if 8 <= len(h) <= 90 and h.lower() in norm and h.lower() not in out:
+            out.append(h.lower())
+    return out[:12]
+
+
+def _completeness_errors(post, source_text, html=None):
+    """Содержательная полнота поста: он обязан опираться на рекомендации
+    ВСЕГО материала, а не только на первые абзацы (регрессия msg80/81:
+    extractive-вырезка вступления проходила все прежние гейты — длина,
+    структура, числа, теги — и публиковалась без рекомендаций и вывода)."""
+    errs = []
+    src = utils.ws_norm(source_text or "").lower()
+    body = utils.ws_norm(post or "").lower()
+    if src and body:
+        matched = after = 0
+        for w in set(_KW_RX.findall(body)):
+            i = src.find(w)
+            if i < 0:
+                continue
+            matched += 1
+            if i * 2 > len(src):
+                after += 1
+        if matched >= COMP_MIN_MATCHED:
+            share = after / float(matched)
+            if share < COMP_MIN_TAIL_SHARE:
+                errs.append("incomplete: %d%% of words from article mid "
+                            "(need >= %d%%)" % (round(share * 100),
+                                                round(COMP_MIN_TAIL_SHARE * 100)))
+    secs = _article_sections(html, source_text)
+    if len(secs) >= 3 and body:
+        # ключи — по ТЕЛУ поста без строки заголовка: заголовок может называть
+        # секцию («нужно ли обрывать»), не отдавая её рекомендации — как в
+        # дефектном msg81
+        blocks = [b for b in (post or "").split("\n\n") if b.strip()]
+        pkeys = _kw_keys("\n\n".join(blocks[1:]) if len(blocks) > 1 else post)
+        hit = sum(1 for s in secs if len(_kw_keys(s) & pkeys) >= 2)
+        if hit < len(secs) * COMP_MIN_SECTION_COVER:
+            errs.append("incomplete: covers %d/%d article sections" %
+                        (hit, len(secs)))
+    return errs
+
+
+def editorial_agro(post, source_text, html=None):
     """Редакционные гейты линии: артефакты, язык, числа ⊆ источника, теги —
-    только словарь, объём. (Числа при extractive-посте гарантированы
-    конструкцией — гейт проверяет регрессию, а не презумпцию.)"""
+    только словарь, объём, содержательная полнота (_completeness_errors).
+    (Числа при extractive-посте гарантированы конструкцией — гейт проверяет
+    регрессию, а не презумпцию.)"""
     errs = []
     if textclean.has_artifacts(post):
         errs.append("artifacts in post")
@@ -189,6 +270,7 @@ def editorial_agro(post, source_text):
     tok, terr = hashtags.validate(tags, extra_allowed=AGRO_ALLOWED_TAGS)
     if not tok:
         errs.extend(terr)
+    errs.extend(_completeness_errors(post, source_text, html))
     return errs
 
 
@@ -210,13 +292,20 @@ AI_EDIT_SYSTEM = (
     "важные последовательные шаги — сохрани их логику и порядок.\n"
     "3. Сохрани условия, ограничения и все числа из источника: НЕ придумывай "
     "советы, дозировки, сроки, температуры и результаты, которых нет в тексте.\n"
-    "4. Убери повторы, длинные вступления, SEO-фразы и рекламные вставки.\n"
+    "4. Убери повторы, длинные вступления, SEO-фразы и рекламные вставки; "
+    "вступление (2-3 предложения) пиши один раз и не повторяй его внутри "
+    "поста и в конце.\n"
     "5. Придумай короткий заголовок без кликбейта и сенсационности.\n"
     "6. Напиши законченную самостоятельную публикацию на естественном русском "
-    "языке, добавь уместные тематические эмодзи (без эмодзи в каждом "
-    "предложении), а в конце — конкретный вывод, что делать читателю.\n"
-    "ФОРМАТ: первая строка — заголовок; затем пустая строка; абзацы через "
-    "пустую строку. Строку «Источник:» и хэштеги НЕ пиши — они добавляются "
+    "языке: после краткого вступления сразу практические рекомендации из "
+    "исходника (пост обязан содержать основные советы статьи, а не только "
+    "первые абзацы), добавь уместные тематические эмодзи (без эмодзи в "
+    "каждом предложении), а в конце — конкретный вывод, что делать читателю.\n"
+    "ФОРМАТ: первая строка — короткий заголовок без приставок вроде «Тема:»; "
+    "затем пустая строка; краткое вступление (2-3 предложения); затем КАЖДЫЙ "
+    "совет отдельным абзацем, в начале абзаца — «•»; советы НЕ нумеруй и НЕ "
+    "собирай несколько советов в одну строку; в конце — отдельный абзац с "
+    "выводом. Строку «Источник:» и хэштеги НЕ пиши — они добавляются "
     "автоматически. Длина до 3000 символов. Верни только текст поста, без "
     "markdown-обёрток и пояснений."
 )
@@ -245,20 +334,28 @@ def _clean_ai_output(raw):
         head = lines[0].strip()
         head = re.sub(r"^\*\*(.+?)\*\*$", r"\1", head)
         head = re.sub(r"^#{1,6}\s*", "", head)
+        # модель иногда пишет «Тема: …»/«Заголовок: …» — это не заголовок
+        head = re.sub(r"^(?:Тема|Заголовок)\s*:\s*", "", head, flags=re.I)
         lines[0] = head
     return "\n".join(lines).strip()
 
 
-def _edit_contract_ok(post):
+def _edit_contract_ok(post, source_text=None, html=None):
     """Контракт ИИ-редактуры: непустой, первая строка — заголовок, есть
-    структура «заголовок + абзацы», объём полноценного поста. Слишком
-    длинный результат НЕ режем — он уходит на повтор, а затем в review:
-    оборванный текст не публикуем."""
+    структура «заголовок + абзацы», объём полноценного поста И
+    содержательная полнота (пост опирается на рекомендации всего материала,
+    а не только на вступление — _completeness_errors). Слишком длинный или
+    неполный результат НЕ режем и НЕ публикуем как успех: он уходит на
+    повтор, а затем в review с диагностикой причины."""
     if not post or not post.strip():
         return False, "empty result"
     blocks = [b for b in post.split("\n\n") if b.strip()]
     if len(blocks) < 2:
         return False, "no paragraph structure"
+    # нумерованные пункты в одну строку («1. … 2. …») вместо абзацев: рвут
+    # подпись к фото и восприятие — формат нарушен, идёт на повтор
+    if re.search(r"(?<![\d.,])\d{1,2}[.)]\s", post):
+        return False, "enumerated items instead of paragraphs"
     head = re.sub(r"^\*\*(.+?)\*\*$", r"\1",
                   blocks[0].split("\n")[0].strip()).lstrip("#").strip()
     if not head or len(head) > 160:
@@ -267,10 +364,13 @@ def _edit_contract_ok(post):
         return False, "too short: %d" % len(post)
     if len(post) > MAX_POST_CHARS:
         return False, "too long: %d" % len(post)
+    comp = _completeness_errors(post, source_text, html)
+    if comp:
+        return False, "; ".join(comp)
     return True, ""
 
 
-def _ai_edit_post(text, title, url, source, provider, attempts=2):
+def _ai_edit_post(text, title, url, source, provider, attempts=2, html=None):
     """Редактура ПОЛНОГО текста статьи через существующий GigaChatProvider
     (тот же клиент, что у AI-канала; нового ИИ-клиента в проекте нет).
     -> (post_body, note): пустое тело = неудача. Максимум `attempts` вызовов
@@ -288,7 +388,7 @@ def _ai_edit_post(text, title, url, source, provider, attempts=2):
             log.warning("agro ai edit attempt %d/%d: %s", i + 1, attempts, note)
             continue
         post = _clean_ai_output(raw)
-        ok, why = _edit_contract_ok(post)
+        ok, why = _edit_contract_ok(post, text, html)
         if ok:
             return post, ""
         note = why
@@ -296,12 +396,14 @@ def _ai_edit_post(text, title, url, source, provider, attempts=2):
     return "", note
 
 
-def _finalize_post(row, draft, tags, text, title, url, source, provider):
+def _finalize_post(row, draft, tags, text, title, url, source, provider,
+                   html=None):
     """Итоговый пост. Порядок: кэш (post_text уже готов после прошлой
     попытки) -> ИИ-редактура (живой провайдер) -> extractive-черновик
-    (провайдера нет — прежнее поведение). ИИ доступен, но после повтора
-    контракт не пройден -> ('', 'failed', note): материал уходит в review,
-    сырой/оборванный текст НЕ публикуется.
+    (провайдера нет — прежнее поведение; его полноту держит editorial_agro).
+    ИИ доступен, но после повтора контракт не пройден -> ('', 'failed', note):
+    материал уходит в review, сырой/оборванный/неполный текст НЕ
+    публикуется.
     -> (post, ai_state, note); ai_state: cached|edited|skipped|failed."""
     cached = (row.get("post_text") or "").strip()
     if cached:
@@ -309,7 +411,7 @@ def _finalize_post(row, draft, tags, text, title, url, source, provider):
     if provider is None or not getattr(provider, "available", False) \
             or not callable(getattr(provider, "complete", None)):
         return draft, "skipped", ""
-    body, note = _ai_edit_post(text, title, url, source, provider)
+    body, note = _ai_edit_post(text, title, url, source, provider, html=html)
     if not body:
         return "", "failed", note
     post = "%s\n\nИсточник: %s\n%s" % (body.rstrip(), url, hashtags.render(tags))
@@ -372,7 +474,7 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None):
     draft, tags = build_post(ext.get("title") or "", text, url, source, verdict)
     post, ai_state, ai_note = _finalize_post(row, draft, tags, text,
                                              ext.get("title") or "", url,
-                                             source, provider)
+                                             source, provider, html=html)
     if ai_state == "failed":
         st.update(mid, status="review", reason="ai edit: %s" % ai_note[:250])
         out.update(status="review", reason="ai edit failed", ai=ai_state)
@@ -381,7 +483,7 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None):
     if ai_state == "edited":
         log.info("agro ai edit ok (%d chars, usage=%s)", len(post),
                  getattr(provider, "last_usage", None))
-    errs = editorial_agro(post, text)
+    errs = editorial_agro(post, text, html)
     if errs:
         st.update(mid, status="review", reason="agro editorial: %s" % "; ".join(errs)[:300])
         out.update(status="review", reason="editorial gate")

@@ -221,9 +221,11 @@ def test_provider_unavailable_falls_back_to_extractive(st, monkeypatch):
 # ---------- 8-10. Публикация: короткая подпись + полный текст ----------
 
 def test_publish_sends_short_caption_then_full_text(st, monkeypatch):
-    """Два сообщения: (1) фото с короткой законченной подписью без хэштегов,
-    (2) полный текст (все советы, вывод, «Источник:», хэштеги) — тот же
-    заголовок в обоих (связка в ленте), обрывов нет."""
+    """Два сообщения: (1) фото с короткой законченной подписью — заголовок +
+    краткое вступление (анонс) по границе предложения, без хэштегов;
+    (2) полный текст — тот же заголовок, рекомендации, вывод, «Источник:»,
+    хэштеги. Вступление в текстовом сообщении НЕ дублируется дословно
+    (регрессия msg80/81), обрывов нет."""
     _fake_network(monkeypatch, {ART_URL: _art_html()})
     _publish_traps(monkeypatch)
     events, seen = [], {}
@@ -255,37 +257,50 @@ def test_publish_sends_short_caption_then_full_text(st, monkeypatch):
     assert cap_blocks[0] == "**%s**" % AI_POST.split("\n\n")[0]  # тот же заголовок
     assert cap_blocks[-1].startswith("Источник: " + ART_URL)
     assert not re.search(r"#[А-Яа-яA-Za-z]", cap), "хэштеги — в полном тексте"
-    # лид — целое предложение (не обрыв на полуслове)
+    # анонс-вступление в подписи — целое предложение (не обрыв на полуслове)
+    assert cap_blocks[1] == AI_POST.split("\n\n")[1]
     assert re.search(r"[.!?…]$", cap_blocks[1]), cap_blocks[-1]
 
     full = postformat.unescape_markdownv2(seen["full"])
     assert len(seen["full"]) <= 4090                    # лимит сообщения
     assert full.split("\n\n")[0] == cap_blocks[0]       # связка сообщений
-    for b in AI_POST.split("\n\n")[1:]:                 # полнота: всё в отправке
+    # полнота: рекомендации и вывод — в полном тексте
+    for b in AI_POST.split("\n\n")[2:]:
         assert b in full, b
+    # дубля вступления нет (анонс остаётся только в подписи к фото)
+    assert AI_POST.split("\n\n")[1] not in full
     assert "Источник: " + ART_URL in full
     assert " ".join(r["hashtags"]) in full
     assert "…" not in full                              # обрыва нет
 
 
-def test_caption_for_photo_is_short_and_sentence_bounded():
-    """postformat.caption_for_photo: подпись = заголовок + лид по границе
-    предложения + источник; длинное тело в подпись не попадает."""
+def test_split_for_photo_short_announce_and_full_text_no_dup():
+    """postformat.split_for_photo: подпись = заголовок + краткий анонс по
+    границе предложения + источник; сообщение = заголовок + тело БЕЗ
+    дословно скопированного анонса + источник + хэштеги (рекомендации не
+    теряются, вступление не повторяется)."""
     long_lead = ("Осенняя подготовка почвы — это не только перекопка: после "
                  "уборки урожая земле нужно вернуть структуру, питание и "
-                 "влажностный режим, иначе весной всходы пойдут медленнее, а "
-                 "почвенные микроорганизмы потеряют активность, что скажется "
-                 "на всасывающей способности корней рассады овощей.") * 2
-    text = ("Заголовок поста\n\n" + long_lead + "\n\nВторой абзац.\n\n"
+                 "влажностный режим, иначе весной всходы пойдут медленно. "
+                 "Сначала уберите растительные остатки, затем оцените "
+                 "структуру и влажность. Рыхление и компост осенью возвращают "
+                 "земле воздух и удерживают влагу до снега.")
+    text = ("Заголовок поста\n\n" + long_lead + "\n\nВторой абзац со "
+            "советами по уходу за грядками осенью.\n\n"
             "Источник: " + ART_URL + "\n#Практика #Сад")
-    cap = postformat.caption_for_photo(postformat.format_post(text))
-    blocks = [b for b in cap.split("\n\n") if b.strip()]
-    assert len(blocks) == 3, blocks                     # head + lead + source
-    assert len(blocks[1]) <= 320 + 1
-    assert re.search(r"[.!?…]$", blocks[1])             # целое предложение
-    assert "Второй абзац" not in cap                     # тело — во 2-м сообщении
+    cap, msg = postformat.split_for_photo(postformat.format_post(text))
+    cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
+    msg_blocks = [b for b in msg.split("\n\n") if b.strip()]
+    assert cap_blocks[0] == "**Заголовок поста**" == msg_blocks[0]
+    assert len(cap_blocks[1]) <= 320 and len(cap_blocks[1]) <= 220 + 1
+    assert re.search(r"[.!?…]$", cap_blocks[1])         # целое предложение
+    assert cap_blocks[-1] == "Источник: " + ART_URL
+    # аннонс дословно НЕ скопирован в сообщение (нет повтора вступления)
+    assert cap_blocks[1] not in msg
+    # тело (рекомендации) и хэштеги — в сообщении целиком
+    assert "Второй абзац со" in msg and "#Практика" in msg
+    assert "Источник: " + ART_URL in msg
     assert "#Практика" not in cap
-    assert blocks[-1] == "Источник: " + ART_URL
     assert len(postformat.to_markdownv2(cap)) <= 1024
 
 
@@ -376,3 +391,144 @@ def test_run_summary_counts_ai_states(st, monkeypatch):
     assert s["post_ready"] == 1 and s["ai_edited"] == 1, s
     for k in ("ai_failed", "ai_cached", "ai_skipped"):
         assert k in s and s[k] == 0, (k, s)
+
+
+# ---------- регрессия msg80/81 (яблоня): полнота + отсутствие дубля -------
+
+YAB_URL = ("https://www.botanichka.ru/article/yablonya-uhodit-v-zimu-"
+           "s-listyami-nuzhno-li-ih-obryvat/")
+YAB_TITLE = "Яблоня уходит в зиму с листьями: нужно ли их обрывать"
+# вступление — дословный фрагмент реально опубликованного (дефектного) поста
+YAB_INTRO = ("Конец октября или ноябрь. Липы, берёзы и вишни давно стоят "
+             "голые, а яблоня всё ещё держит листья – где-то зелёные, где-то "
+             "уже бурые и сухие. Рука тянется их обобрать: кажется, что дерево "
+             "«не успело» подготовиться к зиме и ему надо помочь. Как правило, "
+             "делать этого не нужно. Важнее понять, почему листопад "
+             "задержался и успели ли приросты текущего года закончить рост.")
+# хвост статьи — те самые рекомендации, которых не хватало в msg81
+YAB_TAIL = ("Полезно сравнить яблоню с другими яблонями похожего возраста: "
+            "если листва задержалась сразу на многих деревьях после долгой "
+            "тёплой осени, велика роль погоды. Молодые активно растущие "
+            "яблони заканчивают вегетацию позже взрослых. Обрывать листья "
+            "вручную не нужно: они защищают почки зимующих побегов от резких "
+            "морозов, а процесс листопада остановить всё равно нельзя. Перед "
+            "зимой уберите опавшую листву из приствольных кругов и "
+            "замульчируйте почву слоем 5 см перепревшим компостом: так корни "
+            "уйдут зимовать в защищённом слое. Весной проверьте, не "
+            "подопрели ветки под снегом, и снимите снег с молодых саженцев "
+            "сразу после оттепели.")
+YAB_TEXT = YAB_INTRO + "\n\n" + YAB_TAIL
+YAB_HTML = ARTICLE_HTML % (YAB_TITLE, YAB_TITLE, _today(), YAB_INTRO, YAB_TAIL)
+
+# «дефектный» пост: структура и длина в порядке, но это только вступление
+# (как msg80/81: рекомендаций и вывода нет)
+YAB_INTRO_ONLY_POST = YAB_TITLE + "\n\n" + YAB_INTRO
+# полноценный пост: вступление + рекомендации статьи + вывод
+YAB_POST = (
+    YAB_TITLE + "\n\n"
+    "🍂 " + YAB_INTRO + "\n\n"
+    "• Если листва задержалась сразу на нескольких яблонях после долгой "
+    "тёплой осени — виновата погода, а не дерево: молодые активно растущие "
+    "яблони заканчивают вегетацию позже взрослых.\n\n"
+    "• Обрывать листья вручную не нужно: они защищают почки зимующих побегов "
+    "от резких морозов, а процесс листопада остановить всё равно нельзя.\n\n"
+    "• Перед зимой уберите опавшую листву из приствольных кругов и "
+    "замульчируйте почву слоем 5 см перепревшим компостом — корни уйдут "
+    "зимовать в защищённом слое.\n\n"
+    "• Весной проверьте, не подопрели ветки под снегом, и сразу после "
+    "оттепели снимите снег с молодых саженцев.\n\n"
+    "Вывод: листья на яблоне осенью — норма; дереву важнее успеть вызреть, а "
+    "листву лучше убрать после листопада."
+)
+
+
+def test_regression_msg81_intro_only_ai_post_is_reviewed(st, monkeypatch):
+    """Регрессия msg80/81: пост, состоящий только из вступления (длина и
+    структура в порядке, а рекомендаций и вывода нет), НЕ считается
+    успешной редактурой: 1 повтор, затем review с диагностикой «incomplete»,
+    публикации нет."""
+    _fake_network(monkeypatch, {YAB_URL: YAB_HTML})
+    _publish_traps(monkeypatch)
+    prov = StubProvider(YAB_INTRO_ONLY_POST, YAB_INTRO_ONLY_POST)
+    r = agro.process_url(st, YAB_URL, "botanichka", publish=True,
+                         dry_run=False, provider=prov)
+    assert r["status"] == "review" and len(prov.calls) == 2, r
+    assert r["ai"] == "failed"
+    row = st.get(st.add(YAB_URL, "x"))
+    assert row["status"] == "review" and not row["post_text"]
+    assert "incomplete" in row["reason"], row["reason"]   # причина диагностирована
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+
+
+def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch):
+    """Регрессия msg80/81 (положительный сценарий): полный пост про яблоню.
+    Подпись к фото держит заголовок и вступление-анонс (целое предложение,
+    «Источник:»); текстовое сообщение — рекомендации и вывод; вступление
+    дословно НЕ дублируется; обрыва на полуслове нет."""
+    _fake_network(monkeypatch, {YAB_URL: YAB_HTML})
+    _publish_traps(monkeypatch)
+    seen = {}
+
+    def spy_photo(token, chat_id, photo_url=None, photo_bytes=None,
+                  caption=None, dry_run=False, retries=2, parse_mode=None):
+        seen["caption"] = caption
+        return telegram.PublishResult(True, message_id=810)
+
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        seen["full"] = text
+        return telegram.PublishResult(True, message_id=811)
+    monkeypatch.setattr(telegram, "send_photo", spy_photo)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
+
+    prov = StubProvider(YAB_POST)
+    r = agro.process_url(st, YAB_URL, "botanichka", publish=True,
+                         dry_run=False, provider=prov)
+    assert r["status"] == "published" and r["ai"] == "edited", r
+
+    cap = postformat.unescape_markdownv2(seen["caption"])
+    full = postformat.unescape_markdownv2(seen["full"])
+    # подпись: заголовок + вступление-анонс по границе предложения + источник
+    cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
+    assert cap_blocks[0] == "**%s**" % YAB_TITLE
+    assert "держит листья" in cap_blocks[1]
+    assert re.search(r"[.!?…]$", cap_blocks[1])          # целая мысль, без обрыва
+    assert "Источник: " + YAB_URL in cap
+    assert not re.search(r"#[А-Яа-яA-Za-z]", cap)       # хэштегов в подписи нет
+    # сообщение: рекомендации и вывод; тот же заголовок (связка в ленте)
+    assert full.split("\n\n")[0] == "**%s**" % YAB_TITLE
+    assert "Обрывать листья вручную не нужно" in full
+    assert "замульчируйте почву слоем 5 см" in full
+    assert "Вывод:" in full and "после листопада" in full
+    # вступление НЕ скопировано дословно в начало полного текста
+    assert YAB_POST.split("\n\n")[1] not in full
+    assert "Источник: " + YAB_URL in full
+    assert "…" not in full and len(seen["full"]) <= 4090
+    assert len(seen["caption"]) <= 1024
+
+
+def test_completeness_gate_checks_article_sections():
+    """Гейт секций статьи (H2/H3 в тексте): пост, отражающий только
+    вступление (1/4 секций), неполон; пост с основными рекомендациями
+    проходит обе проверки полноты."""
+    secs = ("Почему листопад задержался", "Нужно ли обрывать листья",
+            "Что сделать перед зимой", "Что проверить весной")
+    bodies = (
+        "Долгая тёплая осень держит дерево в активном состоянии, и листья "
+        "держатся до заморозков.",
+        "Вручную не нужно: почки под листвой защищены от морозов, а листопад "
+        "не остановить.",
+        "Уберите листву из приствольных кругов и замульчируйте почву "
+        "перепревшим компостом слоем 5 см.",
+        "После оттепели снимите снег с молодых саженцев и осмотрите ветки, "
+        "подопрелые под снегом.")
+    text = "\n\n".join([YAB_INTRO] +
+                       ["%s: %s" % (s, b) for s, b in zip(secs, bodies)])
+    html = "<html><body><article>%s</article></body></html>" % "".join(
+        "<h2>%s</h2><p>%s</p>" % (s, b) for s, b in zip(secs, bodies))
+    intro_only = YAB_TITLE + "\n\n" + YAB_INTRO
+    errs = agro._completeness_errors(intro_only, text, html)
+    assert any("sections" in e for e in errs), errs      # 1/4 секций
+    assert any("words from article mid" in e for e in errs), errs
+    complete = YAB_TITLE + "\n\n" + YAB_INTRO + "\n\n" + \
+        "\n\n".join("%s: %s" % (s, b) for s, b in zip(secs, bodies))
+    assert agro._completeness_errors(complete, text, html) == []

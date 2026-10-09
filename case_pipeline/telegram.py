@@ -126,12 +126,13 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
 
     channel: 'ai' (default, поведение идентично прежнему) | 'agro'.
     image: bytes — публикация в ДВА шага: (1) sendPhoto с короткой
-    законченной подписью ≤1024 (postformat.caption_for_photo: заголовок,
-    лид по границе предложения, «Источник:»), затем (2) ПОЛНЫЙ текст
-    отдельным сообщением (та же подача, что у текстовых каналов; лимит
-    сообщения 4096 с безопасной страховкой). Длинный пост раньше целиком
-    уходил в caption и обрезался fit_caption по словам — материал терял
-    рекомендации (обрыв в msg78). Без image — прежний текстовый путь."""
+    законченной подписью ≤1024 (postformat.split_for_photo: заголовок +
+    краткий анонс по границе предложения + «Источник:»), затем (2) ПОЛНЫЙ
+    текст отдельным сообщением (заголовок, тело БЕЗ скопированного дословно
+    анонса — вступление не дублируется, msg80/81; «Источник:» + хэштеги;
+    лимит сообщения 4096 с безопасной страховкой). Длинный пост раньше
+    целиком уходил в caption и обрезался fit_caption по словам — материал
+    терял рекомендации (обрыв в msg78). Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     formatted = postformat.format_post(text)
     if dry_run:
@@ -143,8 +144,11 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     md = postformat.to_markdownv2(formatted)
     if image:
         target = chat_id or target_chat
-        # 1) фото с короткой подписью (без хэштегов — они в полном тексте)
-        cap_plain = postformat.caption_for_photo(formatted)
+        # 1) фото с короткой подписью (заголовок + краткий анонс, без
+        # хэштегов — они в полном тексте)
+        cap_plain, msg_plain = postformat.split_for_photo(formatted)
+        if msg_plain == cap_plain:
+            log.warning("split_for_photo: тело не делится (дубль в сообщении)")
         caption = fit_caption(postformat.to_markdownv2(cap_plain), 1024)
         res = send_photo(token, target, photo_bytes=image,
                          caption=caption, parse_mode="MarkdownV2")
@@ -158,7 +162,7 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
                 log.error("telegram photo publish failed: %s", res.error)
                 return res
         # 2) полный текст отдельным сообщением (фото — над текстом в ленте)
-        full_md = md
+        full_md = postformat.to_markdownv2(msg_plain)
         if len(full_md) > 4090:
             # страховка: контракт ИИ-редактуры держит пост ≤3400 символов,
             # так что путь не должен срабатывать (см. agro.MAX_POST_CHARS)
@@ -170,7 +174,7 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
             err = str(res2.error or "").lower()
             if "400" in err and "parse" in err:
                 log.warning("markdownv2 rejected (400 parse) — повтор plain text")
-                res2 = send_message(token, target, formatted)
+                res2 = send_message(token, target, msg_plain)
         if not res2.ok:
             # фото ушло, текст нет -> честный отказ (-> review без
             # авто-повтора, чтобы фото не задублировалось)
