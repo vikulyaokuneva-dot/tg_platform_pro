@@ -220,12 +220,12 @@ def test_provider_unavailable_falls_back_to_extractive(st, monkeypatch):
 
 # ---------- 8-10. Публикация: короткая подпись + полный текст ----------
 
-def test_publish_sends_short_caption_then_full_text(st, monkeypatch):
-    """Два сообщения: (1) фото с короткой законченной подписью — заголовок +
-    краткое вступление (анонс) по границе предложения, без хэштегов;
-    (2) полный текст — тот же заголовок, рекомендации, вывод, «Источник:»,
-    хэштеги. Вступление в текстовом сообщении НЕ дублируется дословно
-    (регрессия msg80/81), обрывов нет."""
+def test_publish_short_post_single_photo_with_full_caption(st, monkeypatch):
+    """Короткий ИИ-пост (весь пост, после экранирования, помещается в лимит
+    подписи): публикация ОДНИМ сообщением — фото с полным текстом в подписи
+    (заголовок, вступление, рекомендации, вывод, «Источник:», хэштеги);
+    второе текстовое сообщение НЕ отправляется — пост не превращается во
+    «второй пост». Обрывов нет, заголовок на месте."""
     _fake_network(monkeypatch, {ART_URL: _art_html()})
     _publish_traps(monkeypatch)
     events, seen = [], {}
@@ -236,49 +236,39 @@ def test_publish_sends_short_caption_then_full_text(st, monkeypatch):
         seen.update(caption=caption, photo=photo_bytes, cap_mode=parse_mode)
         return telegram.PublishResult(True, message_id=901)
 
-    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
-        events.append("text")
-        seen.update(full=text, full_mode=parse_mode)
-        return telegram.PublishResult(True, message_id=902)
+    def boom_msg(*a, **k):
+        raise AssertionError("короткий пост должен уйти одним сообщением")
     monkeypatch.setattr(telegram, "send_photo", spy_photo)
-    monkeypatch.setattr(telegram, "send_message", spy_msg)
+    monkeypatch.setattr(telegram, "send_message", boom_msg)
 
     prov = StubProvider(AI_POST)
     r = agro.process_url(st, ART_URL, "botanichka", publish=True,
                          dry_run=False, provider=prov)
     assert r["status"] == "published" and r["telegram_message_id"] == 901, r
-    assert events == ["photo", "text"]                 # фото раньше текста
+    assert events == ["photo"]                          # ровно одно сообщение
     assert seen["photo"] and seen["cap_mode"] == "MarkdownV2"
-    assert seen["full_mode"] == "MarkdownV2"
 
     cap = postformat.unescape_markdownv2(seen["caption"])
-    assert len(seen["caption"]) <= 1024
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
-    assert cap_blocks[0] == "**%s**" % AI_POST.split("\n\n")[0]  # тот же заголовок
-    assert cap_blocks[-1].startswith("Источник: " + ART_URL)
-    assert not re.search(r"#[А-Яа-яA-Za-z]", cap), "хэштеги — в полном тексте"
-    # анонс-вступление в подписи — целое предложение (не обрыв на полуслове)
+    assert cap_blocks[0] == "**%s**" % AI_POST.split("\n\n")[0]  # заголовок
+    assert any(b.startswith("Источник: " + ART_URL) for b in cap_blocks)
+    # вступление-анонс в подписи — целое предложение (не обрыв на полуслове)
     assert cap_blocks[1] == AI_POST.split("\n\n")[1]
-    assert re.search(r"[.!?…]$", cap_blocks[1]), cap_blocks[-1]
-
-    full = postformat.unescape_markdownv2(seen["full"])
-    assert len(seen["full"]) <= 4090                    # лимит сообщения
-    assert full.split("\n\n")[0] == cap_blocks[0]       # связка сообщений
-    # полнота: рекомендации и вывод — в полном тексте
+    assert re.search(r"[.!?…]$", cap_blocks[1]), cap_blocks[1]
+    # полнота: рекомендации и вывод — в подписи (пост целиком, без обрезки)
     for b in AI_POST.split("\n\n")[2:]:
-        assert b in full, b
-    # дубля вступления нет (анонс остаётся только в подписи к фото)
-    assert AI_POST.split("\n\n")[1] not in full
-    assert "Источник: " + ART_URL in full
-    assert " ".join(r["hashtags"]) in full
-    assert "…" not in full                              # обрыва нет
+        assert b in cap, b
+    assert "Источник: " + ART_URL in cap
+    assert " ".join(r["hashtags"]) in cap
+    assert "…" not in cap                               # обрыва нет
 
 
 def test_split_for_photo_short_announce_and_full_text_no_dup():
     """postformat.split_for_photo: подпись = заголовок + краткий анонс по
-    границе предложения + источник; сообщение = заголовок + тело БЕЗ
-    дословно скопированного анонса + источник + хэштеги (рекомендации не
-    теряются, вступление не повторяется)."""
+    границе предложения + источник; продолжение = тело БЕЗ повторного
+    заголовка и БЕЗ дословно скопированного анонса + источник + хэштеги
+    (рекомендации не теряются, заголовок и вступление не повторяются)."""
     long_lead = ("Осенняя подготовка почвы — это не только перекопка: после "
                  "уборки урожая земле нужно вернуть структуру, питание и "
                  "влажностный режим, иначе весной всходы пойдут медленно. "
@@ -291,17 +281,19 @@ def test_split_for_photo_short_announce_and_full_text_no_dup():
     cap, msg = postformat.split_for_photo(postformat.format_post(text))
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     msg_blocks = [b for b in msg.split("\n\n") if b.strip()]
-    assert cap_blocks[0] == "**Заголовок поста**" == msg_blocks[0]
+    assert cap_blocks[0] == "**Заголовок поста**"
     assert len(cap_blocks[1]) <= 320 and len(cap_blocks[1]) <= 220 + 1
     assert re.search(r"[.!?…]$", cap_blocks[1])         # целое предложение
     assert cap_blocks[-1] == "Источник: " + ART_URL
-    # аннонс дословно НЕ скопирован в сообщение (нет повтора вступления)
+    # продолжение: БЕЗ повторного заголовка и БЕЗ дословного анонса
+    assert "**Заголовок поста**" not in msg
     assert cap_blocks[1] not in msg
-    # тело (рекомендации) и хэштеги — в сообщении целиком
+    assert msg_blocks[0].startswith("Сначала уберите")   # тело, не заголовок
+    # тело (рекомендации) и хэштеги — в продолжении целиком
     assert "Второй абзац со" in msg and "#Практика" in msg
     assert "Источник: " + ART_URL in msg
     assert "#Практика" not in cap
-    assert len(postformat.to_markdownv2(cap)) <= 1024
+    assert len(postformat.to_markdownv2(cap)) <= telegram.CAPTION_LIMIT
 
 
 def test_url_and_image_preserved_with_ai_edit(st, monkeypatch):
@@ -350,7 +342,7 @@ def test_failed_image_fetch_then_rerun_uses_cache_without_reedit(st, monkeypatch
     assert r2["ai"] == "cached"                         # кэш, не повторный ИИ
     assert len(prov.calls) == 1                         # лишних вызовов не было
     assert st.get(st.add(ART_URL, "x"))["post_text"] == cached_post
-    assert sent == ["photo", "text"]
+    assert sent == ["photo"]                            # короткий пост: 1 сообщение
 
 
 def test_rerun_after_publish_no_reedit_no_repost(st, monkeypatch):
@@ -376,7 +368,7 @@ def test_rerun_after_publish_no_reedit_no_repost(st, monkeypatch):
                           dry_run=False, provider=prov)
     assert r2["status"] == "skipped" and "already" in r2["reason"], r2
     assert len(prov.calls) == 1                         # редактура не повторилась
-    assert len(sends) == 2                              # photo+text один раз
+    assert len(sends) == 1                              # фото с полным текстом один раз
 
 
 # ---------- диагностика summary (счётчики ИИ) ----------
@@ -461,10 +453,11 @@ def test_regression_msg81_intro_only_ai_post_is_reviewed(st, monkeypatch):
 
 
 def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch):
-    """Регрессия msg80/81 (положительный сценарий): полный пост про яблоню.
-    Подпись к фото держит заголовок и вступление-анонс (целое предложение,
-    «Источник:»); текстовое сообщение — рекомендации и вывод; вступление
-    дословно НЕ дублируется; обрыва на полуслове нет."""
+    """Регрессия msg80/81 (положительный сценарий, длинный пост не влезает
+    в подпись): подпись к фото держит заголовок и вступление-анонс (целое
+    предложение, «Источник:»); второе сообщение — продолжение: рекомендации
+    и вывод БЕЗ повторного заголовка и БЕЗ дословного вступления; обрыва
+    на полуслове нет."""
     _fake_network(monkeypatch, {YAB_URL: YAB_HTML})
     _publish_traps(monkeypatch)
     seen = {}
@@ -494,16 +487,19 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert re.search(r"[.!?…]$", cap_blocks[1])          # целая мысль, без обрыва
     assert "Источник: " + YAB_URL in cap
     assert not re.search(r"#[А-Яа-яA-Za-z]", cap)       # хэштегов в подписи нет
-    # сообщение: рекомендации и вывод; тот же заголовок (связка в ленте)
-    assert full.split("\n\n")[0] == "**%s**" % YAB_TITLE
+    # продолжение: рекомендации и вывод, БЕЗ повторного заголовка и вступления
+    assert "**%s**" % YAB_TITLE not in full            # заголовок не дублируется
     assert "Обрывать листья вручную не нужно" in full
     assert "замульчируйте почву слоем 5 см" in full
     assert "Вывод:" in full and "после листопада" in full
-    # вступление НЕ скопировано дословно в начало полного текста
+    # вступление НЕ скопировано дословно в продолжение
     assert YAB_POST.split("\n\n")[1] not in full
     assert "Источник: " + YAB_URL in full
     assert "…" not in full and len(seen["full"]) <= 4090
-    assert len(seen["caption"]) <= 1024
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    # пост длиннее лимита подписи — поэтому именно два сообщения
+    assert len(postformat.to_markdownv2(
+        postformat.format_post(YAB_POST))) > telegram.CAPTION_LIMIT
 
 
 def test_completeness_gate_checks_article_sections():
@@ -665,10 +661,10 @@ def test_regression_msg83_fallback_and_cache_cannot_bypass_completeness(
 def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
         st, monkeypatch):
     """Регрессия msg82/83 (формат+дедуп): пост модели с заголовком-«пунктом»
-    и склеенными буллетами публикуется парой «фото+текст» с чистым заголовком
-    и отдельными абзацами советов; вступление уходит в подпись и НЕ
-    дублируется в тексте; повторный запуск не создаёт повторную
-    публикацию."""
+    и склеенными буллетами публикуется ОДНИМ сообщением — фото с полным
+    текстом в подписи (чистый заголовок, отдельные абзацы советов, вывод,
+    источник, хэштеги); второго сообщения нет; повторный запуск не создаёт
+    повторную публикацию."""
     _fake_network(monkeypatch, {AIF_URL: AIF_HTML})
     _publish_traps(monkeypatch)
     seen, sent = {}, []
@@ -679,12 +675,10 @@ def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
         sent.append("photo")
         return telegram.PublishResult(True, message_id=820)
 
-    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
-        seen["full"] = text
-        sent.append("text")
-        return telegram.PublishResult(True, message_id=821)
+    def boom_msg(*a, **k):
+        raise AssertionError("короткий пост должен уйти одним сообщением")
     monkeypatch.setattr(telegram, "send_photo", spy_photo)
-    monkeypatch.setattr(telegram, "send_message", spy_msg)
+    monkeypatch.setattr(telegram, "send_message", boom_msg)
 
     prov = StubProvider(AIF_AI_BULLET_POST)
     r1 = agro.process_url(st, AIF_URL, "aif", publish=True,
@@ -692,23 +686,169 @@ def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
     assert r1["status"] == "published" and r1["ai"] == "edited", r1
 
     cap = postformat.unescape_markdownv2(seen["caption"])
-    full = postformat.unescape_markdownv2(seen["full"])
-    assert cap.startswith("**%s**" % AIF_TITLE)        # заголовок без «•»
-    fb = [b for b in full.split("\n\n") if b.strip()]
-    assert fb[0] == "**%s**" % AIF_TITLE               # и в тексте тоже
-    assert sum(1 for b in fb if b.startswith("• ")) == 3, fb  # советы по абзацам
-    assert "Ключевые рекомендации:\n• " not in full    # склейки нет
-    assert "Вывод:" in full and "проредить всходы" in full
-    assert AIF_MODEL_INTRO in cap                      # вступление -> подпись
-    assert AIF_MODEL_INTRO not in full                 # и не дублируется в тексте
-    assert "Источник: " + AIF_URL in cap and "Источник: " + AIF_URL in full
-    assert "…" not in full and len(seen["full"]) <= 4090
-    assert len(seen["caption"]) <= 1024
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    cb = [b for b in cap.split("\n\n") if b.strip()]
+    assert cb[0] == "**%s**" % AIF_TITLE                # заголовок без «•»
+    assert sum(1 for b in cb if b.startswith("• ")) == 3, cb  # советы по абзацам
+    assert "Ключевые рекомендации:\n• " not in cap      # склейки нет
+    assert "Вывод:" in cap and "проредить всходы" in cap
+    assert AIF_MODEL_INTRO in cap                       # вступление в подписи
+    assert "Источник: " + AIF_URL in cap
+    assert " ".join(r1["hashtags"]) in cap
 
     # идемпотентность: повторная обработка опубликованной статьи не публикует дубль
     r2 = agro.process_url(st, AIF_URL, "aif", publish=True,
                           dry_run=False, provider=prov)
     assert r2["status"] == "skipped" and "already" in r2["reason"], r2
     assert len(prov.calls) == 1                        # редактура не повторилась
-    assert sent == ["photo", "text"]                   # photo+text ровно один раз
+    assert sent == ["photo"]                           # ровно одна отправка
     assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 1
+
+
+# ---------- регрессия msg86/87 (ботаничка «Побелка стволов») ---------------
+
+POB_URL = ("https://www.botanichka.ru/article/osennyuyu-pobelku-smylo-"
+           "dozhdyom-povtoryat-sejchas-ili-zhdat-vesny/")
+POB_TITLE = "Побелка стволов: когда повторять после дождя"
+# вступление — дословный фрагмент реально опубликованного поста msg86/87
+POB_INTRO = ("После дождей побелка стволов часто смывается, и садоводы "
+             "задаются вопросом: стоит ли повторять процедуру сразу или "
+             "лучше подождать до весны? Вот рекомендации, как действовать "
+             "правильно. Чаще всего побелку смывают проливные дожди поздней "
+             "осенью, когда работа уже сделана.")
+POB_TAIL = (
+    "Повторная побелка нужна не всегда: слой защищает кору от солнечных "
+    "ожогов и морозобоин зимой, и если он сохранился, дерево в безопасности. "
+    "Оцените состояние коры после полного высыхания ствола: светлая "
+    "сохранившаяся побелка означает, что повторять процедуру сейчас не "
+    "нужно, а небольшие тёмные пятна можно точечно подправить.\n\n"
+    "Осмотрите ствол на предмет повреждений — южную сторону, основания "
+    "ветвей, развилки и места, открытые солнцу: именно там чаще всего "
+    "появляются морозобоины и ожоги. Повторяйте побелку только на сухой "
+    "коре, после полного высыхания предыдущего слоя; не наносите состав на "
+    "мокрую или промёрзшую кору — он не сцепится и смоется ближайшим дождём.\n\n"
+    "Используйте подходящую побелку или краску, предназначенную для "
+    "штамбов деревьев: в составе должны быть известь или мел с вяжущим "
+    "компонентом. Не добавляйте в готовые смеси медный купорос, клей и "
+    "мыло без инструкции производителя — концентрация может обжечь кору. "
+    "Для молодых деревьев используйте более мягкий состав с мелом вместо "
+    "извести: тонкая кора саженцев чувствительна к агрессивному составу.\n\n"
+    "Если после дождей кора долго не просыхает, используйте светлую "
+    "обвязку или экран, чтобы защитить ствол от солнца в морозную погоду. "
+    "Побелку повторяют обычно 1-2 раза в год, а при быстром смывании — "
+    "по состоянию коры, ориентируясь на погоду, а не на календарь.")
+POB_TEXT = POB_INTRO + "\n\n" + POB_TAIL
+POB_HTML = ARTICLE_HTML % (POB_TITLE, POB_TITLE, _today(), POB_INTRO, POB_TAIL)
+
+# пост как в msg87: длиннее лимита подписи -> фото + продолжение
+POB_POST = (
+    POB_TITLE + "\n\n"
+    + POB_INTRO + "\n\n"
+    "• Оцените состояние коры после высыхания: если слой побелки сохранился "
+    "и кора светлая, повторная побелка не требуется; небольшие тёмные пятна "
+    "можно точечно подправить.\n\n"
+    "• Осмотрите ствол на предмет повреждений: южную сторону, основания "
+    "ветвей, развилки и места, открытые солнцу.\n\n"
+    "• Повторяйте побелку только на сухой коре, после полного высыхания "
+    "предыдущего слоя; не наносите состав на мокрую или промёрзшую кору.\n\n"
+    "• Используйте подходящую побелку для штамбов деревьев и не добавляйте "
+    "в готовые смеси медный купорос, клей и мыло без инструкции "
+    "производителя.\n\n"
+    "• Для молодых деревьев используйте более мягкий состав с мелом вместо "
+    "извести.\n\n"
+    "• Если после дождей кора не просыхает, используйте светлую обвязку "
+    "или экран, чтобы защитить ствол от солнца.\n\n"
+    "Вывод: не спешите с повторной побелкой после дождя — дождитесь "
+    "высыхания коры и подходящей погоды, а состав выбирайте по состоянию "
+    "дерева."
+)
+
+
+def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch):
+    """Регрессия msg86/87 («Побелка стволов…» — пост длиннее лимита подписи):
+    публикация остаётся парой «фото + продолжение», но второе сообщение
+    оформлено как продолжение — БЕЗ повторного заголовка и вступления
+    (они только в подписи к фото); все советы и вывод на месте."""
+    _fake_network(monkeypatch, {POB_URL: POB_HTML})
+    _publish_traps(monkeypatch)
+    seen, sent = {}, []
+
+    def spy_photo(token, chat_id, photo_url=None, photo_bytes=None,
+                  caption=None, dry_run=False, retries=2, parse_mode=None):
+        seen["caption"] = caption
+        sent.append("photo")
+        return telegram.PublishResult(True, message_id=860)
+
+    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
+        seen["full"] = text
+        sent.append("text")
+        return telegram.PublishResult(True, message_id=861)
+    monkeypatch.setattr(telegram, "send_photo", spy_photo)
+    monkeypatch.setattr(telegram, "send_message", spy_msg)
+
+    prov = StubProvider(POB_POST)
+    r = agro.process_url(st, POB_URL, "botanichka", publish=True,
+                         dry_run=False, provider=prov)
+    assert r["status"] == "published" and r["ai"] == "edited", r
+    assert sent == ["photo", "text"]                   # фото раньше продолжения
+
+    cap = postformat.unescape_markdownv2(seen["caption"])
+    full = postformat.unescape_markdownv2(seen["full"])
+    cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
+    assert cap_blocks[0] == "**%s**" % POB_TITLE
+    assert "После дождей побелка" in cap_blocks[1]      # вступление-анонс
+    assert re.search(r"[.!?…]$", cap_blocks[1])         # целая мысль
+    assert "Источник: " + POB_URL in cap
+    assert not re.search(r"#[А-Яа-яA-Za-z]", cap)      # тегов в подписи нет
+    # продолжение: без повторного заголовка и вступления
+    assert "**%s**" % POB_TITLE not in full
+    assert "После дождей побелка" not in full
+    fb = [b for b in full.split("\n\n") if b.strip()]
+    assert sum(1 for b in fb if b.startswith("• ")) == 6, fb  # все 6 советов
+    assert "Вывод:" in fb[-3] and "высыхания коры" in fb[-3]
+    assert "Источник: " + POB_URL in full
+    assert "…" not in full and len(seen["full"]) <= 4090
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    # пост действительно длиннее лимита подписи -> именно два сообщения
+    assert len(postformat.to_markdownv2(
+        postformat.format_post(POB_POST))) > telegram.CAPTION_LIMIT
+
+
+def test_text_send_failure_after_photo_goes_to_review_without_repost(
+        st, monkeypatch):
+    """Ошибка отправки второго шага (фото ушло, текст не отправился):
+    publish_post возвращает отказ -> review без авто-повтора (фото не
+    задублируется), публикация не записывается; повторный запуск не
+    создаёт новых сообщений и не вызывает ИИ заново."""
+    _fake_network(monkeypatch, {YAB_URL: YAB_HTML})
+    monkeypatch.setattr(config, "AGRO_PUBLISH", True, raising=False)
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "t", raising=False)
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes",
+                        lambda url, **kw: b"\xff\xd8" + b"x" * 20000)
+    sent = []
+
+    def spy_photo(token, chat_id, photo_url=None, photo_bytes=None,
+                  caption=None, dry_run=False, retries=2, parse_mode=None):
+        sent.append("photo")
+        return telegram.PublishResult(True, message_id=830)
+    monkeypatch.setattr(telegram, "send_photo", spy_photo)
+
+    def fail_msg(*a, **k):
+        sent.append("text")
+        return telegram.PublishResult(False, error="400 Bad Request: "
+                                                   "message is too long")
+    monkeypatch.setattr(telegram, "send_message", fail_msg)
+
+    prov = StubProvider(YAB_POST)
+    r1 = agro.process_url(st, YAB_URL, "botanichka", publish=True,
+                          dry_run=False, provider=prov)
+    assert r1["status"] == "review" and "publish failed" in r1["reason"], r1
+    assert sent == ["photo", "text"]                   # по одной попытке на шаг
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+    # повторный запуск: review — терминальный статус, новых отправок нет
+    r2 = agro.process_url(st, YAB_URL, "botanichka", publish=True,
+                          dry_run=False, provider=prov)
+    assert r2["status"] == "skipped" and "already" in r2["reason"], r2
+    assert len(prov.calls) == 1                        # ИИ не перезапускался
+    assert sent == ["photo", "text"]                   # дублей нет

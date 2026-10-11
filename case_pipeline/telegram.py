@@ -15,6 +15,10 @@ from . import config, postformat
 log = logging.getLogger("case_pipeline.telegram")
 
 API = "https://api.telegram.org/bot%s/%s"
+# лимит подписи к фото (Bot API): если ГОТОВЫЙ пост (после экранирования
+# MarkdownV2) помещается в него целиком — публикация одним сообщением,
+# пара «фото + текст» не создаётся
+CAPTION_LIMIT = 1024
 
 
 class PublishResult:
@@ -83,7 +87,7 @@ def _cut_words(s, n):
     return s[:i].rstrip().rstrip("\\") + "…"
 
 
-def fit_caption(md, limit=1024):
+def fit_caption(md, limit=CAPTION_LIMIT):
     """Caption ≤ limit для sendPhoto: заголовок, строка «Источник:» и хэштеги
     сохраняются всегда, тело ужимается по границам слов (лимит считается по
     уже экранированному тексту — как его считает Telegram)."""
@@ -125,14 +129,18 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     лимиту — тот же текст уходит plain text (без parse_mode).
 
     channel: 'ai' (default, поведение идентично прежнему) | 'agro'.
-    image: bytes — публикация в ДВА шага: (1) sendPhoto с короткой
-    законченной подписью ≤1024 (postformat.split_for_photo: заголовок +
-    краткий анонс по границе предложения + «Источник:»), затем (2) ПОЛНЫЙ
-    текст отдельным сообщением (заголовок, тело БЕЗ скопированного дословно
-    анонса — вступление не дублируется, msg80/81; «Источник:» + хэштеги;
-    лимит сообщения 4096 с безопасной страховкой). Длинный пост раньше
-    целиком уходил в caption и обрезался fit_caption по словам — материал
-    терял рекомендации (обрыв в msg78). Без image — прежний текстовый путь."""
+    image: bytes — публикация фото и текста как ЕДИНОЙ публикации: если
+    весь пост (после экранирования MarkdownV2) помещается в лимит подписи
+    CAPTION_LIMIT — одно sendPhoto с полным текстом, второго сообщения нет.
+    Если не помещается — (1) sendPhoto с короткой законченной подписью
+    ≤CAPTION_LIMIT (postformat.split_for_photo: заголовок + краткий анонс
+    по границе предложения + «Источник:»), затем (2) сообщение-
+    ПРОДОЛЖЕНИЕ отдельной отправкой (тело БЕЗ повторного заголовка и без
+    скопированного дословно анонса — msg80/81: читатель видит его прямо
+    под фото; «Источник:» + хэштеги; лимит сообщения 4096 с безопасной
+    страховкой). Длинный пост раньше целиком уходил в caption и обрезался
+    fit_caption по словам — материал терял рекомендации (обрыв в msg78).
+    Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     formatted = postformat.format_post(text)
     if dry_run:
@@ -144,12 +152,32 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     md = postformat.to_markdownv2(formatted)
     if image:
         target = chat_id or target_chat
-        # 1) фото с короткой подписью (заголовок + краткий анонс, без
-        # хэштегов — они в полном тексте)
+        # 0) весь пост помещается в подпись (≤CAPTION_LIMIT) -> ЕДИНАЯ
+        # публикация: фото с полным текстом, второго сообщения нет (не
+        # создаём «второй пост» из одного и того же материала)
+        if len(md) <= CAPTION_LIMIT:
+            res = send_photo(token, target, photo_bytes=image,
+                             caption=md, parse_mode="MarkdownV2")
+            if not res.ok:
+                err = str(res.error or "").lower()
+                if "400" in err and "parse" in err:
+                    log.warning("caption markdown rejected (400 parse) — "
+                                "повтор без parse_mode")
+                    res = send_photo(token, target, photo_bytes=image,
+                                     caption=postformat.unescape_markdownv2(md))
+                if not res.ok:
+                    log.error("telegram photo publish failed: %s", res.error)
+                    return res
+            log.info("photo published with full caption #%s (%d chars)",
+                     res.message_id, len(md))
+            return res
+        # 1) не помещается в подпись: короткая подпись + сообщение-
+        # продолжение (заголовок и анонс остаются ТОЛЬКО в подписи — без
+        # повторного заголовка и вступления во втором сообщении)
         cap_plain, msg_plain = postformat.split_for_photo(formatted)
         if msg_plain == cap_plain:
             log.warning("split_for_photo: тело не делится (дубль в сообщении)")
-        caption = fit_caption(postformat.to_markdownv2(cap_plain), 1024)
+        caption = fit_caption(postformat.to_markdownv2(cap_plain), CAPTION_LIMIT)
         res = send_photo(token, target, photo_bytes=image,
                          caption=caption, parse_mode="MarkdownV2")
         if not res.ok:

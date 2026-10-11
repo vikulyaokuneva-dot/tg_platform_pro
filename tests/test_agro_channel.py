@@ -320,7 +320,9 @@ def test_publish_marks_agro_chat_in_agro_history_only(st, tmp_path, monkeypatch)
 
     r = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
     assert r["status"] == "published" and r["telegram_message_id"] == 501
-    assert events == ["photo", "text"]  # фото раньше полного текста
+    # короткий пост вмещается в подпись: одно сообщение (фото с полным
+    # текстом), второго шага нет
+    assert events == ["photo"]
     assert st.get(st.add(ART_URL, "x"))["status"] == "published"
     pubs = st.db.execute("SELECT chat_id, content_type FROM publications").fetchall()
     assert [dict(p) for p in pubs] == [{"chat_id": "-100AGRO",
@@ -459,11 +461,10 @@ def test_logo_img_is_not_a_material_image(st, monkeypatch):
 
 
 def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
-    """Реальная публикация в два шага: байты скачиваются fetch_bytes
-    (валидация до отправки), затем (1) sendPhoto с короткой законченной
-    подписью ≤1024 (заголовок + лид + «Источник:») и (2) ПОЛНЫЙ текст
-    отдельным сообщением (заголовок, тело, «Источник:», хэштеги — без
-    обрыва по лимиту caption)."""
+    """Короткий пост (вмещается в лимит подписи Telegram): публикация
+    ОДНИМ сообщением — фото с полным текстом в подписи (заголовок, всё
+    тело, «Источник:», хэштеги), второго текстового сообщения нет; байты
+    скачиваются fetch_bytes (валидация до отправки)."""
     _fake_network(monkeypatch, {ART_URL: _art_html()})
     fetched = {}
 
@@ -483,29 +484,22 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
         return telegram.PublishResult(True, message_id=707)
     monkeypatch.setattr(telegram, "send_photo", spy)
 
-    def spy_msg(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
-        seen.update(full_text=text, text_parse_mode=parse_mode,
-                    full_chat=chat_id)
-        return telegram.PublishResult(True, message_id=708)
-    monkeypatch.setattr(telegram, "send_message", spy_msg)
+    def boom_msg(*a, **k):
+        raise AssertionError("короткий пост должен уйти одним сообщением")
+    monkeypatch.setattr(telegram, "send_message", boom_msg)
 
     r = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
     assert r["status"] == "published" and r["telegram_message_id"] == 707, r
     assert fetched["url"] == "https://cdn.example.test/agro/chesnok.jpg"
     assert seen["photo"] and seen["parse_mode"] == "MarkdownV2"
     assert (seen["token"], seen["chat"]) == ("t", "-100AGRO")
-    # (1) короткая законченная подпись: целые предложения, источник на месте
-    assert len(seen["caption"]) <= 1024
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     plain = telegram.postformat.unescape_markdownv2(seen["caption"])
+    # полный текст в подписи: заголовок, оба абзаца тела, источник, теги
+    assert plain.split("\n\n")[0] == "**%s**" % ART_TITLE
+    assert "35-45" in plain and "10-12 см" in plain
     assert "Источник: " + ART_URL in plain
-    assert plain.split("\n\n")[0]  # заголовок присутствует
-    # (2) полный текст вторым сообщением: хэштеги и всё тело — здесь
-    full_plain = telegram.postformat.unescape_markdownv2(seen["full_text"])
-    assert seen["text_parse_mode"] == "MarkdownV2"
-    assert seen["full_chat"] == "-100AGRO"
-    assert "Источник: " + ART_URL in full_plain
-    assert "#Практика" in full_plain
-    assert full_plain.split("\n\n")[0] == plain.split("\n\n")[0]  # связка: тот же заголовок
+    assert "#Практика" in plain
     row = st.get(st.add(ART_URL, "x"))
     assert row["url"] == ART_URL  # URL не изменён редактурой/отправкой
 
