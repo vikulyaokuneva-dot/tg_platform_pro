@@ -90,62 +90,80 @@ def _paragraphs(text):
     return blocks
 
 
-def _clamp_sentences(s, limit):
-    """Обрезка до limit символов по ГРАНИЦЕ ПРЕДЛОЖЕНИЯ: подпись к фото
-    обязана заканчиваться целой мыслью, а не обрываться на полуслове."""
-    s = (s or "").strip()
-    if len(s) <= limit:
-        return s
-    cut = s[:limit]
-    m = list(re.finditer(r"[.!?…]", cut))
-    if m:
-        return cut[:m[-1].end()].strip()
-    return cut.rsplit(" ", 1)[0].rstrip(",;:— ") + "…"
+# пометка в начале второго сообщения длинного поста: читателю ясно, что это
+# продолжение той же публикации под фото (не отдельный пост, не дубль)
+CONTINUATION_HEADER = "Продолжение"
 
 
-ANNOUNCE_CHARS = 220
+def _fit_sentence_prefix(s, fits):
+    """Максимальный префикс s по ГРАНИЦЕ ПРЕДЛОЖЕНИЯ, для которого
+    fits(prefix) истинно (внутренние переводы строк сохраняются)."""
+    parts = re.split(r"(?<=[.!?…])(\s+)", s)
+    cur = ""
+    for i, part in enumerate(parts):
+        cand = cur + part
+        if i % 2 == 0 and not fits(cand):
+            break
+        cur = cand
+    return cur.rstrip()
 
 
-def split_for_photo(text):
+def split_for_photo(text, caption_limit=None):
     """Разложение поста на (подпись к фото, сообщение-ПРОДОЛЖЕНИЕ).
 
-    Подпись: жирный заголовок + КОРОТКИЙ анонс (префикс тела по границе
-    предложения ≤ANNOUNCE_CHARS) + строка «Источник:» — целая мысль, без
-    обрыва на полуслове и без хэштегов (лимит caption=1024 не рвёт тело).
+    Публикация вызывает её ТОЛЬКО если весь пост не поместился в лимит
+    подписи (см. telegram.publish_post); тогда подпись должна быть
+    МАКСИМАЛЬНО полной: в неё уходит заголовок и как можно больше тела —
+    целыми абзацами, а если следующий абзац не влезает целиком — его
+    префикс по границе предложения (подпись всегда заканчивается целым
+    предложением). caption_limit считается по экранированному MarkdownV2
+    тексту — как длину считает Telegram (Bot API: подпись ≤1024 симв.).
+    Строка «Источник:» всегда в подписи, хэштегов в подписи нет.
 
-    Продолжение (второе сообщение уходит только если пост НЕ поместился
-    в подпись — см. telegram.publish_post): тело БЕЗ повторного заголовка
-    и БЕЗ скопированного дословно анонса (регрессия msg80/81: заголовок и
-    вступление не должны дублироваться во втором сообщении — читатель
-    видит его прямо под фото в ленте) + «Источник:» + хэштеги. Анонс —
-    всегда префикс тела по границе предложения, поэтому из тела удаляется
-    ровно его префикс, а не кусок середины: продолжение начинается с
-    целого предложения и продолжается рекомендациями.
+    Продолжение (второе сообщение): остаток тела БЕЗ повторного заголовка
+    и без того, что уже ушло в подписи — текст не дублируется и не
+    теряется, продолжение начинается с целого предложения; первая строка —
+    пометка CONTINUATION_HEADER («Продолжение»), чтобы читателю было ясно,
+    что сообщение относится к фото сверху; «Источник:» + хэштеги
+    (регрессия msg80/81: заголовок и вступление не должны повторяться
+    во втором сообщении — читатель видит его прямо под фото).
 
-    Вырожденный случай (после вырезания анонса остаток <120 символов —
-    тело почти целиком состоит из анонса): полнота текста важнее антидубля,
-    продолжение уходит целиком, дубль фиксируется логом publish_post."""
+    Вырожденный случай (нет тела или caption_limit не задан): пост целиком
+    и в подписи, и в сообщении — дубль фиксируется логом publish_post."""
     body, src, tags = _extract_tail(text or "")
-    blocks = [b for b in body.split("\n\n") if b.strip()]
-    if len(blocks) < 2:              # тела нет — делить нечего, не режем
+    blocks = [b.strip() for b in body.split("\n\n") if b.strip()]
+    if len(blocks) < 2 or not caption_limit:   # тела нет — делить нечего
         return (text or "").strip(), (text or "").strip()
-    head = blocks[0].strip()
-    rest = "\n\n".join(blocks[1:]).strip()
+    head, rest = blocks[0], blocks[1:]
     if not rest:
         return (text or "").strip(), (text or "").strip()
-    # анонс — префикс ПЕРВОГО абзаца тела (не захватываем начало советов)
-    rest0 = rest.split("\n\n")[0].strip()
-    announce = _clamp_sentences(rest0, ANNOUNCE_CHARS)
-    # анонс — префикс тела (fallback _clamp_sentences добавляет «…»,
-    # её в теле нет): вырезаем ровно этот префикс, продолжение начинается
-    # с целого предложения
-    prefix = announce if rest.startswith(announce) else announce.rstrip("…")
-    remainder = rest[len(prefix):].lstrip("\n ") if rest.startswith(prefix) \
-        else rest
-    if len(remainder) < 120:
-        remainder = rest            # вырожденный случай — см. docstring
-    cap = "\n\n".join(x for x in (head, announce, src) if x)
-    msg = "\n\n".join(x for x in (remainder, src, tags) if x)
+    src_line = src or ""
+
+    def cap_of(parts):
+        return "\n\n".join(
+            x for x in [head] + parts + ([src_line] if src_line else []) if x)
+
+    def fits(parts):
+        return len(to_markdownv2(cap_of(parts))) <= caption_limit
+
+    chosen, pending = [], list(rest)
+    partial = None                    # (префикс, остаток) разрезанного абзаца
+    while pending:
+        if fits(chosen + [pending[0]]):
+            chosen.append(pending.pop(0))
+            continue
+        # абзац не влез целиком: втискиваем его префикс по границе
+        # предложения (продолжение получает ровно остаток — без потерь)
+        prefix = _fit_sentence_prefix(pending[0], lambda p: fits(chosen + [p]))
+        if prefix:
+            partial = (prefix, pending[0][len(prefix):].strip())
+            pending.pop(0)       # разрезанный абзац целиком ушёл в подпись
+        break
+    cap = cap_of(chosen + ([partial[0]] if partial else []))
+    msg_rest = ([partial[1]] if partial and partial[1] else []) + pending
+    msg = "\n\n".join(
+        x for x in [CONTINUATION_HEADER] + msg_rest
+        + [y for y in (src, tags) if y] if x)
     return cap.strip(), msg.strip()
 
 

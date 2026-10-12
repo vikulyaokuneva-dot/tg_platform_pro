@@ -264,36 +264,48 @@ def test_publish_short_post_single_photo_with_full_caption(st, monkeypatch):
     assert "…" not in cap                               # обрыва нет
 
 
-def test_split_for_photo_short_announce_and_full_text_no_dup():
-    """postformat.split_for_photo: подпись = заголовок + краткий анонс по
-    границе предложения + источник; продолжение = тело БЕЗ повторного
-    заголовка и БЕЗ дословно скопированного анонса + источник + хэштеги
-    (рекомендации не теряются, заголовок и вступление не повторяются)."""
-    long_lead = ("Осенняя подготовка почвы — это не только перекопка: после "
-                 "уборки урожая земле нужно вернуть структуру, питание и "
-                 "влажностный режим, иначе весной всходы пойдут медленно. "
-                 "Сначала уберите растительные остатки, затем оцените "
-                 "структуру и влажность. Рыхление и компост осенью возвращают "
-                 "земле воздух и удерживают влагу до снега.")
-    text = ("Заголовок поста\n\n" + long_lead + "\n\nВторой абзац со "
-            "советами по уходу за грядками осенью.\n\n"
-            "Источник: " + ART_URL + "\n#Практика #Сад")
-    cap, msg = postformat.split_for_photo(postformat.format_post(text))
+def test_split_for_photo_fills_caption_maximally_without_loss_or_dup():
+    """postformat.split_for_photo (длинный пост): подпись заполняется
+    МАКСИМАЛЬНО — заголовок + целые абзацы тела, следующий абзац втискивается
+    по границе предложения, если не влез целиком; продолжение = ровно
+    остаток тела (без повторного заголовка, без дублей из подписи и без
+    потерь) + источник + хэштеги."""
+    limit = 300                      # маленький лимит — управляемый разрез
+    p1 = ("Первый абзац короткий и влезает целиком. "
+          "Он состоит из двух предложений.")
+    p2 = "Второй абзац тоже влезет целиком. В нём ровно две мысли."
+    p3 = ("Третий абзац длинный и не поместится целиком. "
+          "Первая его мысль займёт последнее место в подписи. "
+          "Вторая мысль уйдёт в продолжение. "
+          "Третья мысль останется в продолжении.")
+    p4 = "Четвёртый абзац уйдёт в продолжение целиком. Он в конце статьи."
+    text = ("Заголовок поста\n\n" + p1 + "\n\n" + p2 + "\n\n" + p3 +
+            "\n\n" + p4 + "\n\nИсточник: " + ART_URL + "\n#Практика #Сад")
+    cap, msg = postformat.split_for_photo(postformat.format_post(text),
+                                          caption_limit=limit)
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     msg_blocks = [b for b in msg.split("\n\n") if b.strip()]
+    # лимит считается по экранированному тексту (как его считает Telegram)
+    assert len(postformat.to_markdownv2(cap)) <= limit
     assert cap_blocks[0] == "**Заголовок поста**"
-    assert len(cap_blocks[1]) <= 320 and len(cap_blocks[1]) <= 220 + 1
-    assert re.search(r"[.!?…]$", cap_blocks[1])         # целое предложение
+    # подпись заполнена максимально: два целых абзаца + префикс третьего
+    assert p1 in cap and p2 in cap
+    assert cap_blocks[-2] == p3.split(". ")[0] + "."
+    assert re.search(r"[.!?…]$", cap_blocks[-2])       # целое предложение
     assert cap_blocks[-1] == "Источник: " + ART_URL
-    # продолжение: БЕЗ повторного заголовка и БЕЗ дословного анонса
+    assert "#Практика" not in cap                      # тегов в подписи нет
+    # продолжение: ровно остаток — с пометкой, без заголовка и дублей
+    assert msg.startswith("Продолжение\n\n")
+    assert msg_blocks[0] == "Продолжение"
     assert "**Заголовок поста**" not in msg
-    assert cap_blocks[1] not in msg
-    assert msg_blocks[0].startswith("Сначала уберите")   # тело, не заголовок
-    # тело (рекомендации) и хэштеги — в продолжении целиком
-    assert "Второй абзац со" in msg and "#Практика" in msg
-    assert "Источник: " + ART_URL in msg
-    assert "#Практика" not in cap
-    assert len(postformat.to_markdownv2(cap)) <= telegram.CAPTION_LIMIT
+    assert p1 not in msg
+    assert msg_blocks[1].startswith("Первая его мысль")
+    # разрез по границе предложения: префикс + остаток == исходный абзац
+    assert cap_blocks[-2] + " " + msg_blocks[1] == p3
+    assert p3 not in msg                 # разрезанный абзац не дублируется
+    assert p4 in msg                                   # целые абзацы тоже
+    assert "Источник: " + ART_URL in msg and "#Практика" in msg
+    assert len(cap) + len(msg) > len(text)             # ничего не потеряно
 
 
 def test_url_and_image_preserved_with_ai_edit(st, monkeypatch):
@@ -454,10 +466,10 @@ def test_regression_msg81_intro_only_ai_post_is_reviewed(st, monkeypatch):
 
 def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch):
     """Регрессия msg80/81 (положительный сценарий, длинный пост не влезает
-    в подпись): подпись к фото держит заголовок и вступление-анонс (целое
-    предложение, «Источник:»); второе сообщение — продолжение: рекомендации
-    и вывод БЕЗ повторного заголовка и БЕЗ дословного вступления; обрыва
-    на полуслове нет."""
+    в подпись): подпись к фото МАКСИМАЛЬНО полная — заголовок, вступление
+    и целые абзацы тела («Источник:»); второе сообщение — продолжение:
+    остаток тела БЕЗ повторного заголовка, вступления и дублей; обрыва на
+    полуслове нет."""
     _fake_network(monkeypatch, {YAB_URL: YAB_HTML})
     _publish_traps(monkeypatch)
     seen = {}
@@ -480,23 +492,29 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
 
     cap = postformat.unescape_markdownv2(seen["caption"])
     full = postformat.unescape_markdownv2(seen["full"])
-    # подпись: заголовок + вступление-анонс по границе предложения + источник
+    # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые абзацы тела
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     assert cap_blocks[0] == "**%s**" % YAB_TITLE
-    assert "держит листья" in cap_blocks[1]
-    assert re.search(r"[.!?…]$", cap_blocks[1])          # целая мысль, без обрыва
+    assert "держит листья" in cap_blocks[1]             # вступление в подписи
+    assert "Обрывать листья вручную не нужно" in cap   # советы уже в подписи
+    assert re.search(r"[.!?…]$", cap_blocks[-2])       # целая мысль перед источником
     assert "Источник: " + YAB_URL in cap
-    assert not re.search(r"#[А-Яа-яA-Za-z]", cap)       # хэштегов в подписи нет
-    # продолжение: рекомендации и вывод, БЕЗ повторного заголовка и вступления
-    assert "**%s**" % YAB_TITLE not in full            # заголовок не дублируется
-    assert "Обрывать листья вручную не нужно" in full
-    assert "замульчируйте почву слоем 5 см" in full
-    assert "Вывод:" in full and "после листопада" in full
-    # вступление НЕ скопировано дословно в продолжение
-    assert YAB_POST.split("\n\n")[1] not in full
-    assert "Источник: " + YAB_URL in full
-    assert "…" not in full and len(seen["full"]) <= 4090
+    assert not re.search(r"#[А-Яа-яA-Za-z]", cap)      # хэштегов в подписи нет
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    assert len(seen["caption"]) > 700                  # подпись заполнена, а не «короткая»
+    # продолжение: пометка + остаток тела БЕЗ заголовка и дублей из подписи
+    assert full.startswith("Продолжение\n\n")  # читателю ясно: та же публикация
+    assert "**%s**" % YAB_TITLE not in full            # заголовок не дублируется
+    assert "Весной проверьте" in full                  # последний совет — в продолжении
+    assert "Вывод:" in full and "после листопада" in full
+    assert YAB_POST.split("\n\n")[1] not in full       # вступление не дублируется
+    assert "Обрывать листья вручную не нужно" not in full  # и тело из подписи
+    # каждый абзац тела — ровно в одном сообщении (нет потерь и дублей)
+    for b in YAB_POST.split("\n\n")[1:]:
+        assert (b in cap) != (b in full), b
+    assert "Источник: " + YAB_URL in full
+    assert "…" not in full and "…" not in cap
+    assert len(seen["full"]) <= 4090
     # пост длиннее лимита подписи — поэтому именно два сообщения
     assert len(postformat.to_markdownv2(
         postformat.format_post(YAB_POST))) > telegram.CAPTION_LIMIT
@@ -766,9 +784,10 @@ POB_POST = (
 
 def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch):
     """Регрессия msg86/87 («Побелка стволов…» — пост длиннее лимита подписи):
-    публикация остаётся парой «фото + продолжение», но второе сообщение
-    оформлено как продолжение — БЕЗ повторного заголовка и вступления
-    (они только в подписи к фото); все советы и вывод на месте."""
+    публикация остаётся парой «фото + продолжение», подпись при этом
+    МАКСИМАЛЬНО полная (заголовок, вступление и целые советы), а второе
+    сообщение оформлено как продолжение — БЕЗ повторного заголовка,
+    вступления и дублей; все советы и вывод на месте."""
     _fake_network(monkeypatch, {POB_URL: POB_HTML})
     _publish_traps(monkeypatch)
     seen, sent = {}, []
@@ -795,20 +814,27 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     cap = postformat.unescape_markdownv2(seen["caption"])
     full = postformat.unescape_markdownv2(seen["full"])
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
+    # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые советы
     assert cap_blocks[0] == "**%s**" % POB_TITLE
-    assert "После дождей побелка" in cap_blocks[1]      # вступление-анонс
-    assert re.search(r"[.!?…]$", cap_blocks[1])         # целая мысль
+    assert "После дождей побелка" in cap_blocks[1]      # вступление в подписи
+    assert "Оцените состояние коры" in cap              # советы уже в подписи
+    assert re.search(r"[.!?…]$", cap_blocks[-2])       # целая мысль перед источником
     assert "Источник: " + POB_URL in cap
     assert not re.search(r"#[А-Яа-яA-Za-z]", cap)      # тегов в подписи нет
-    # продолжение: без повторного заголовка и вступления
+    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    assert len(seen["caption"]) > 700                  # подпись заполнена, а не «короткая»
+    # продолжение: пометка + остаток советов и вывод, БЕЗ заголовка/дублей
+    assert full.startswith("Продолжение\n\n")  # читателю ясно: та же публикация
     assert "**%s**" % POB_TITLE not in full
     assert "После дождей побелка" not in full
     fb = [b for b in full.split("\n\n") if b.strip()]
-    assert sum(1 for b in fb if b.startswith("• ")) == 6, fb  # все 6 советов
     assert "Вывод:" in fb[-3] and "высыхания коры" in fb[-3]
     assert "Источник: " + POB_URL in full
-    assert "…" not in full and len(seen["full"]) <= 4090
-    assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
+    # каждый совет и вывод — ровно в одном сообщении (нет потерь и дублей)
+    for b in POB_POST.split("\n\n")[2:]:
+        assert (b in cap) != (b in full), b
+    assert "…" not in full and "…" not in cap
+    assert len(seen["full"]) <= 4090
     # пост действительно длиннее лимита подписи -> именно два сообщения
     assert len(postformat.to_markdownv2(
         postformat.format_post(POB_POST))) > telegram.CAPTION_LIMIT
@@ -852,3 +878,97 @@ def test_text_send_failure_after_photo_goes_to_review_without_repost(
     assert r2["status"] == "skipped" and "already" in r2["reason"], r2
     assert len(prov.calls) == 1                        # ИИ не перезапускался
     assert sent == ["photo", "text"]                   # дублей нет
+
+
+# ---------- регрессия msg92/93 (ботаничка «Эпипремнум», run 38175958881) ----
+
+EP_URL = ("https://www.botanichka.ru/article/epipremnum-vytyanulsya-"
+          "i-melchaet-obrezat-li-ego-osenyu/")
+EP_TITLE = "Эпипремнум вытянулся и мельчает: как спасти растение осенью"
+# вступление — дословно из подписи msg92
+EP_INTRO = ("Эпипремнум (золотой потос) часто теряет пышность и "
+            "привлекательность осенью. Чтобы понять, как помочь растению, "
+            "важно разобраться в причинах вытягивания и мельчания листьев.")
+# тело — дословно из сообщения msg93 (советы, разделители-вопросы, вывод)
+EP_BODY = """• Осмотрите плеть целиком: сравните длину междоузлий и размер листьев на разных участках.
+
+• Проверьте, хватает ли растению света: даже в светлой комнате листья могут получать недостаточно света.
+
+• Подкармливать вытянувшийся эпипремнум не нужно, пока не исправите условия освещения.
+
+• Если стебель оголился, обрезка не поможет: новые побеги появятся только при достаточном освещении.
+
+• При нехватке света новые листья становятся мелкими и зеленеют, теряя пестроту.
+
+Если растение вытянулось, но продолжает расти:
+
+• Укороченные побеги можно укоротить сейчас, но обязательно переставьте горшок ближе к свету или добавьте досветку.
+
+• Для пышности у основания можно подсадить укоренённые черенки.
+
+Если рост почти остановился:
+
+• Переставьте горшок в более светлое место и поливайте реже.
+
+• Если растение стоит у холодного окна или в прохладе, причина может быть в температуре.
+
+Если листья массово желтеют, стебли вялые, грунт долго остаётся мокрым:
+
+• Проверьте корни на наличие гнили и, при необходимости, укорените верхушки как черенки.
+
+Как правильно обрезать плеть:
+
+• Срезайте стебель над узлом, оставляя несколько здоровых листьев.
+
+• Черенки укореняйте в воде или влажном грунте, не торопите корни.
+
+Оценивайте результат по новым листьям, появившимся после изменения условий. Если рост не восстановился, проверьте полив и состояние корней."""
+EP_POST = (EP_TITLE + "\n\n" + EP_INTRO + "\n\n" + EP_BODY + "\n\n"
+           "Источник: " + EP_URL + "\n#Практика #Растения #Погода #Ботаничка")
+
+
+def test_regression_msg92_93_epipremnum_long_post_format():
+    """Регрессия msg92/93 («Эпипремнум…», публикация run 38175958881 на
+    f239d6f): пост экранированно длиннее лимита подписи — пара сообщений
+    обязательна по Bot API. Формат: подпись заполняется максимально
+    (заголовок, вступление, первые советы, источник); второе сообщение
+    начинается с пометки «Продолжение» — читателю ясно, что это та же
+    публикация; без повторного заголовка и вступления, без потерь и дублей."""
+    formatted = postformat.format_post(EP_POST)
+    md = postformat.to_markdownv2(formatted)
+    assert len(md) > telegram.CAPTION_LIMIT   # в подпись не влезает — пара
+    assert len(md) <= 4090                    # в текстовое сообщение влезает
+    cap, msg = postformat.split_for_photo(
+        formatted, caption_limit=telegram.CAPTION_LIMIT)
+    cap_esc = postformat.to_markdownv2(cap)
+    assert len(cap_esc) <= telegram.CAPTION_LIMIT
+    assert len(cap_esc) > 900                 # подпись заполнена максимально
+    assert "…" not in cap                     # обрезка — по границам, не словом
+    # подпись: заголовок, вступление, первые советы, источник, без тегов
+    cb = [b for b in cap.split("\n\n") if b.strip()]
+    assert cb[0] == "**%s**" % EP_TITLE
+    assert EP_INTRO in cap
+    assert "Осмотрите плеть целиком" in cap
+    assert "Источник: " + EP_URL in cap
+    assert "#Практика" not in cap
+    # продолжение: пометка + остаток тела, без заголовка и вступления
+    assert msg.startswith("Продолжение\n\n")
+    mb = [b for b in msg.split("\n\n") if b.strip()]
+    assert mb[0] == "Продолжение"
+    assert "**%s**" % EP_TITLE not in msg
+    assert EP_INTRO not in msg
+    assert "Как правильно обрезать плеть:" in msg   # поздние разделы
+    assert "Черенки укореняйте" in msg              # последний совет
+    assert "Источник: " + EP_URL in msg
+    assert "#Практика" in msg
+    # текст не теряется и не дублируется: каждый блок тела — ровно в одном
+    # месте; допускается один разрезанный блок (префикс/остаток)
+    partial = 0
+    for b in formatted.split("\n\n")[1:]:
+        if b.startswith("Источник:") or b.startswith("#"):
+            continue
+        in_cap, in_msg = b in cap, b in msg
+        assert not (in_cap and in_msg), "дубль блока: %s" % b[:60]
+        if not in_cap and not in_msg:
+            partial += 1
+    assert partial <= 1                       # не больше одного разреза
