@@ -26,6 +26,11 @@ LONG2 = "".join(
 # маркер начала материала (для проверки, что начало тоже в промпте)
 LONG_HEAD = "Осенняя заправка почвы начинается с оценки её состояния."
 
+
+def _esc(s):
+    """Экранирование спецсимволов MarkdownV2 — как внутри **жирного** сегмента."""
+    return "".join("\\" + c if c in postformat.MDV2_SPECIALS else c for c in s)
+
 # эталонный ответ «модели»: заголовок, абзацы через пустую строку, эмодзи,
 # вывод; без «Источник:» и хэштегов (их добавляет _finalize_post)
 AI_POST = (
@@ -251,7 +256,10 @@ def test_publish_short_post_single_photo_with_full_caption(st, monkeypatch):
     cap = postformat.unescape_markdownv2(seen["caption"])
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
-    assert cap_blocks[0] == "**%s**" % AI_POST.split("\n\n")[0]  # заголовок
+    # заголовок жирным (MarkdownV2 — одинарные *), маркеры ** не публикуются
+    assert "*%s*" % _esc(AI_POST.split("\n\n")[0]) in seen["caption"]
+    assert "**" not in seen["caption"]
+    assert cap_blocks[0] == AI_POST.split("\n\n")[0]   # текст заголовка цел
     assert any(b.startswith("Источник: " + ART_URL) for b in cap_blocks)
     # вступление-анонс в подписи — целое предложение (не обрыв на полуслове)
     assert cap_blocks[1] == AI_POST.split("\n\n")[1]
@@ -494,7 +502,11 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     full = postformat.unescape_markdownv2(seen["full"])
     # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые абзацы тела
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
-    assert cap_blocks[0] == "**%s**" % YAB_TITLE
+    assert cap_blocks[0] == YAB_TITLE                  # текст заголовка цел
+    # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
+    assert "*%s*" % _esc(YAB_TITLE) in seen["caption"]
+    assert "*Вывод*:" in seen["full"]
+    assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "держит листья" in cap_blocks[1]             # вступление в подписи
     assert "Обрывать листья вручную не нужно" in cap   # советы уже в подписи
     assert re.search(r"[.!?…]$", cap_blocks[-2])       # целая мысль перед источником
@@ -504,7 +516,7 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert len(seen["caption"]) > 700                  # подпись заполнена, а не «короткая»
     # продолжение: пометка + остаток тела БЕЗ заголовка и дублей из подписи
     assert full.startswith("Продолжение\n\n")  # читателю ясно: та же публикация
-    assert "**%s**" % YAB_TITLE not in full            # заголовок не дублируется
+    assert YAB_TITLE not in full                       # заголовок не дублируется
     assert "Весной проверьте" in full                  # последний совет — в продолжении
     assert "Вывод:" in full and "после листопада" in full
     assert YAB_POST.split("\n\n")[1] not in full       # вступление не дублируется
@@ -706,7 +718,9 @@ def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
     cap = postformat.unescape_markdownv2(seen["caption"])
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     cb = [b for b in cap.split("\n\n") if b.strip()]
-    assert cb[0] == "**%s**" % AIF_TITLE                # заголовок без «•»
+    assert cb[0] == AIF_TITLE                           # заголовок без «•»
+    assert "*%s*" % _esc(AIF_TITLE) in seen["caption"]  # и жирным в MarkdownV2
+    assert "**" not in seen["caption"]                  # маркеры не публикуются
     assert sum(1 for b in cb if b.startswith("• ")) == 3, cb  # советы по абзацам
     assert "Ключевые рекомендации:\n• " not in cap      # склейки нет
     assert "Вывод:" in cap and "проредить всходы" in cap
@@ -815,7 +829,11 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     full = postformat.unescape_markdownv2(seen["full"])
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые советы
-    assert cap_blocks[0] == "**%s**" % POB_TITLE
+    assert cap_blocks[0] == POB_TITLE                  # текст заголовка цел
+    # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
+    assert "*%s*" % _esc(POB_TITLE) in seen["caption"]
+    assert "*Вывод*:" in seen["full"]
+    assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "После дождей побелка" in cap_blocks[1]      # вступление в подписи
     assert "Оцените состояние коры" in cap              # советы уже в подписи
     assert re.search(r"[.!?…]$", cap_blocks[-2])       # целая мысль перед источником
@@ -825,7 +843,7 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     assert len(seen["caption"]) > 700                  # подпись заполнена, а не «короткая»
     # продолжение: пометка + остаток советов и вывод, БЕЗ заголовка/дублей
     assert full.startswith("Продолжение\n\n")  # читателю ясно: та же публикация
-    assert "**%s**" % POB_TITLE not in full
+    assert POB_TITLE not in full                       # заголовок не дублируется
     assert "После дождей побелка" not in full
     fb = [b for b in full.split("\n\n") if b.strip()]
     assert "Вывод:" in fb[-3] and "высыхания коры" in fb[-3]

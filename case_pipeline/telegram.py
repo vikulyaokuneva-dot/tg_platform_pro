@@ -112,12 +112,13 @@ def fit_caption(md, limit=CAPTION_LIMIT):
             new = _cut_words(joined, max(40, len(joined) - over))
             middle = new.split("\n\n") if new != joined else middle[:-1]
         else:
-            inner = head[2:-2] if (head.startswith("**") and len(head) > 4
-                                   and head.endswith("**")) else head
+            inner = head[1:-1] if (head.startswith("*") and len(head) > 2
+                                   and head.endswith("*")) else head
             new = _cut_words(inner, max(20, len(inner) - over))
             if new == inner:
                 break
-            head = ("**%s**" % new) if head.startswith("**") else new
+            head = ("*%s*" % new) if (head.startswith("*") and len(head) > 2
+                                      and head.endswith("*")) else new
     return "\n\n".join([head] + middle + tail)
 
 
@@ -205,7 +206,8 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
             err = str(res2.error or "").lower()
             if "400" in err and "parse" in err:
                 log.warning("markdownv2 rejected (400 parse) — повтор plain text")
-                res2 = send_message(token, target, msg_plain)
+                res2 = send_message(token, target,
+                                    postformat.unescape_markdownv2(full_md))
         if not res2.ok:
             # фото ушло, текст нет -> честный отказ (-> review без
             # авто-повтора, чтобы фото не задублировалось)
@@ -228,7 +230,10 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
             log.error("telegram publish failed: %s", res.error)
             return res
         log.warning("markdownv2 rejected (400 parse) — повтор plain text")
-    res = send_message(token, chat_id or target_chat, formatted)
+    # plain-fallback: чистый текст без markdown-символов (** и _ не попадают
+    # в опубликованное сообщение, даже если API отверг разметку)
+    res = send_message(token, chat_id or target_chat,
+                       postformat.unescape_markdownv2(md))
     if not res.ok:
         log.error("telegram publish failed: %s", res.error)
     return res

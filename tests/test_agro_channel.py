@@ -496,7 +496,12 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     plain = telegram.postformat.unescape_markdownv2(seen["caption"])
     # полный текст в подписи: заголовок, оба абзаца тела, источник, теги
-    assert plain.split("\n\n")[0] == "**%s**" % ART_TITLE
+    assert plain.split("\n\n")[0] == ART_TITLE        # текст заголовка цел
+    # заголовок жирным (MarkdownV2 — одинарные *), маркеры ** не публикуются
+    esc_title = "".join("\\" + c if c in telegram.postformat.MDV2_SPECIALS
+                        else c for c in ART_TITLE)
+    assert "*%s*" % esc_title in seen["caption"]
+    assert "**" not in seen["caption"]
     assert "35-45" in plain and "10-12 см" in plain
     assert "Источник: " + ART_URL in plain
     assert "#Практика" in plain

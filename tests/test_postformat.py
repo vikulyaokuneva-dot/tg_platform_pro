@@ -108,9 +108,11 @@ def test_markdownv2_roundtrip_and_escaping():
     for sample in (TEMPLATE_POST, POLISH_POST):
         f = pf.format_post(sample)
         md = pf.to_markdownv2(f)
-        assert pf.unescape_markdownv2(md) == f     # nothing lost
-        # между **маркерами** — только жирные сегменты, всё остальное экранировано
-        segs = re.split(r"(?<!\\)\*\*", md)
+        # текст не теряется: восстанавливается всё, кроме маркеров жирного
+        # (жирное в MarkdownV2 — одинарные *текст*)
+        assert pf.unescape_markdownv2(md) == re.sub(r"\*\*", "", f)
+        # между одинарными * — только жирные сегменты, всё остальное экранировано
+        segs = re.split(r"(?<!\\)\*", md)
         assert len(segs) % 2 == 1
         for i, seg in enumerate(segs):
             if i % 2 == 0:
@@ -127,6 +129,39 @@ def test_unbalanced_bold_markers_literal():
     text = "текст **с незакрытым"
     md = pf.to_markdownv2(text)
     assert pf.unescape_markdownv2(md) == text      # выводим буквально, без bold
+
+
+def test_bold_rendering_single_asterisk():
+    """Заголовок уходит в Telegram жирным: MarkdownV2 — ОДИНАРНЫЕ *текст*
+    (**текст** Telegram не рендерит жирным); маркеры ** не попадают
+    в опубликованное сообщение, спецсимволы заголовка экранированы."""
+    f = pf.format_post(TEMPLATE_POST)
+    md = pf.to_markdownv2(f)
+    assert "*Slate: практический эффект*" in md        # жирный заголовок
+    assert "**" not in md                             # ** в канал не уходит
+    plain = pf.unescape_markdownv2(md)
+    assert plain.split("\n\n")[0] == "Slate: практический эффект"
+    assert "**" not in plain and "*Slate" not in plain
+
+
+def test_vyvod_word_bold_rest_plain():
+    """Слово «Вывод» в начале абзаца — жирным, сам текст вывода обычный;
+    «Выводная...» не затрагивается; идемпотентность format_post сохранена."""
+    post = ("Итоги сезона\n\nВывод: пара советов ниже.\n\n"
+            "Выводная информация: остаётся обычным текстом.\n\n"
+            "Источник: https://example.com/a-b\n#Т")
+    f = pf.format_post(post)
+    assert "**Вывод**: пара советов ниже." in f
+    assert "Выводная информация: остаётся обычным текстом." in f
+    assert "**Вывод**" not in f.replace("**Вывод**: пара советов ниже.", "")
+    md = pf.to_markdownv2(f)
+    assert "*Вывод*: пара советов ниже\\." in md      # жирное слово, обычный текст
+    assert "**" not in md
+    plain = pf.unescape_markdownv2(md)
+    assert "Вывод: пара советов ниже." in plain       # текст после «Вывод» цел
+    assert "Выводная информация: остаётся обычным текстом." in plain
+    assert "https://example\\.com/a\\-b" in md         # ссылка экранирована, цела
+    assert pf.format_post(f) == f                     # идемпотентность сохранена
 
 
 def _capturing_post(monkeypatch, responses):
@@ -157,7 +192,8 @@ def test_publish_sends_markdownv2(monkeypatch):
     assert res.ok and res.message_id == 123
     payload = calls[0]
     assert payload["parse_mode"] == "MarkdownV2"
-    assert pf.unescape_markdownv2(payload["text"]) == pf.format_post(TEMPLATE_POST)
+    assert pf.unescape_markdownv2(payload["text"]) == re.sub(
+        r"\*\*", "", pf.format_post(TEMPLATE_POST))
 
 
 def test_publish_parse_fallback_plain(monkeypatch):
@@ -167,7 +203,9 @@ def test_publish_parse_fallback_plain(monkeypatch):
     res = telegram.publish_post(POLISH_POST)
     assert res.ok
     assert calls[-1].get("parse_mode") is None
-    assert calls[-1]["text"] == pf.format_post(POLISH_POST)
+    assert calls[-1]["text"] == pf.unescape_markdownv2(
+        pf.to_markdownv2(pf.format_post(POLISH_POST)))
+    assert "**" not in calls[-1]["text"]            # markdown-символы не публикуются
 
 
 def test_publish_non_parse_error_no_fallback(monkeypatch):

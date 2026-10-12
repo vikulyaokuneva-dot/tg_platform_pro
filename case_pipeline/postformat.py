@@ -2,10 +2,12 @@
 """case_pipeline.postformat — финальный вид поста для Telegram (только подача).
 
 Хранящийся/генерируемый текст НЕ меняется: перед отправкой пост раскладывается
-в целевой макет канала (жирный заголовок и поля через **, пустые строки между
-блоками, списки через '*'), затем to_markdownv2() даёт валидный MarkdownV2
-(спецсимволы экранированы, неразрешённые одиночные ** выводятся буквально).
-Никакого HTML. Строку «Источник:» и хэштеги не трогаем.
+в целевой макет канала (жирный заголовок, слово «Вывод» и поля через **,
+пустые строки между блоками, списки через '*'), затем to_markdownv2() даёт
+валидный MarkdownV2: жирное — ОДИНАРНЫМИ звёздочками *текст* (в MarkdownV2
+**текст** не рендерится жирным), спецсимволы экранированы, неразрешённые
+одиночные ** выводятся буквально. Никакого HTML. Строку «Источник:» и
+хэштеги не трогаем.
 """
 import re
 
@@ -208,6 +210,16 @@ def _parse_blocks(text):
     return blocks
 
 
+# «Вывод: ...» — слово жирным, сам текст вывода обычный (регрессия визуальной
+# подачи агро-статей); уже отформатированный блок **Вывод**: не трогаем
+_VYVOD_RX = re.compile(r"^(Вывод)\s*:\s*(\S.*)$", re.IGNORECASE | re.UNICODE)
+
+
+def _bold_vyvod(block):
+    m = _VYVOD_RX.match(block)
+    return "**%s**: %s" % (m.group(1), m.group(2)) if m else block
+
+
 def format_post(text):
     """Обычный/старый пост -> целевой макет с **маркерами** (без экранирования).
 
@@ -244,7 +256,7 @@ def format_post(text):
         if not lines:
             continue
         if b["label"] is None:
-            rendered.append(" ".join(lines))
+            rendered.append(_bold_vyvod(" ".join(lines)))
         elif b["mode"] == "inline":
             rendered.append("**%s:** %s" % (b["label"], _join_inline(lines)))
         elif b["mode"] == "auto":
@@ -265,7 +277,9 @@ def format_post(text):
 
 def to_markdownv2(text):
     """plain-текст с парными **сегментами -> валидный MarkdownV2.
-    Непарные ** выводятся буквально; весь прочий текст экранируется."""
+    Жирное оформление — ОДИНАРНЫМИ звёздочками *текст* (так его понимает
+    Telegram: **текст** не рендерится жирным); непарные ** выводятся
+    буквально; весь прочий текст экранируется."""
     parts = text.split("**")
     segs = []
     n = len(parts)
@@ -276,11 +290,13 @@ def to_markdownv2(text):
         if i % 2 == 1 and bold and p.startswith("\\"):
             p = " " + p   #closing ** после литерального \ — без двусмысленности
         esc = "".join("\\" + c if c in MDV2_SPECIALS else c for c in p)
-        segs.append("**%s**" % esc if bold else esc)
+        segs.append("*%s*" % esc if bold else esc)
     return "".join(segs)
 
 
 def unescape_markdownv2(text):
-    """Снимает экранирование спецсимволов MarkdownV2 (тесты + plain-fallback
-    подписи фото, когда API отвергает parse_mode)."""
+    """Снимает маркеры жирного (*текст*) и экранирование спецсимволов
+    MarkdownV2 (тесты + plain-fallback подписи/сообщения, когда API отвергает
+    parse_mode): на выходе чистый текст без markdown-символов."""
+    text = re.sub(r"(?<!\\)\*", "", text)
     return re.sub(r"\\([_*\[\]()~`>#+\-=|{}.!\\])", r"\1", text)
