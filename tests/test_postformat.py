@@ -164,6 +164,75 @@ def test_vyvod_word_bold_rest_plain():
     assert pf.format_post(f) == f                     # идемпотентность сохранена
 
 
+def test_italic_rendering_single_underscore():
+    """Короткие ремарки доходят читателю курсивом: парные _..._ -> курсив
+    MarkdownV2 (одинарные _); непарные _ (слово с подчёркиванием, URL) —
+    литерал с экранированием; в plain-fallback маркеры курсива не остаются."""
+    text = ("Заголовок\n\nРемарка _короткая_ и хвост_.\n\n"
+            "Источник: https://example.com/a_b\n#Т")
+    md = pf.to_markdownv2(text)
+    assert "_короткая_" in md                  # курсив — одинарные подчёркивания
+    assert "__" not in md
+    assert "хвост\\_" in md                    # непарное _ — литерал
+    assert "a\\_b" in md                       # _ внутри URL не разбирается
+    plain = pf.unescape_markdownv2(md)
+    assert "Ремарка короткая и хвост_." in plain   # маркеры сняты, текст цел
+    assert "https://example.com/a_b" in plain      # литерал _ сохранён
+
+
+def test_no_bold_italic_nesting():
+    """Вложенных сущностей MarkdownV2 нет: курсив внутри **жирного** не
+    разбирается — _ там всегда литерал (иначе Bot API отвергает сообщение)."""
+    md = pf.to_markdownv2("Хвост **жирный _курсив_ хвост** конец.")
+    assert "*жирный \\_курсив\\_ хвост*" in md
+
+
+def test_headline_emoji_kept_for_agro_only():
+    """agro-стиль: ведущий эмодзи заголовка — часть подачи и сохраняется
+    (keep_headline_emoji=True); AI-канал по-прежнему снимает эмодзи."""
+    post = ("\U0001F33F Заголовок поста\n\nАбзац текста.\n\n"
+            "Источник: https://e.com/a")
+    agro_fmt = pf.format_post(post, keep_headline_emoji=True)
+    ai_fmt = pf.format_post(post)
+    assert agro_fmt.split("\n\n")[0] == "**\U0001F33F Заголовок поста**"
+    assert ai_fmt.split("\n\n")[0] == "**Заголовок поста**"
+    assert pf.format_post(agro_fmt, keep_headline_emoji=True) == agro_fmt
+
+
+def test_split_for_photo_keeps_markers_balanced():
+    """Разрез по границе предложения не оставляет открытый **: если префикс
+    обрывает жирный сегмент — берётся более поздняя граница, а если она не
+    влезает в лимит — абзац целиком уходит в продолжение (текст и маркеры
+    целы, ни потерь, ни дублей)."""
+    head = "Весенняя обрезка"
+    fill = ("Начните с санитарной уборки участка. Уберите прошлогоднюю листву "
+            "и мусор. Так вы снизите риск болезней летом и подготовите почву "
+            "к новому сезону работы.")
+    p2 = ("**Важно: не спешите. Подождите 2 недели.** Затем обработайте "
+          "секатор раствором и замажьте садовым варом крупные срезы.")
+    src = "Источник: https://example.com/obrezka"
+    text = "%s\n\n%s\n\n%s\n\n%s" % (head, fill, p2, src)
+    # «Источник:» всегда в подписи (контракт split_for_photo) — base учитывает его
+    base = len(pf.to_markdownv2(head + "\n\n" + fill + "\n\n" + src))
+    sep = len(pf.to_markdownv2("\n\n"))          # разделитель блоков в подписи
+
+    # 1) в лимит влезает только незакрытый префикс «**Важно: не спешите.» —
+    #    такой разрез запрещён, абзац уходит в продолжение целиком
+    limit1 = base + sep + len(pf.to_markdownv2("**Важно: не спешите.")) + 2
+    cap, cont = pf.split_for_photo(text, limit1)
+    assert "Важно" not in cap and "Важно: не спешите" in cont
+    assert "Подождите 2 недели." in cont and "Затем обработайте" in cont
+    # 2) в лимит влезает сбалансированная граница (конец полного **сегмента)
+    limit2 = base + sep + len(pf.to_markdownv2(
+        "**Важно: не спешите. Подождите 2 недели.**")) + 2
+    cap, cont = pf.split_for_photo(text, limit2)
+    assert "**Важно: не спешите. Подождите 2 недели.**" in cap
+    assert "Затем обработайте" in cont
+    for part in (cap, cont):
+        assert part.count("**") % 2 == 0          # маркеры сбалансированы
+        assert pf.to_markdownv2(part)             # обе части валидны как MDV2
+
+
 def _capturing_post(monkeypatch, responses):
     calls = []
 

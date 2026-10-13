@@ -495,16 +495,18 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
     assert (seen["token"], seen["chat"]) == ("t", "-100AGRO")
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     plain = telegram.postformat.unescape_markdownv2(seen["caption"])
-    # полный текст в подписи: заголовок, оба абзаца тела, источник, теги
-    assert plain.split("\n\n")[0] == ART_TITLE        # текст заголовка цел
+    # полный текст в подписи: заголовок (с ведущим эмодзи — agro-стиль),
+    # оба абзаца тела, источник, теги
+    assert plain.split("\n\n")[0] == "\U0001F9EA " + ART_TITLE  # эмодзи сохранён
     # заголовок жирным (MarkdownV2 — одинарные *), маркеры ** не публикуются
     esc_title = "".join("\\" + c if c in telegram.postformat.MDV2_SPECIALS
-                        else c for c in ART_TITLE)
+                        else c for c in "\U0001F9EA " + ART_TITLE)
     assert "*%s*" % esc_title in seen["caption"]
     assert "**" not in seen["caption"]
     assert "35-45" in plain and "10-12 см" in plain
     assert "Источник: " + ART_URL in plain
     assert "#Практика" in plain
+    assert len(r["hashtags"]) == 3  # стиль канала: не больше 3 хэштегов
     row = st.get(st.add(ART_URL, "x"))
     assert row["url"] == ART_URL  # URL не изменён редактурой/отправкой
 

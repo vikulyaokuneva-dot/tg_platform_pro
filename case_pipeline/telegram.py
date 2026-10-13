@@ -145,7 +145,9 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     и обрезался fit_caption по словам — материал терял рекомендации (обрыв
     в msg78). Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
-    formatted = postformat.format_post(text)
+    # agro-канал: ведущий эмодзи заголовка — часть стиля и НЕ удаляется
+    formatted = postformat.format_post(text,
+                                       keep_headline_emoji=(channel == "agro"))
     if dry_run:
         return send_message(token, chat_id or target_chat,
                             formatted, dry_run=True)

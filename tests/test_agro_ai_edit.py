@@ -109,9 +109,10 @@ def test_ai_receives_full_article_text_not_its_beginning(st, monkeypatch):
     assert user.index(head_marker) < user.index(LONG_LAST)
     assert len(user) > 6000                             # срез [:6000] отсутствует
     sys_msg = prov.calls[0][0]["content"]
-    # поручения редактору из задания зафиксированы в промпте
-    for needle in ("5-7", "придумывай", "вывод", "ЦЕЛИКОМ",
-                  "последовательные шаги"):
+    # поручения редактору из задания зафиксированы в промпте:
+    # полнота материала, факты из источника, живой голос и стиль подачи
+    for needle in ("ЦЕЛИКОМ", "придумывай", "вывод", "эмодзи", "900-1800",
+                   "жирным", "курсивом", "последние публикации"):
         assert needle in sys_msg, needle
 
 
@@ -990,3 +991,167 @@ def test_regression_msg92_93_epipremnum_long_post_format():
         if not in_cap and not in_msg:
             partial += 1
     assert partial <= 1                       # не больше одного разреза
+
+
+# ---------- Стиль: акценты, курсив, эмодзи-буллеты, анти-повтор ----------
+
+# эталон стилевого ответа «модели»: цепляющий заголовок с эмодзи, короткие
+# абзацы, эмодзи-буллеты, **акцент**, _курсивная_ ремарка, вывод, один призыв
+STYLE_POST = (
+    "\U0001F33F Озимый чеснок: главные ошибки посадки\n"
+    "\n"
+    "Осенью спешат все. Разберёмся, **когда сажать чеснок**, чтобы луковицы "
+    "не вымерзли и не выпрели.\n"
+    "\n"
+    "\U0001F342 Посадите за 35-45 дней до устойчивых заморозков — за это "
+    "время корни успевают отрасти, а стрелка нет.\n"
+    "\n"
+    "\U0001F331 Заглубляйте зубок на 10-12 см (без мульчи): _на песчаной "
+    "почве_ глубину уменьшайте.\n"
+    "\n"
+    "Вывод: проверьте сроки своего региона и не жалейте перегной.\n"
+    "\n"
+    "Какой чеснок сажаете вы — озимый или яровой? Напишите в комментариях!"
+)
+
+
+def test_style_post_accents_and_italic_reach_telegram(st, monkeypatch):
+    """Стиль канала: **акценты** и _курсивные_ ремарки модели доходят до
+    Telegram жирным/курсивом (MarkdownV2 — одинарные * и _); служебные **/__
+    в опубликованном тексте не появляются, текст вокруг акцентов цел."""
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    prov = StubProvider(STYLE_POST)
+    r = agro.process_url(st, ART_URL, "botanichka", dry_run=True, provider=prov)
+    assert r["status"] == "post_ready" and r["ai"] == "edited", r
+    body = st.get(st.add(ART_URL, "botanichka"))["post_text"]
+    assert "**когда сажать чеснок**" in body       # промежуточный формат
+    assert "_на песчаной почве_" in body
+    md = postformat.to_markdownv2(postformat.format_post(
+        body, keep_headline_emoji=True))
+    assert "*когда сажать чеснок*" in md           # жирное — одинарные *
+    assert "_на песчаной почве_" in md             # курсив — одинарные _
+    assert "**" not in md and "__" not in md
+    plain = postformat.unescape_markdownv2(md)
+    assert "Разберёмся, когда сажать чеснок, чтобы луковицы" in plain
+    assert "10-12 см (без мульчи): на песчаной почве глубину" in plain
+
+
+def test_publish_style_post_single_photo_accurate(st, monkeypatch):
+    """Публикация стилевого поста одним сообщением: подпись MarkdownV2 с
+    жирным эмодзи-заголовком, акцентом и курсивом; без **/__; источник и
+    теги целы; второе сообщение не отправляется."""
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    _publish_traps(monkeypatch)
+    seen = {}
+
+    def spy_photo(token, chat_id, photo_url=None, photo_bytes=None,
+                  caption=None, dry_run=False, retries=2, parse_mode=None):
+        seen.update(caption=caption, photo=photo_bytes, cap_mode=parse_mode)
+        return telegram.PublishResult(True, message_id=555)
+
+    def boom_msg(*a, **k):
+        raise AssertionError("пост в пределах подписи — одно сообщение")
+    monkeypatch.setattr(telegram, "send_photo", spy_photo)
+    monkeypatch.setattr(telegram, "send_message", boom_msg)
+
+    prov = StubProvider(STYLE_POST)
+    r = agro.process_url(st, ART_URL, "botanichka", publish=True,
+                         dry_run=False, provider=prov)
+    assert r["status"] == "published" and r["telegram_message_id"] == 555, r
+    md = seen["caption"]
+    assert seen["cap_mode"] == "MarkdownV2"
+    assert len(md) <= telegram.CAPTION_LIMIT
+    # заголовок жирным, ведущий эмодзи — часть заголовка (agro-стиль)
+    assert "*\U0001F33F Озимый чеснок: главные ошибки посадки*" in md
+    assert "*когда сажать чеснок*" in md
+    assert "_на песчаной почве_" in md
+    assert "**" not in md and "__" not in md       # служебных маркеров нет
+    plain = postformat.unescape_markdownv2(md)
+    assert plain.split("\n\n")[0] == "\U0001F33F Озимый чеснок: главные " \
+                                      "ошибки посадки"
+    assert "Источник: " + ART_URL in plain
+    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" not in md        # метаданные не публикуются
+
+
+def test_style_history_rotation_prompt_and_no_metadata_in_post(st, monkeypatch):
+    """Анти-повтор: тип хука/заголовок/эмодзи последних публикаций берутся из
+    СУЩЕСТВУЮЩЕГО post_text БД канала и уходят ТОЛЬКО в промпт (инструкция
+    ротации + перечень); в опубликованный текст история и служебные
+    метаданные не попадают."""
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    mid = st.add(ART_URL + "/prev", "botanichka")
+    st.update(mid, status="published",
+              post_text="❓ Почему желтеют листья у огурцов \U0001F33F\n\n"
+                        "Текст прошлого поста.\n\n"
+                        "Источник: https://example.com/prev\n#Практика")
+    prov = StubProvider(AI_POST)
+    r = agro.process_url(st, ART_URL, "botanichka", dry_run=True, provider=prov)
+    assert r["status"] == "post_ready" and r["ai"] == "edited", r
+    hist = agro._style_history(st)
+    assert hist and hist[0]["hook"] == "вопрос"     # ❓ Почему… -> «вопрос»
+    assert hist[0]["emoji"]                         # ключевые эмодзи извлечены
+    user = _user_msg(prov)
+    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" in user
+    assert "Почему желтеют листья у огурцов" in user
+    assert "[вопрос]" in user
+    assert "должен отличаться от предыдущего" in user
+    sys_msg = prov.calls[0][0]["content"]
+    assert "не начинай пост тем же типом" in sys_msg
+    # служебные метаданные и история — не в публикацию
+    post = st.get(st.add(ART_URL, "botanichka"))["post_text"]
+    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" not in post
+    assert "[вопрос]" not in post
+    assert "Почему желтеют" not in post
+
+
+def test_style_history_unavailable_pipeline_still_works(st, monkeypatch):
+    """История анти-повтора недоступна (ошибка хранилища) -> []: редактор
+    продолжает работать без истории, промпт — без блока публикаций,
+    процесс не падает."""
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+
+    class BoomDB:
+        def execute(self, *a, **k):
+            raise RuntimeError("db gone")
+
+    class BoomSt:
+        db = BoomDB()
+    assert agro._style_history(BoomSt()) == []   # ошибка хранилища гасится
+    prov = StubProvider(AI_POST)
+    r = agro.process_url(st, ART_URL, "botanichka", dry_run=True, provider=prov)
+    assert r["status"] == "post_ready" and r["ai"] == "edited", r
+    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" not in _user_msg(prov)
+
+
+def test_emoji_bullets_glued_with_single_newline_split_into_paragraphs():
+    """Дефект msg83 в новом стиле: пункты с эмодзи-буллетами, склеенные
+    одним переносом строки, разбиваются на отдельные абзацы (в подписи —
+    пустые строки между пунктами, а не стена текста)."""
+    raw = ("Заголовок поста\n\nВступление сезона.\n"
+           "\U0001F33F Первый совет: уберите остатки.\n"
+           "\U0001F331 Второй совет: внесите компост.\n"
+           "\U0001F342 Третий совет: замульчируйте грядки.\n\n"
+           "Вывод: делайте всё вовремя.")
+    out = agro._clean_ai_output(raw)
+    blocks = [b for b in out.split("\n\n") if b.strip()]
+    assert len(blocks) == 6
+    assert blocks[2] == "\U0001F33F Первый совет: уберите остатки."
+    assert blocks[3] == "\U0001F331 Второй совет: внесите компост."
+    assert blocks[4] == "\U0001F342 Третий совет: замульчируйте грядки."
+    assert blocks[5] == "Вывод: делайте всё вовремя."
+
+
+def test_style_history_hook_types_rotate_labels():
+    """Метаданные ротации: тип хука определяется по заголовку (включая
+    ведущие эмодзи/знаки); достаточно развести типы между публикациями."""
+    cases = {
+        "Почему желтеют листья у огурцов?": "вопрос",
+        "\U0001F6A8 5 ошибок посадки чеснока": "ошибка/миф",
+        "\U0001F33F 3 схемы посадки лука": "список/числа",
+        "Как сохранить урожай яблок до весны": "вопрос",
+        "Чеснок под зиму: сроки в сентябре": "сезон",
+        "Оказывается, зола не всем культурам помогает": "факт",
+        "Нейтральный заголовок про грядки": "польза",
+    }
+    for head, want in cases.items():
+        assert agro._hook_type(head) == want, head
