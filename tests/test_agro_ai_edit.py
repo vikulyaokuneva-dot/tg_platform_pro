@@ -1233,3 +1233,236 @@ def test_style_history_hook_types_rotate_labels():
     }
     for head, want in cases.items():
         assert agro._hook_type(head) == want, head
+
+
+# ---------- регрессия отказов ИИ-редактуры 13.10.2026 (supersadovnik) ------
+# Фактический запуск 17:03 UTC: checked=53, post_ready=0, ai_edited=1,
+# ai_failed=2; отказы «covers 3/7», «covers 2/6» (обе попытки), «covers 1/4»,
+# «enumerated items instead of paragraphs». Реальные материалы: «Коза в ЛПХ»
+# (6 секций), «Обзор 14 сортов тюльпанов» (секции-имена на латинице),
+# «Пиявки дома» (однословные секции). Ниже — их структура и репрезентативные
+# ответы модели (нумерация-перечень, потеря разделов).
+
+KOZA_URL = ("https://www.supersadovnik.ru/text/koza-v-lph-kak-pravilno-"
+            "soderzhat-i-s-chego-nachat-novichku-1014747")
+KOZA_TITLE = "Коза в ЛПХ: как правильно содержать и с чего начать новичку"
+KOZA_INTRO = ("Коза — неприхотливое животное, но и к ней нужны грамотный уход "
+              "и продуманная организация хозяйства. Прежде чем заводить "
+              "козочку, решите, ради чего она нужна: молоко, мясо или пух — "
+              "от ответа зависит выбор породы.")
+KOZA_SECS = ("Козоводство", "Состояние в России", "Молочные породы коз",
+             "Мясные породы коз", "Отечественные породы пуховых коз",
+             "Что выгоднее для ЛПХ?")
+KOZA_BODIES = (
+    "Козоводство в личном подсобном хозяйстве выгодно тем, что коза быстро "
+    "привыкает к человеку и неприхотлива к кормам. Помещение нужно сухое, с "
+    "подстилкой и вентиляцией.",
+    "Состояние отрасли в России оценивают как стабильное: поголовье в "
+    "личных хозяйствах держится на уровне последних лет, а спрос на козье "
+    "молоко растёт.",
+    "Молочные породы коз — зааненская, чешская бурая, русская — дают до "
+    "6-8 литров молока в сутки в период лактации и нуждаются в доении "
+    "дважды в день.",
+    "Мясные породы коз — бурская, камарунская — набирают убойный вес за "
+    "сезон на хороших пастбищах, но кормов требуют больше молочных.",
+    "Отечественные породы пуховых коз дают пух и шерсть для пряжи и зимуют "
+    "в условиях средней полосы без утеплённых капителей.",
+    "Что выгоднее для ЛПХ? Молочное направление: спрос на молоко стабильный "
+    "круглый год, а цена козьего молока выше коровьего.",
+)
+KOZA_TEXT = KOZA_INTRO + "\n\n" + "\n\n".join(
+    "%s: %s" % (s, b) for s, b in zip(KOZA_SECS, KOZA_BODIES))
+KOZA_HTML = (
+    "<html><head><title>%s</title>"
+    "<meta property=\"og:image\" content=\"https://cdn.example.test/agro/koza.jpg\">"
+    "<script type=\"application/ld+json\">"
+    "{\"@type\":\"Article\",\"headline\":\"%s\",\"datePublished\":\"%s\"}"
+    "</script></head><body><article><p>%s</p>%s</article></body></html>"
+) % (KOZA_TITLE, KOZA_TITLE, _today(), KOZA_INTRO,
+     "".join("<h2>%s</h2><p>%s</p>" % (s, b)
+             for s, b in zip(KOZA_SECS, KOZA_BODIES)))
+
+# дефектный ответ модели (реальная форма): нумерованные пункты и markdown-списки
+KOZA_NUMBERED_POST = (
+    KOZA_TITLE + "\n\n"
+    "Если вы задумались о разведении коз, это отличный выбор для личного "
+    "подсобного хозяйства. Разберёмся, с чего начать.\n\n"
+    "Какие направления козоводства выбрать?\n\n"
+    "1. Молочное направление: стабильный спрос на молоко.\n"
+    "2. Мясное направление: быстрый рост молодняка на пастбище.\n"
+    "3. Пуховое направление: узкий рынок сбыта волокна.\n\n"
+    "Какие породы выбрать?\n\n"
+    "- Русская белая: неприхотлива и морозостойка.\n"
+    "- Зааненская: рекордные надои, но чувствительна к сырости.\n"
+    "- Бурская: быстрорастущие мясные козы.\n\n"
+    "Вывод: начните с молочного направления и выберите породу под свои "
+    "условия."
+)
+
+# полноценный краткий пересказ: плоские абзацы, 5 из 6 разделов
+KOZA_GOOD_POST = (
+    KOZA_TITLE + "\n\n"
+    "\U0001F410 Коза в подсобном хозяйстве — это и молоко, и пух, и мясо: "
+    "козоводство начинают с выбора направления.\n\n"
+    "\U0001F95B К молочным породам относят зааненскую и чешскую бурую: от "
+    "них получают стабильные надои каждый день.\n\n"
+    "\U0001F356 Мясные породы быстро набирают вес за сезон и дают мясо, но "
+    "кормов требуют больше.\n\n"
+    "\U0001F9F6 Отечественные породы пуховых коз зимуют в условиях средней "
+    "полосы и дают пух для пряжи.\n\n"
+    "\U0001F4A1 Вывод: новичку выгоднее начать с молочного направления — "
+    "спрос на молоко стабильный, а уход простой."
+)
+
+# пост, потерявший 4 раздела из 6 (отпечаток «covers 2/6» запуска 13.10)
+KOZA_PARTIAL_POST = (
+    KOZA_TITLE + "\n\n"
+    "\U0001F410 Козы в подсобном хозяйстве дают молоко и пух: спрос на "
+    "продукты держится круглый год.\n\n"
+    "\U0001F95B Молочные породы коз — зааненская и чешская бурая — дают "
+    "обильные надои и стабильное молоко.\n\n"
+    "\U0001F356 Мясные породы коз — бурская и камарунская — набирают вес "
+    "за сезон на хороших пастбищах.\n\n"
+    "\U0001F4A1 Вывод: выбирайте породу под задачу и не гонитесь за "
+    "количеством."
+)
+
+# реальный обзор сортов тюльпанов: секции = имена сортов (латиница)
+TULIP_URL = ("https://www.supersadovnik.ru/text/obzor-14-luchshih-novyh-"
+             "sortov-tjulpanov-na-vesnu-2027-darvinovy-i-drugie-novinki-1014750")
+TULIP_TITLE = "Обзор 14 лучших новых сортов тюльпанов на весну 2027"
+TULIP_INTRO = ("Весна близко, и садовники уже планируют посадки: в этом "
+               "сезоне особенно интересны новые сорта тюльпанов.")
+TULIP_SECS = ("Топ-14 новых интересных сортов тюльпанов",
+              "2 Beauty of Leo (новинка, предположительно 2025-2026, Нидерланды)",
+              "Pride mix", "12 Menton Oranje (новинка)")
+TULIP_BODIES = (
+    "Дарвиновы гибриды, простые поздние и сорта группы Грейга собраны в "
+    "подборку: каждый сорт описан по цвету и срокам цветения.",
+    "Beauty of Leo — новинка с рассечёнными лепестками и необычной "
+    "окраской; селекционеры предполагают сроки цветения конца апреля.",
+    "Pride mix — смесь оттенков для непрерывного цветения: в коллекции "
+    "присутствуют розовые и жёлтые формы.",
+    "Menton Oranje — новинка с глубоким оранжево-терракотовым цветом; "
+    "луковицы сажают в защищённом уголке сада.",
+)
+TULIP_TEXT = TULIP_INTRO + "\n\n" + "\n\n".join(
+    "%s: %s" % (s, b) for s, b in zip(TULIP_SECS, TULIP_BODIES))
+TULIP_HTML = (
+    "<html><head><title>%s</title>"
+    "<meta property=\"og:image\" content=\"https://cdn.example.test/agro/tulip.jpg\">"
+    "<script type=\"application/ld+json\">"
+    "{\"@type\":\"Article\",\"headline\":\"%s\",\"datePublished\":\"%s\"}"
+    "</script></head><body><article><p>%s</p>%s</article></body></html>"
+) % (TULIP_TITLE, TULIP_TITLE, _today(), TULIP_INTRO,
+     "".join("<h2>%s</h2><p>%s</p>" % (s, b)
+             for s, b in zip(TULIP_SECS, TULIP_BODIES)))
+
+TULIP_GOOD_POST = (
+    TULIP_TITLE + "\n\n"
+    "\U0001F338 Весна близко — пора планировать посадки новых тюльпанов.\n\n"
+    "\U0001F337 Топ-14 новых интересных сортов тюльпанов сезона собрано в "
+    "подборке от Дарвиновых до Грейга.\n\n"
+    "\U0001F33A Beauty of Leo — новинка с рассечёнными лепестками и "
+    "яркой окраской.\n\n"
+    "\U0001F33B Menton Oranje — новинка с глубоким оранжево-терракотовым "
+    "цветом для клумбы.\n\n"
+    "\U0001F4A1 Вывод: выбирайте сорта под свой сад и сочетайте сроки "
+    "цветения."
+)
+
+
+def test_real_koza_full_retelling_passes_completeness():
+    """Полноценный краткий пересказ «Козы в ЛПХ» (5 из 6 разделов;
+    однословные секции покрываются ВСЕМ их ключом) НЕ отклоняется как
+    неполный — регрессия ложного «covers N/M» на реальном материале."""
+    hit, verifiable, _ = agro._section_cover(KOZA_GOOD_POST, KOZA_TEXT,
+                                             KOZA_HTML)
+    assert (hit, verifiable) == (5, 6), (hit, verifiable)
+    assert agro._completeness_errors(KOZA_GOOD_POST, KOZA_TEXT, KOZA_HTML) == []
+
+
+def test_real_tulip_latin_section_names_are_fairly_checked():
+    """Реальный обзор тюльпанов («covers 1/4» и «covers 0/4» на запуске
+    13.10): секции-имена сверяются по латинским ключам (модель пишет сорта
+    той же латиницей), заголовок без единого ключа («Leo 2026 mix») в
+    проверку не входит; полноценный пересказ проходит, вступительный — нет."""
+    hit, verifiable, missed = agro._section_cover(TULIP_GOOD_POST, TULIP_TEXT,
+                                                  TULIP_HTML)
+    assert (hit, verifiable) == (3, 4) and missed == ["Pride mix"], \
+        (hit, verifiable, missed)
+    intro_only = TULIP_TITLE + "\n\nВесна близко — скоро цветы."
+    errs = agro._completeness_errors(intro_only, TULIP_TEXT, TULIP_HTML)
+    assert any("covers 0/4" in e for e in errs), errs
+
+
+def test_section_cover_one_key_headings_need_one_match():
+    """Однословные секции («Гирудотерапия», «Содержание дома» — отпечаток
+    «covers 3/7» запуска 13.10): требование «≥2 совпадений» для них
+    невыполнимо в принципе, поэтому такая секция проверяется по всему
+    своему ключу (одно совпадение); двух-ключевой заголовок по-прежнему
+    требует два."""
+    secs = ["Гирудотерапия", "Содержание дома", "Раздельное содержание"]
+    text = ("Пиявки продают в аптеках.\n\n"
+            + "\n\n".join("%s: пиявок держат дома до применения." % s
+                          for s in secs))
+    html = "<article>%s</article>" % "".join(
+        "<h2>%s</h2><p>пиявок держат дома до применения.</p>" % s for s in secs)
+    post = ("Заголовок про пиявок\n\n"
+            "Гирудотерапия дома популярна у дачников.\n\n"
+            "Содержание пиявок требует чистой воды и прохлады.\n\n"
+            "Вывод: соблюдайте чистоту при уходе.")
+    hit, verifiable, missed = agro._section_cover(post, text, html)
+    assert (hit, verifiable) == (2, 3), (hit, verifiable)
+    assert missed == ["Раздельное содержание"], missed
+
+
+def test_real_koza_listicle_rejected_then_fixed_by_targeted_retry(st,
+                                                                 monkeypatch):
+    """Реальный дефект 13.10: ответ-перечень с нумерацией «1.» отклонён
+    контрактом; ПОВТОР получает адресную инструкцию (бан нумерации + те же
+    факты) — исправленный плоский пост проходит и готовится к публикации.
+    Повтор чинит НАЙДЕННОЕ нарушение, а не «случайность сэмплинга»."""
+    _fake_network(monkeypatch, {KOZA_URL: KOZA_HTML})
+    prov = StubProvider(KOZA_NUMBERED_POST, KOZA_GOOD_POST)
+    r = agro.process_url(st, KOZA_URL, "supersadovnik", dry_run=True,
+                         provider=prov)
+    assert r["status"] == "post_ready" and r["ai"] == "edited", r
+    assert len(prov.calls) == 2
+    retry = _user_msg(prov, 1)
+    assert "ПРЕДЫДУЩАЯ ПОПЫТКА ОТКЛОНЕНА: enumerated items" in retry
+    assert "нумерация пунктов" in retry and "эмодзи-буллета" in retry
+    post = st.get(st.add(KOZA_URL, "supersadovnik"))["post_text"]
+    assert "зааненскую и чешскую бурую" in post          # факты сохранены
+    assert not re.search(r"(?<![\d.,])\d{1,2}[.)]\s", post)
+
+
+def test_real_koza_lost_sections_go_to_review_with_reason(st, monkeypatch):
+    """«covers 2/6» (реальный отказ 13.10, обе попытки): пост, потерявший
+    4 раздела из 6, НЕ публикуется; повтор адресный — перечисляет
+    пропущенные разделы по имени; после неудачного повтора — review с
+    конкретной причиной в row.reason (не молчаливая обрезка и не
+    публикация «что осталось»)."""
+    _fake_network(monkeypatch, {KOZA_URL: KOZA_HTML})
+    prov = StubProvider(KOZA_PARTIAL_POST, KOZA_PARTIAL_POST)
+    r = agro.process_url(st, KOZA_URL, "supersadovnik", dry_run=True,
+                         provider=prov)
+    assert r["status"] == "review" and r["ai"] == "failed", r
+    assert len(prov.calls) == 2
+    hints = _user_msg(prov, 1).split("ЧТО ИСПРАВИТЬ:")[1]
+    assert "не отражены разделы исходника" in hints
+    assert "Что выгоднее для ЛПХ?" in hints       # пропущенный раздел назван
+    assert "Молочные породы коз" not in hints     # покрытый — не назван
+    row = st.get(st.add(KOZA_URL, "supersadovnik"))
+    assert row["status"] == "review" and not row["post_text"]
+    assert "covers 2/6" in row["reason"], row["reason"]
+    assert st.db.execute("SELECT COUNT(*) c FROM publications").fetchone()["c"] == 0
+
+
+def test_prompt_requires_section_coverage_and_no_numbering():
+    """Инструкции модели конкретны: отражать разделы исходника и не
+    нумеровать пункты — ровно то, чего не хватало в промпте на отказах
+    13.10 («covers N/M» и «enumerated items»)."""
+    assert "РАЗДЕЛЫ:" in agro.AI_EDIT_SYSTEM
+    assert "не выбрасывай целые разделы" in agro.AI_EDIT_SYSTEM
+    assert "НИКАКОЙ нумерации" in agro.AI_EDIT_SYSTEM

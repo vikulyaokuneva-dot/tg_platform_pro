@@ -66,7 +66,8 @@ MAX_POST_CHARS = 3400
 COMP_MIN_MATCHED = 10
 COMP_MIN_TAIL_SHARE = 0.10
 # 2) гейт секций: заголовки H2/H3 статьи, найденные в её тексте; пост должен
-#    отражать большинство секций (≥2 ключевых слова на секцию). Материал без
+#    отражать большинство ПРОВЕРЯЕМЫХ секций (≥2 совпадающих ключа, либо все
+#    ключи заголовка, если их меньше двух — см. _section_cover). Материал без
 #    структуры (секций <3) — проверка не применяется.
 COMP_MIN_SECTION_COVER = 0.50
 _HEADING_RX = re.compile(r"<h[23][^>]*>(.*?)</h[23]>", re.I | re.S)
@@ -202,18 +203,76 @@ def _kw_keys(s):
     return {w[:5] for w in _KW_RX.findall((s or "").lower())} - _SEC_STOP_STEMS
 
 
+# латинские слова (имена сортов «Menton Oranje», «Beauty of Leo»): у
+# заголовков-имён кириллицы может не быть вовсе — без латинских ключей такие
+# секции не проверяемы (отпечаток отказа 13.10: «covers 0/4» по обзору, где
+# разделы = названия сортов)
+_LAT_RX = re.compile(r"[A-Za-z][A-Za-z-]{3,}")
+
+
+def _sec_keys(s):
+    """Ключи гейта покрытия секций: кириллические стемы (как _kw_keys) плюс
+    латинские слова целиком — ими сверяются и заголовки секций, и тело
+    поста (модель пишет сорта той же латиницей)."""
+    low = (s or "").lower()
+    return ({w[:5] for w in _KW_RX.findall(low)} - _SEC_STOP_STEMS) | \
+        set(_LAT_RX.findall(low))
+
+
+def _section_cover(post, source_text, html=None):
+    """Покрытие секций статьи -> (hit, verifiable, missed).
+
+    Секция проверяема, если её заголовок дал хотя бы один ключ. Требование
+    «≥2 совпадений» для однословных/однокоренных заголовков («Гирудотерапия»,
+    «Содержание дома», «Что выгоднее для ЛПХ?») невыполнимо в принципе —
+    такой заголовок не мог бы набрать два ключа НИКАКИМ постом, но завышал
+    знаменатель и отклонял полноценные пересказы (отпечаток отказов 13.10:
+    «covers 3/7» у поста, реально отразившего 5 из 7 разделов). Порог
+    не ослаблен: нужно ≥2 совпадения, либо ВСЕ ключи заголовка, если их
+    меньше двух. Заголовки вовсе без ключей (короткая латинщина вроде
+    «Pride Mix») исключаются из проверки — их непокрытие не доказуемо.
+    missed — непокрытые проверяемые секции (для адресной повторной
+    попытки _retry_user_content)."""
+    secs = _article_sections(html, source_text)
+    if len(secs) < 3 or not (post or "").strip():
+        return 0, 0, []
+    # ключи — по ТЕЛУ поста без строки заголовка: заголовок может называть
+    # секцию («нужно ли обрывать»), не отдавая её рекомендации — как в
+    # дефектном msg81
+    blocks = [b for b in (post or "").split("\n\n") if b.strip()]
+    pkeys = _sec_keys("\n\n".join(blocks[1:]) if len(blocks) > 1 else post)
+    hit, verifiable, missed = 0, 0, []
+    for s in secs:
+        sk = _sec_keys(s)
+        if not sk:
+            continue
+        verifiable += 1
+        if len(sk & pkeys) >= min(2, len(sk)):
+            hit += 1
+        else:
+            missed.append(s)
+    return hit, verifiable, missed
+
+
 def _article_sections(html, text):
     """Заголовки H2/H3 самой статьи: берём только те, что найдены в
     извлечённом тексте (виджеты «читайте также» в текст статьи не входят —
-    их заголовков в нём нет)."""
+    их заголовков в нём нет). Возвращает исходное написание заголовков
+    (в подсказке повторной попытке модели важно «Что выгоднее для ЛПХ?»,
+    а не «что выгоднее для лпх?»); сравнение и дедуп — по нижнему регистру."""
     if not html or not text:
         return []
-    norm = utils.ws_norm(text).lower()
-    out = []
+    norm = utils.ws_norm(text).lower()      # ws_norm приводит к нижнему регистру
+    out, seen = [], set()
     for raw in _HEADING_RX.findall(html):
-        h = utils.ws_norm(_TAG_RX.sub(" ", raw))
-        if 8 <= len(h) <= 90 and h.lower() in norm and h.lower() not in out:
-            out.append(h.lower())
+        # сверка — по нижнему регистру, но НАПИСАНИЕ сохраняем: подсказка
+        # повторной попытке модели должна читаться как «Что выгоднее для
+        # ЛПХ?», а не «что выгоднее для лпх?»
+        h = " ".join(_TAG_RX.sub(" ", raw).split())
+        low = h.lower()
+        if 8 <= len(h) <= 90 and low in norm and low not in seen:
+            seen.add(low)
+            out.append(h)
     return out[:12]
 
 
@@ -240,17 +299,10 @@ def _completeness_errors(post, source_text, html=None):
                 errs.append("incomplete: %d%% of words from article mid "
                             "(need >= %d%%)" % (round(share * 100),
                                                 round(COMP_MIN_TAIL_SHARE * 100)))
-    secs = _article_sections(html, source_text)
-    if len(secs) >= 3 and body:
-        # ключи — по ТЕЛУ поста без строки заголовка: заголовок может называть
-        # секцию («нужно ли обрывать»), не отдавая её рекомендации — как в
-        # дефектном msg81
-        blocks = [b for b in (post or "").split("\n\n") if b.strip()]
-        pkeys = _kw_keys("\n\n".join(blocks[1:]) if len(blocks) > 1 else post)
-        hit = sum(1 for s in secs if len(_kw_keys(s) & pkeys) >= 2)
-        if hit < len(secs) * COMP_MIN_SECTION_COVER:
-            errs.append("incomplete: covers %d/%d article sections" %
-                        (hit, len(secs)))
+    hit, verifiable, _missed = _section_cover(post, source_text, html)
+    if verifiable and hit < verifiable * COMP_MIN_SECTION_COVER:
+        errs.append("incomplete: covers %d/%d article sections" %
+                    (hit, verifiable))
     return errs
 
 
@@ -290,6 +342,10 @@ AI_EDIT_SYSTEM = (
     "Ты — редактор Telegram-канала «Сад без хлопот» (сад, огород, дача, "
     "урожай, заготовки, рецепты). Тебе даны заголовок, URL и ПОЛНЫЙ текст "
     "статьи. Изучай материал ЦЕЛИКОМ, а не только начало.\n"
+    "РАЗДЕЛЫ: каждый смысловой раздел/подзаголовок исходника (части, виды, "
+    "породы, шаги) должен найти отражение в посте — не выбрасывай целые "
+    "разделы; если материала не хватает на объём — сжимай повторы и "
+    "вступление, но не разделы.\n"
     "ФАКТЫ: сохраняй условия, ограничения, оговорки и все числа из источника; "
     "НЕ придумывай советы, дозировки, сроки, сорта, температуры и результаты, "
     "которых нет в тексте; не выдавай догадку за факт. Убирай повторы, "
@@ -307,8 +363,10 @@ AI_EDIT_SYSTEM = (
     "- затем вступление на 1-2 предложения (проблема, интрига или обещание "
     "пользы); заголовок внутри статьи и в конце НЕ повторяй;\n"
     "- основная часть: короткие абзацы; если тема — перечисление (советы, "
-    "шаги, признаки), каждый пункт — отдельный абзац, начинающийся с "
-    "уместного эмодзи-буллета (не «•»); между абзацами — пустая строка;\n"
+    "шаги, признаки, сорта), каждый пункт — отдельный абзац, начинающийся "
+    "с уместного эмодзи-буллета (не «•»); НИКАКОЙ нумерации пунктов "
+    "(«1.», «2)») и дефисных markdown-списков — только плоские абзацы; "
+    "между абзацами — пустая строка;\n"
     "- при необходимости — короткая авторская ремарка (1 предложение) "
     "в скобках или с курсивом;\n"
     "- в конце — «Вывод: ...» (1-2 предложения, что делать читателю), "
@@ -498,6 +556,36 @@ def _edit_contract_ok(post, source_text=None, html=None):
     return True, ""
 
 
+def _retry_user_content(user, why, post, text, html):
+    """User-сообщение ПОВТОРНОЙ попытки: прежний промпт + конкретная причина
+    отказа и что именно поправить. Повтор с тем же сообщением одну в одну
+    нарушения не чинит (реальные отказы 13.10.2026: «covers 3/7» -> «covers
+    3/7»; нумерация устранялась только случайностью, а покрытие при
+    перегенерации наоборот проседало — «3/6» -> «2/6»)."""
+    hints = []
+    if "article sections" in why:
+        _, _, missed = _section_cover(post, text, html)
+        if missed:
+            hints.append("в посте не отражены разделы исходника: %s — добавь "
+                         "по каждому хотя бы один абзац со словами его темы "
+                         "(дословная цитата не нужна)"
+                         % "; ".join(m[:60] for m in missed[:6]))
+    if "enumerated" in why:
+        hints.append("нумерация пунктов («1.», «2)») запрещена: каждый пункт — "
+                     "отдельный абзац, начинающийся с эмодзи-буллета (🌿 и "
+                     "т.п.), без дефисов и markdown-списков")
+    if "too long" in why or "too short" in why:
+        hints.append("выдержи объём 900-1800 символов (максимум 3000), "
+                     "сжимая повторы, а не разделы")
+    if not hints:
+        hints.append("исправь замечание, сохранив факты и структуру абзацев")
+    return (user
+            + "\n\nПРЕДЫДУЩАЯ ПОПЫТКА ОТКЛОНЕНА: %s.\nЧТО ИСПРАВИТЬ: %s.\n"
+              "Всё остальное сохрани: те же факты и числа из источника, "
+              "плоские абзацы, один заголовок в первой строке. Ответь только "
+              "текстом поста." % (why, "; ".join(hints)))
+
+
 def _ai_edit_post(text, title, url, source, provider, attempts=2, html=None,
                   history=None):
     """Редактура ПОЛНОГО текста статьи через существующий GigaChatProvider
@@ -505,7 +593,9 @@ def _ai_edit_post(text, title, url, source, provider, attempts=2, html=None,
     history — метаданные последних публикаций для ротации (анти-повтор):
     уходят только в промпт; недоступна -> работаем без неё.
     -> (post_body, note): пустое тело = неудача. Максимум `attempts` вызовов
-    (1 повтор — паттерн langguard), бесконечных ретраев нет."""
+    (1 повтор — паттерн langguard), бесконечных ретраев нет; повтор
+    АДРЕСНЫЙ: во вторую попытку уходит конкретная причина первого отказа
+    (пропущенные разделы/нумерация/объём), а не тот же промпт один в один."""
     user = ("Заголовок: %s\nURL: %s\nИсточник: %s\n\nПОЛНЫЙ ТЕКСТ СТАТЬИ:\n%s"
             % ((title or "").strip()[:300], url, source, text or ""))
     if history:
@@ -518,6 +608,7 @@ def _ai_edit_post(text, title, url, source, provider, attempts=2, html=None,
     msgs = [{"role": "system", "content": AI_EDIT_SYSTEM},
             {"role": "user", "content": user}]
     note = "empty result"
+    post = ""
     for i in range(attempts):
         try:
             raw = provider.complete(msgs)
@@ -531,6 +622,11 @@ def _ai_edit_post(text, title, url, source, provider, attempts=2, html=None,
             return post, ""
         note = why
         log.warning("agro ai edit attempt %d/%d failed: %s", i + 1, attempts, why)
+        if i + 1 < attempts:
+            msgs = [{"role": "system", "content": AI_EDIT_SYSTEM},
+                    {"role": "user",
+                     "content": _retry_user_content(user, why, post, text,
+                                                    html)}]
     return "", note
 
 
@@ -630,6 +726,10 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None):
                  getattr(provider, "last_usage", None))
     errs = editorial_agro(post, text, html)
     if errs:
+        # warning -> видно в CI: раньше ИИ-пост, прошедший контракт, мог
+        # упасть здесь «вслепую» (в журнале не было ни строки о причине)
+        log.warning("agro editorial gate (%s): %s", url[:60],
+                    "; ".join(errs)[:300])
         st.update(mid, status="review", reason="agro editorial: %s" % "; ".join(errs)[:300])
         out.update(status="review", reason="editorial gate")
         return out
