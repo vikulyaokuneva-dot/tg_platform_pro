@@ -19,6 +19,11 @@ API = "https://api.telegram.org/bot%s/%s"
 # MarkdownV2) помещается в него целиком — публикация одним сообщением,
 # пара «фото + текст» не создаётся
 CAPTION_LIMIT = 1024
+# лимит текстового сообщения (Bot API) и безопасный порог для продолжения
+# (запас 6 симв. — как в прежнем страховочном clamping): split_for_photo
+# проверяет продолжение по нему ДО отправки фото, чтобы не рвать статью
+MESSAGE_LIMIT = 4096
+MESSAGE_SAFE_LIMIT = MESSAGE_LIMIT - 6
 
 
 class PublishResult:
@@ -134,16 +139,18 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     весь пост (после экранирования MarkdownV2) помещается в лимит подписи
     CAPTION_LIMIT — одно sendPhoto с полным текстом, второго сообщения нет.
     Если не помещается (лимит Bot API на подпись — 1024 симв.) —
-    (1) sendPhoto с МАКСИМАЛЬНО полной подписью ≤CAPTION_LIMIT
-    (postformat.split_for_photo: заголовок + как можно больше тела целыми
-    абзацами, при необходимости — по границе предложения + «Источник:»),
-    затем (2) сообщение-ПРОДОЛЖЕНИЕ отдельной отправкой (первая строка —
-    пометка «Продолжение», далее остаток тела БЕЗ повторного заголовка и
-    без того, что уже в подписи — msg80/81: читатель видит его прямо под
-    фото; «Источник:» + хэштеги; лимит сообщения 4096 с безопасной
-    страховкой). Длинный пост раньше целиком уходил в caption
-    и обрезался fit_caption по словам — материал терял рекомендации (обрыв
-    в msg78). Без image — прежний текстовый путь."""
+    (1) sendPhoto с подписью, заполненной целыми абзацами тела
+    (postformat.split_for_photo: разрез только по границам смысловых
+    блоков — абзац/список не рвётся посередине), затем (2)
+    сообщение-ПРОДОЛЖЕНИЕ отдельной отправкой (первая строка — пометка
+    «Продолжение», далее остаток тела БЕЗ повторного заголовка и без
+    того, что уже в подписи — msg80/81: читатель видит его прямо под
+    фото). «Источник:» + хэштеги — РОВНО ОДИН РАЗ в конце последнего
+    сообщения (в подписи длинного поста источника нет); продолжение
+    проверяется на лимит MESSAGE_LIMIT. Если пост разделить без потерь
+    невозможно — честный отказ ДО отправки (фото не уходит, текст не
+    режется): материал уходит на ручную проверку в agro.process_url.
+    Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     # agro-канал: ведущий эмодзи заголовка — часть стиля и НЕ удаляется
     formatted = postformat.format_post(text,
@@ -176,13 +183,23 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
             log.info("photo published with full caption #%s (%d chars)",
                      res.message_id, len(md))
             return res
-        # 1) не помещается в подпись: подпись заполняется МАКСИМАЛЬНО
-        # (заголовок + как можно больше тела) + сообщение-продолжение с
-        # остатком — без повторного заголовка и без дублей из подписи
+        # 1) не помещается в подпись: подпись заполняется целыми абзацами
+        # тела (разрез только по границам смысловых блоков) + сообщение-
+        # продолжение с остатком — без повторного заголовка и без дублей
         cap_plain, msg_plain = postformat.split_for_photo(
-            formatted, caption_limit=CAPTION_LIMIT)
-        if msg_plain == cap_plain:
-            log.warning("split_for_photo: тело не делится (дубль в сообщении)")
+            formatted, caption_limit=CAPTION_LIMIT,
+            message_limit=MESSAGE_SAFE_LIMIT)
+        if cap_plain is None:
+            # корректное деление без потерь невозможно: в подпись не
+            # помещается ни один абзац тела, либо продолжение с пометкой,
+            # разметкой и источником не влезает в лимит сообщения.
+            # ЧЕСТНЫЙ ОТКАЗ ДО отправки — фото не уходит, статья не
+            # режется и не дублируется; в agro.process_url материал
+            # уходит на ручную проверку (review)
+            log.error("unsplittable post: no whole body block fits caption "
+                      "or continuation exceeds message limit")
+            return PublishResult(False,
+                                 error="post cannot be split without loss")
         caption = fit_caption(postformat.to_markdownv2(cap_plain), CAPTION_LIMIT)
         res = send_photo(token, target, photo_bytes=image,
                          caption=caption, parse_mode="MarkdownV2")
@@ -197,12 +214,13 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
                 return res
         # 2) полный текст отдельным сообщением (фото — над текстом в ленте)
         full_md = postformat.to_markdownv2(msg_plain)
-        if len(full_md) > 4090:
-            # страховка: контракт ИИ-редактуры держит пост ≤3400 символов,
-            # так что путь не должен срабатывать (см. agro.MAX_POST_CHARS)
-            log.warning("full text %d chars > 4090 после экранирования — clamping",
-                        len(full_md))
-            full_md = fit_caption(full_md, 4090)
+        if len(full_md) > MESSAGE_SAFE_LIMIT:
+            # страховка: split_for_photo уже проверил продолжение по
+            # MESSAGE_SAFE_LIMIT ДО отправки фото, а контракт ИИ-редактуры
+            # держит пост ≤3400 симв. — путь не должен срабатывать
+            log.warning("full text %d chars > %d после экранирования — clamping",
+                        len(full_md), MESSAGE_SAFE_LIMIT)
+            full_md = fit_caption(full_md, MESSAGE_SAFE_LIMIT)
         res2 = send_message(token, target, full_md, parse_mode="MarkdownV2")
         if not res2.ok:
             err = str(res2.error or "").lower()

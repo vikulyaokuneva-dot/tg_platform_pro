@@ -199,11 +199,11 @@ def test_headline_emoji_kept_for_agro_only():
     assert pf.format_post(agro_fmt, keep_headline_emoji=True) == agro_fmt
 
 
-def test_split_for_photo_keeps_markers_balanced():
-    """Разрез по границе предложения не оставляет открытый **: если префикс
-    обрывает жирный сегмент — берётся более поздняя граница, а если она не
-    влезает в лимит — абзац целиком уходит в продолжение (текст и маркеры
-    целы, ни потерь, ни дублей)."""
+def test_split_for_photo_moves_whole_blocks_only():
+    """Разрез только по границам абзацев: абзац, не помещающийся целиком,
+    уходит в продолжение ЦЕЛИКОМ (не режется по предложению) — ни потерь,
+    ни дублей, маркеры ** остаются сбалансированными; источник (ровно один
+    раз) — в конце продолжения, в подписи длинного поста его нет."""
     head = "Весенняя обрезка"
     fill = ("Начните с санитарной уборки участка. Уберите прошлогоднюю листву "
             "и мусор. Так вы снизите риск болезней летом и подготовите почву "
@@ -212,25 +212,52 @@ def test_split_for_photo_keeps_markers_balanced():
           "секатор раствором и замажьте садовым варом крупные срезы.")
     src = "Источник: https://example.com/obrezka"
     text = "%s\n\n%s\n\n%s\n\n%s" % (head, fill, p2, src)
-    # «Источник:» всегда в подписи (контракт split_for_photo) — base учитывает его
-    base = len(pf.to_markdownv2(head + "\n\n" + fill + "\n\n" + src))
-    sep = len(pf.to_markdownv2("\n\n"))          # разделитель блоков в подписи
+    base = len(pf.to_markdownv2(head + "\n\n" + fill))
+    sep = len(pf.to_markdownv2("\n\n"))
 
-    # 1) в лимит влезает только незакрытый префикс «**Важно: не спешите.» —
-    #    такой разрез запрещён, абзац уходит в продолжение целиком
-    limit1 = base + sep + len(pf.to_markdownv2("**Важно: не спешите.")) + 2
-    cap, cont = pf.split_for_photo(text, limit1)
-    assert "Важно" not in cap and "Важно: не спешите" in cont
-    assert "Подождите 2 недели." in cont and "Затем обработайте" in cont
-    # 2) в лимит влезает сбалансированная граница (конец полного **сегмента)
-    limit2 = base + sep + len(pf.to_markdownv2(
-        "**Важно: не спешите. Подождите 2 недели.**")) + 2
-    cap, cont = pf.split_for_photo(text, limit2)
-    assert "**Важно: не спешите. Подождите 2 недели.**" in cap
-    assert "Затем обработайте" in cont
-    for part in (cap, cont):
-        assert part.count("**") % 2 == 0          # маркеры сбалансированы
-        assert pf.to_markdownv2(part)             # обе части валидны как MDV2
+    # 1) лимит влезает ровно в конец первого абзаца: p2 не помещается
+    #    целиком -> уходит в продолжение ЦЕЛИКОМ, а не по предложению
+    cap, cont = pf.split_for_photo(text, base + 2)
+    assert len(pf.to_markdownv2(cap)) <= base + 2
+    assert cap == head + "\n\n" + fill          # подпись кончается блоком
+    assert "Важно" not in cap                   # абзац не разрезан посередине
+    assert cont.startswith("Продолжение\n\n")   # понятная пометка читателю
+    assert p2 in cont and p2 not in cap         # не влезший блок цел
+    # источник — ровно один раз и только в последнем сообщении
+    assert src in cont and src not in cap
+    for part in (cap, cont):                    # маркеры целы, MDV2 валиден
+        assert part.count("**") % 2 == 0
+        assert pf.to_markdownv2(part)
+
+    # 2) лимит вмещает оба абзаца -> подпись целиком, продолжение = только
+    #    пометка + источник (пустой «второй пост» из одного источника)
+    full_body = head + "\n\n" + fill + "\n\n" + p2
+    cap2, cont2 = pf.split_for_photo(
+        text, len(pf.to_markdownv2(full_body)) + sep)
+    assert cap2 == full_body
+    assert cont2 == "Продолжение\n\n" + src
+
+
+def test_split_for_photo_returns_none_when_unsplittable():
+    """(None, None): корректное деление без потерь невозможно — ни один
+    абзац тела не влезает в подпись, либо продолжение с пометкой,
+    разметкой и источником не укладывается в лимит текстового сообщения.
+    publish_post в этом случае обязан честно отказать ДО отправки (фото
+    не уходит, статья не режется) — материал уходит в review."""
+    head = "Заголовок"
+    huge = "Очень длинный абзац про сад и огород. " * 40   # ~1500 символов
+    # 1) единственный абзац тела не влезает под заголовок в подпись
+    text1 = "%s\n\n%s\n\nИсточник: https://e.com/a" % (head, huge)
+    assert pf.split_for_photo(text1, caption_limit=300) == (None, None)
+    # 2) первая часть влезает, но продолжение с пометкой и источником
+    #    не укладывается в лимит сообщения
+    text2 = ("%s\n\nКороткий абзац помещается.\n\n%s\n\n"
+             "Источник: https://e.com/a" % (head, huge))
+    assert pf.split_for_photo(text2, caption_limit=100,
+                              message_limit=200) == (None, None)
+    # без caption_limit — прежний вырожденный контракт: пост целиком
+    cap, cont = pf.split_for_photo(text1)
+    assert cap == text1 == cont
 
 
 def _capturing_post(monkeypatch, responses):
