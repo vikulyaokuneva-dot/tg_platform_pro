@@ -1,0 +1,17 @@
+{
+  "checked": 0,
+  "post_ready": 0,
+  "published": 0,
+  "rejected": 0,
+  "review": 0,
+  "news_hold": 0,
+  "failed": 0,
+  "skipped": 0,
+  "ai_edited": 0,
+  "ai_failed": 0,
+  "ai_cached": 0,
+  "ai_skipped": 0,
+  "reason_counts": {},
+  "reason_examples": {},
+  "dry_run": true
+}

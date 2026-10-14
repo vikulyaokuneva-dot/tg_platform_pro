@@ -679,15 +679,22 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None):
         st.update(mid, status="rejected", reason="thin content (%d)" % len(text))
         out.update(status="rejected", reason="thin")
         return out
-    if not _age_ok(ext.get("published_at")):
-        st.update(mid, status="rejected", reason="stale: %s" % ext.get("published_at"))
-        out.update(status="rejected", reason="stale")
-        return out
-
     verdict = classifier_agro.classify(ext.get("title") or "", text,
                                        ext.get("published_at") or "")
     out["agro_type"] = verdict["type"]
     out["confidence"] = verdict["confidence"]
+    # Свежесть обязательна для новостей, но не для проверенной практической
+    # статьи: уход за растениями и сезонные инструкции могут оставаться
+    # полезными дольше новостного окна. Классификация выполняется ДО этого
+    # решения, поэтому старый рекламный/нерелевантный/новостной материал
+    # не получает исключение.
+    is_fresh = _age_ok(ext.get("published_at"))
+    if not is_fresh and verdict["type"] != "practical":
+        st.update(mid, status="rejected", reason="stale: %s" % ext.get("published_at"))
+        out.update(status="rejected", reason="stale")
+        return out
+    if not is_fresh:
+        out["evergreen"] = True
     if verdict["type"] != "practical":
         news_hold = verdict["type"] == "news"
         st.update(mid, status="news_hold" if news_hold else "rejected",
@@ -778,6 +785,9 @@ def run(dry_run=True, publish=False, sources=None, st=None,
                "review": 0, "news_hold": 0, "failed": 0, "skipped": 0,
                "ai_edited": 0, "ai_failed": 0, "ai_cached": 0,
                "ai_skipped": 0,
+               # Сохраняются JobContext-ом: следующая диагностика содержит
+               # не только счётчик статусов, но и причины с примерами URL.
+               "reason_counts": {}, "reason_examples": {},
                "dry_run": dry_run or not allow_publish}
     published = 0
     for name in srcs:
@@ -808,6 +818,11 @@ def run(dry_run=True, publish=False, sources=None, st=None,
             ai_key = r.get("ai")
             if ai_key in ("edited", "failed", "cached", "skipped"):
                 summary["ai_" + ai_key] += 1
+            reason = r.get("reason") or ("ready" if key == "post_ready" else "unspecified")
+            summary["reason_counts"][reason] = summary["reason_counts"].get(reason, 0) + 1
+            examples = summary["reason_examples"].setdefault(reason, [])
+            if len(examples) < 3:
+                examples.append(u)
             if key in ("post_ready", "published", "review", "news_hold"):
                 useful += 1
             if r.get("status") == "published":

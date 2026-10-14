@@ -234,12 +234,20 @@ def test_tags_are_controlled(st, monkeypatch):
     assert set(dict(hashtags_mod.TYPE_TAGS)) >= {"case", "news", "agro"}
 
 
-def test_stale_and_thin_rejected(st, tmp_path, monkeypatch):
+def test_evergreen_practical_and_thin_policy(st, tmp_path, monkeypatch):
     old = ARTICLE_HTML % (ART_TITLE, ART_TITLE, "2019-09-01T00:00:00+00:00",
                           PAR1, PAR2)
     _fake_network(monkeypatch, {ART_URL: old})
     r = agro.process_url(st, ART_URL, "botanichka", dry_run=True)
-    assert r["status"] == "rejected" and r["reason"] == "stale"
+    assert r["status"] == "post_ready" and r["evergreen"] is True, r
+    # Исключение относится только к практическому evergreen: старая новость
+    # остаётся вне публикации, даже если извлечение и изображение валидны.
+    monkeypatch.setattr(agro.classifier_agro, "classify",
+                        lambda *a, **k: {"type": "news", "confidence": 0.7,
+                                          "topics": [], "signals": {}})
+    stale_news = storage_mod.Storage(str(tmp_path / "stale-news.db"))
+    r = agro.process_url(stale_news, ART_URL, "botanichka", dry_run=True)
+    assert r["status"] == "rejected" and r["reason"] == "stale", r
     thin = ("<html><head><title>Чеснок</title></head><body><p>Коротко о "
             "чесноке.</p></body></html>")
     _fake_network(monkeypatch, {ART_URL: thin})

@@ -3,7 +3,7 @@
 import pytest
 import requests
 
-from case_pipeline import telegram
+from case_pipeline import config, telegram
 
 
 class FakeResp:
@@ -40,6 +40,17 @@ def test_dry_run_no_http(monkeypatch):
 def test_no_token_blocked(monkeypatch):
     res = telegram.send_message(None, "-100", "x")
     assert not res.ok and "token" in str(res.error).lower()
+
+
+def test_get_me_uses_requested_channel_credentials(monkeypatch):
+    calls = []
+    monkeypatch.setattr(config, "BOT_TOKEN", "ai-token")
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "agro-token")
+    monkeypatch.setattr(requests, "get", lambda url, **kw: (
+        calls.append(url), FakeResp({"ok": True, "result": {"username": "agro_bot", "id": 7}}))[1])
+    result = telegram.get_me(channel="agro")
+    assert result == {"username": "agro_bot", "id": 7}
+    assert len(calls) == 1 and "/botagro-token/getMe" in calls[0]
 
 
 def test_fit_caption_keeps_source_and_tags():

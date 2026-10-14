@@ -308,10 +308,10 @@ def send_photo(token, chat_id, photo_url=None, photo_bytes=None,
     return PublishResult(False, error=str(last))
 
 
-def get_me(dry_run=False):
+def get_me(dry_run=False, channel="ai"):
     """Проверка токена/доступности бота (для self-test). Возвращает либо
     {"username":...,"id":...}, либо {"error": "<без секретов>"}. Токен не раскрывается."""
-    token = config.BOT_TOKEN
+    token, _chat_id = credentials(channel)
     if not token:
         return None
     try:
