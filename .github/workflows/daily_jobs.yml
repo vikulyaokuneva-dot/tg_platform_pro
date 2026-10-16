@@ -58,6 +58,19 @@ jobs:
           # фолбэк (дефект msg80/81: summary ai_skipped=1 при ai_edited=0,
           # пост = только вступление без рекомендаций)
           GIGACHAT_API_KEY: ${{ secrets.GIGACHAT_API_KEY }}
+          # VK включается отдельным флагом (пустая/отсутствующая переменная
+          # безопасно означает false в config). Очередь vk_publications лежит
+          # в data/agro_channel.db и сохраняется тем же cache-шагом ниже.
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+          VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
+          VK_PUBLISH: ${{ vars.VK_PUBLISH }}
+          # Explicit read-only API verification; disabled unless the repository
+          # variable is set to "1".  It only calls groups.getById.
+          VK_SELF_CHECK: ${{ vars.VK_SELF_CHECK }}
+          VK_TELEGRAM_URL: ${{ vars.VK_TELEGRAM_URL }}
+          # Разрешать только после подтверждения прав на републикацию всех
+          # используемых source images. По умолчанию VK публикует текст.
+          VK_SOURCE_IMAGES_ALLOWED: ${{ vars.VK_SOURCE_IMAGES_ALLOWED }}
 
       # Save выполняется всегда (в т.ч. при падении runner.py): журнал
       # публикаций, записанный до падения, обязан пережить прогон — иначе

@@ -20,6 +20,14 @@ Env-переменные (документированы в README_CASE_PIPELINE
   AGRO_PUBLISH_LIMIT        максимум агро-постов за запуск (default 1)
   AGRO_MAX_PER_RUN          максимум свежих URL на агро-источник за запуск (default 3)
   AGRO_MAX_AGE_DAYS         окно свежести агро-материала по дате публикации (default 5)
+  VK_ACCESS_TOKEN           токен VK API (только из GitHub Secret/env)
+  VK_GROUP_ID               числовой id сообщества VK без знака «-»
+  VK_PUBLISH                "1" разрешает реальную публикацию в VK (default 0)
+  VK_PUBLISH_LIMIT          максимум VK-постов за календарные сутки (default 1)
+  VK_SELF_CHECK             "1" выполняет только read-only groups.getById (default 0)
+  VK_TELEGRAM_URL           необязательная ссылка-приглашение в Telegram
+  VK_SOURCE_IMAGES_ALLOWED  "1" — подтверждение прав на повторное размещение
+                            изображений источников (default 0)
   FETCH_TIMEOUT_SEC         таймаут HTTP (default 40)
 """
 import os
@@ -110,6 +118,21 @@ AGRO_PUBLISH = env("AGRO_PUBLISH", "0") == "1"
 AGRO_PUBLISH_LIMIT = int(env("AGRO_PUBLISH_LIMIT", "1"))
 AGRO_MAX_PER_RUN = int(env("AGRO_MAX_PER_RUN", "3"))
 AGRO_MAX_AGE_DAYS = int(env("AGRO_MAX_AGE_DAYS", "5"))
+
+# ---------- VK AGRO AUTOPILOT ----------
+# VK не использует Telegram credentials и включается только явным флагом.
+# Изображения с сайтов-источников потенциально защищены авторским правом,
+# поэтому без отдельного подтверждения прав публикуется только текст.
+VK_ACCESS_TOKEN = env("VK_ACCESS_TOKEN")
+VK_GROUP_ID = env("VK_GROUP_ID")
+VK_PUBLISH = env("VK_PUBLISH", "0") == "1"
+VK_PUBLISH_LIMIT = int(env("VK_PUBLISH_LIMIT", "1"))
+VK_SELF_CHECK = env("VK_SELF_CHECK", "0") == "1"
+VK_TELEGRAM_URL = env("VK_TELEGRAM_URL", "")
+VK_SOURCE_IMAGES_ALLOWED = env("VK_SOURCE_IMAGES_ALLOWED", "0") == "1"
+VK_API_VERSION = env("VK_API_VERSION", "5.199")
+VK_TIMEOUT_SEC = int(env("VK_TIMEOUT_SEC", "30"))
+VK_RETRIES = int(env("VK_RETRIES", "2"))
 
 # ---------- редакционный слой ----------
 # Источник «Новости дня»: csv список разделов (пока один; архитектура — список).

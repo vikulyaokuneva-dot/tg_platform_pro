@@ -57,6 +57,25 @@ CREATE TABLE IF NOT EXISTS publications (
     content_hash TEXT,
     status TEXT DEFAULT 'ok'
 );
+CREATE TABLE IF NOT EXISTS vk_publications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    material_id INTEGER NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    vk_text TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    image_url TEXT,
+    image_allowed INTEGER NOT NULL DEFAULT 0,
+    vk_post_id INTEGER,
+    vk_owner_id INTEGER,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    request_started_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vk_publications_status ON vk_publications(status);
+CREATE INDEX IF NOT EXISTS idx_vk_publications_published ON vk_publications(published_at);
 """
 
 # мягкая миграция старых БД: недостающие колонки publication history
@@ -151,6 +170,87 @@ class Storage:
              hashtags, content_type, m.get("company"), m.get("canonical_url"),
              m.get("content_hash")))
         self.db.commit()
+
+    # ---------- VK queue (independent from Telegram/material status) ----------
+    def enqueue_vk(self, mid, vk_text, source_url, image_url="", image_allowed=False):
+        """Adds one immutable VK payload per accepted AGRO material.
+
+        The unique material_id is the hard cross-run dedup key.  Telegram can
+        freely move materials through its own lifecycle without changing this
+        queue.
+        """
+        now = now_iso()
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO vk_publications("
+            "material_id,status,vk_text,source_url,image_url,image_allowed,"
+            "created_at,updated_at) VALUES(?, 'pending', ?, ?, ?, ?, ?, ?)",
+            (mid, vk_text, source_url or "", image_url or "", int(bool(image_allowed)),
+             now, now))
+        self.db.commit()
+        return cur.rowcount == 1
+
+    def vk_by_material(self, mid):
+        row = self.db.execute("SELECT * FROM vk_publications WHERE material_id=?", (mid,)).fetchone()
+        return dict(row) if row else None
+
+    def pending_vk(self, limit=None):
+        q = "SELECT * FROM vk_publications WHERE status='pending' ORDER BY id"
+        args = ()
+        if limit is not None:
+            q += " LIMIT ?"
+            args = (int(limit),)
+        return [dict(r) for r in self.db.execute(q, args)]
+
+    def claim_vk(self, queue_id):
+        """Atomically claims a pending item before a potentially mutating call."""
+        now = now_iso()
+        cur = self.db.execute(
+            "UPDATE vk_publications SET status='publishing', request_started_at=?, "
+            "updated_at=?, attempts=attempts+1 WHERE id=? AND status='pending'",
+            (now, now, queue_id))
+        self.db.commit()
+        return cur.rowcount == 1
+
+    def mark_vk_published(self, queue_id, post_id, owner_id):
+        self.db.execute(
+            "UPDATE vk_publications SET status='published', vk_post_id=?, vk_owner_id=?, "
+            "published_at=?, error='', updated_at=? WHERE id=? AND status='publishing'",
+            (int(post_id), int(owner_id), now_iso(), now_iso(), queue_id))
+        self.db.commit()
+
+    def fail_vk(self, queue_id, error):
+        self.db.execute(
+            "UPDATE vk_publications SET status='failed', error=?, updated_at=? "
+            "WHERE id=? AND status='publishing'",
+            ((error or "unknown")[:500], now_iso(), queue_id))
+        self.db.commit()
+
+    def reject_pending_vk(self, queue_id, error):
+        """Records a deterministic editorial rejection before any VK request."""
+        self.db.execute(
+            "UPDATE vk_publications SET status='failed', error=?, updated_at=? "
+            "WHERE id=? AND status='pending'",
+            ((error or "VK editorial rejection")[:500], now_iso(), queue_id))
+        self.db.commit()
+
+    def keep_vk_uncertain(self, queue_id, error):
+        """Keeps the claim after an ambiguous wall.post outcome.
+
+        A timeout can still have created a VK post.  Leaving the row in
+        ``publishing`` deliberately blocks automatic retry and duplicate posts
+        until a human reconciles the wall with the diagnostic error.
+        """
+        self.db.execute(
+            "UPDATE vk_publications SET error=?, updated_at=? "
+            "WHERE id=? AND status='publishing'",
+            ((error or "uncertain result")[:500], now_iso(), queue_id))
+        self.db.commit()
+
+    def vk_published_today(self):
+        row = self.db.execute(
+            "SELECT COUNT(*) c FROM vk_publications WHERE status='published' "
+            "AND substr(published_at, 1, 10)=substr(?, 1, 10)", (now_iso(),)).fetchone()
+        return int(row["c"] or 0)
 
     # ---------- publication history / hard & soft dedup ----------
     def case_published(self, case_id):

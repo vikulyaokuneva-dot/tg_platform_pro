@@ -1,0 +1,40 @@
+name: VK API self-check
+
+on:
+  workflow_dispatch:
+
+# This workflow only loads code and calls groups.getById.  It deliberately
+# has no persisted state, no pipeline invocation and no publish rights.
+permissions: {}
+
+jobs:
+  self-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Read-only VK API self-check
+        env:
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+          VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
+          VK_PUBLISH: "0"
+          VK_SELF_CHECK: "1"
+        shell: bash
+        run: |
+          python - <<'PY'
+          from case_pipeline import vk_autopilot
+
+          result = vk_autopilot.self_check()
+          if result["ok"]:
+              print("VK self-check: OK")
+          else:
+              print("VK self-check: FAILED (kind=%s, code=%s)" % (
+                  result["error_kind"], result["error_code"]))
+              raise SystemExit(1)
+          PY
