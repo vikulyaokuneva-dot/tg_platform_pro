@@ -1,0 +1,94 @@
+name: VK control post
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "preview never posts; publish requires the confirmation phrase"
+        required: true
+        default: preview
+        type: choice
+        options: [preview, publish]
+      confirm:
+        description: "For publish enter PUBLISH_ONE_VK_POST exactly"
+        required: false
+        default: ""
+        type: string
+
+# The durable claim is committed before wall.post, so an uncertain request is
+# blocked on all later runs even if the final outcome commit cannot be pushed.
+permissions:
+  contents: write
+
+concurrency:
+  group: vk-control-post
+  cancel-in-progress: false
+
+jobs:
+  control-post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Candidate text is read-only from the same persisted AGRO snapshot. If
+      # it is unavailable, preview and publish both fail closed.
+      - name: Restore AGRO material snapshot
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}
+          restore-keys: case-db-
+
+      - run: pip install -r requirements.txt
+
+      - name: Preview one verified AGRO material
+        env:
+          VK_PUBLISH: "0"
+        run: >-
+          python -m case_pipeline.vk_test_publish preview
+          --db data/agro_channel.db
+          --state vk_control/test_publish_state.json
+          --material-id 29
+
+      - name: Require explicit publication confirmation
+        if: inputs.mode == 'publish'
+        run: |
+          test "${{ inputs.confirm }}" = "PUBLISH_ONE_VK_POST"
+
+      - name: Persist pre-publication duplicate claim
+        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_VK_POST'
+        run: |
+          python -m case_pipeline.vk_test_publish claim --db data/agro_channel.db --state vk_control/test_publish_state.json --material-id 29
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk_control/test_publish_state.json
+          git commit -m "Claim VK control post material 29"
+          git push origin HEAD:main
+
+      - name: Publish one text-only VK control post
+        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_VK_POST'
+        env:
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+          VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
+          VK_PUBLISH: "0"
+        run: >-
+          python -m case_pipeline.vk_test_publish publish
+          --db data/agro_channel.db
+          --state vk_control/test_publish_state.json
+          --material-id 29
+
+      - name: Persist final VK control-post result
+        if: always() && inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_VK_POST'
+        run: |
+          if git diff --quiet -- vk_control/test_publish_state.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk_control/test_publish_state.json
+          git commit -m "Record VK control post result for material 29"
+          git push origin HEAD:main
