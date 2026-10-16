@@ -252,13 +252,13 @@ def test_publish_short_post_single_photo_with_full_caption(st, monkeypatch):
                          dry_run=False, provider=prov)
     assert r["status"] == "published" and r["telegram_message_id"] == 901, r
     assert events == ["photo"]                          # ровно одно сообщение
-    assert seen["photo"] and seen["cap_mode"] == "MarkdownV2"
+    assert seen["photo"] and seen["cap_mode"] == "HTML"
 
-    cap = postformat.unescape_markdownv2(seen["caption"])
+    cap = postformat.unescape_telegram_html(seen["caption"])
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
-    # заголовок жирным (MarkdownV2 — одинарные *), маркеры ** не публикуются
-    assert "*%s*" % _esc(AI_POST.split("\n\n")[0]) in seen["caption"]
+    # заголовок жирным в HTML, служебные Markdown-маркеры не публикуются
+    assert "<b>%s</b>" % AI_POST.split("\n\n")[0] in seen["caption"]
     assert "**" not in seen["caption"]
     assert cap_blocks[0] == AI_POST.split("\n\n")[0]   # текст заголовка цел
     assert any(b.startswith("Источник: " + ART_URL) for b in cap_blocks)
@@ -506,14 +506,14 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
                          dry_run=False, provider=prov)
     assert r["status"] == "published" and r["ai"] == "edited", r
 
-    cap = postformat.unescape_markdownv2(seen["caption"])
-    full = postformat.unescape_markdownv2(seen["full"])
+    cap = postformat.unescape_telegram_html(seen["caption"])
+    full = postformat.unescape_telegram_html(seen["full"])
     # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые абзацы тела
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     assert cap_blocks[0] == YAB_TITLE                  # текст заголовка цел
-    # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
-    assert "*%s*" % _esc(YAB_TITLE) in seen["caption"]
-    assert "*🌿 Вывод:*" in seen["full"]
+    # заголовок и «Вывод» жирными, содержание вывода курсивом в HTML
+    assert "<b>%s</b>" % YAB_TITLE in seen["caption"]
+    assert "<b>🌿 Вывод:</b> <i>" in seen["full"]
     assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "держит листья" in cap_blocks[1]             # вступление в подписи
     assert "Обрывать листья вручную не нужно" in cap   # советы уже в подписи
@@ -529,7 +529,7 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert full.startswith("Продолжение\n\n")  # читателю ясно: та же публикация
     assert YAB_TITLE not in full                       # заголовок не дублируется
     assert "Сад без хлопот" not in full                # и название канала
-    assert "Весной проверьте" in full                  # последний совет — в продолжении
+    assert ("Весной проверьте" in cap) != ("Весной проверьте" in full)
     assert "Вывод:" in full and "после листопада" in full
     assert YAB_POST.split("\n\n")[1] not in full       # вступление не дублируется
     assert "Обрывать листья вручную не нужно" not in full  # и тело из подписи
@@ -545,8 +545,8 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert "…" not in full and "…" not in cap
     assert len(seen["full"]) <= 4090
     # пост длиннее лимита подписи — поэтому именно два сообщения
-    assert len(postformat.to_markdownv2(
-        postformat.format_post(YAB_POST))) > telegram.CAPTION_LIMIT
+    assert len(postformat.to_telegram_html(postformat.format_post(
+        YAB_POST, keep_headline_emoji=True, agro_style=True))) > telegram.CAPTION_LIMIT
 
 
 def test_completeness_gate_checks_article_sections():
@@ -754,11 +754,11 @@ def test_regression_msg83_bullet_format_publish_and_no_duplicate_rerun(
                           dry_run=False, provider=prov)
     assert r1["status"] == "published" and r1["ai"] == "edited", r1
 
-    cap = postformat.unescape_markdownv2(seen["caption"])
+    cap = postformat.unescape_telegram_html(seen["caption"])
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
     cb = [b for b in cap.split("\n\n") if b.strip()]
     assert cb[0] == AIF_TITLE                           # заголовок без «•»
-    assert "*%s*" % _esc(AIF_TITLE) in seen["caption"]  # и жирным в MarkdownV2
+    assert "<b>%s</b>" % AIF_TITLE in seen["caption"]  # и жирным в HTML
     assert "**" not in seen["caption"]                  # маркеры не публикуются
     assert sum(1 for b in cb if b.startswith("• ")) == 3, cb  # советы по абзацам
     assert "Ключевые рекомендации:\n• " not in cap      # склейки нет
@@ -864,14 +864,14 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     assert r["status"] == "published" and r["ai"] == "edited", r
     assert sent == ["photo", "text"]                   # фото раньше продолжения
 
-    cap = postformat.unescape_markdownv2(seen["caption"])
-    full = postformat.unescape_markdownv2(seen["full"])
+    cap = postformat.unescape_telegram_html(seen["caption"])
+    full = postformat.unescape_telegram_html(seen["full"])
     cap_blocks = [b for b in cap.split("\n\n") if b.strip()]
     # подпись МАКСИМАЛЬНО полная: заголовок + вступление + целые советы
     assert cap_blocks[0] == POB_TITLE                  # текст заголовка цел
-    # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
-    assert "*%s*" % _esc(POB_TITLE) in seen["caption"]
-    assert "*🌿 Вывод:*" in seen["full"]
+    # заголовок и «Вывод» жирными, содержание вывода курсивом в HTML
+    assert "<b>%s</b>" % POB_TITLE in seen["caption"]
+    assert "<b>🌿 Вывод:</b> <i>" in seen["full"]
     assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "После дождей побелка" in cap_blocks[1]      # вступление в подписи
     assert "Оцените состояние коры" in cap              # советы уже в подписи
@@ -1127,7 +1127,7 @@ def test_style_post_accents_and_italic_reach_telegram(st, monkeypatch):
 
 
 def test_publish_style_post_single_photo_accurate(st, monkeypatch):
-    """Публикация стилевого поста одним сообщением: подпись MarkdownV2 с
+    """Публикация стилевого поста одним сообщением: подпись HTML с
     жирным эмодзи-заголовком, акцентом и курсивом; без **/__; источник и
     теги целы; второе сообщение не отправляется."""
     _fake_network(monkeypatch, {ART_URL: _art_html()})
@@ -1148,19 +1148,19 @@ def test_publish_style_post_single_photo_accurate(st, monkeypatch):
     r = agro.process_url(st, ART_URL, "botanichka", publish=True,
                          dry_run=False, provider=prov)
     assert r["status"] == "published" and r["telegram_message_id"] == 555, r
-    md = seen["caption"]
-    assert seen["cap_mode"] == "MarkdownV2"
-    assert len(md) <= telegram.CAPTION_LIMIT
+    html = seen["caption"]
+    assert seen["cap_mode"] == "HTML"
+    assert len(html) <= telegram.CAPTION_LIMIT
     # заголовок жирным, ведущий эмодзи — часть заголовка (agro-стиль)
-    assert "*\U0001F33F Озимый чеснок: главные ошибки посадки*" in md
-    assert "*когда сажать чеснок*" in md
-    assert "_на песчаной почве_" in md
-    assert "**" not in md and "__" not in md       # служебных маркеров нет
-    plain = postformat.unescape_markdownv2(md)
+    assert "<b>\U0001F33F Озимый чеснок: главные ошибки посадки</b>" in html
+    assert "<b>когда сажать чеснок</b>" in html
+    assert "<i>на песчаной почве</i>" in html
+    assert "**" not in html and "__" not in html     # служебных маркеров нет
+    plain = postformat.unescape_telegram_html(html)
     assert plain.split("\n\n")[0] == "\U0001F33F Озимый чеснок: главные " \
                                       "ошибки посадки"
     assert "Источник: " + ART_URL in plain
-    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" not in md        # метаданные не публикуются
+    assert "ПОСЛЕДНИЕ ПУБЛИКАЦИИ" not in html      # метаданные не публикуются
 
 
 def test_style_history_rotation_prompt_and_no_metadata_in_post(st, monkeypatch):

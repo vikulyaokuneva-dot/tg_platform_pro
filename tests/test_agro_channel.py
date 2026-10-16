@@ -499,17 +499,15 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
     r = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
     assert r["status"] == "published" and r["telegram_message_id"] == 707, r
     assert fetched["url"] == "https://cdn.example.test/agro/chesnok.jpg"
-    assert seen["photo"] and seen["parse_mode"] == "MarkdownV2"
+    assert seen["photo"] and seen["parse_mode"] == "HTML"
     assert (seen["token"], seen["chat"]) == ("t", "-100AGRO")
     assert len(seen["caption"]) <= telegram.CAPTION_LIMIT
-    plain = telegram.postformat.unescape_markdownv2(seen["caption"])
+    plain = telegram.postformat.unescape_telegram_html(seen["caption"])
     # полный текст в подписи: заголовок (с ведущим эмодзи — agro-стиль),
     # оба абзаца тела, источник, теги
     assert plain.split("\n\n")[0] == "\U0001F9EA " + ART_TITLE  # эмодзи сохранён
-    # заголовок жирным (MarkdownV2 — одинарные *), маркеры ** не публикуются
-    esc_title = "".join("\\" + c if c in telegram.postformat.MDV2_SPECIALS
-                        else c for c in "\U0001F9EA " + ART_TITLE)
-    assert "*%s*" % esc_title in seen["caption"]
+    # заголовок жирным в HTML, служебные Markdown-маркеры не публикуются
+    assert "<b>%s</b>" % ("\U0001F9EA " + ART_TITLE) in seen["caption"]
     assert "**" not in seen["caption"]
     assert "35-45" in plain and "10-12 см" in plain
     assert "Источник: " + ART_URL in plain

@@ -153,43 +153,51 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     Без image — прежний текстовый путь."""
     token, target_chat = credentials(channel)
     # agro-канал: ведущий эмодзи заголовка — часть стиля и НЕ удаляется
+    is_agro = channel == "agro"
     formatted = postformat.format_post(text,
-                                       keep_headline_emoji=(channel == "agro"),
-                                       agro_style=(channel == "agro"))
+                                       keep_headline_emoji=is_agro,
+                                       agro_style=is_agro)
+    # AGRO has a single HTML payload path: it can safely wrap a multi-line
+    # conclusion in <i>...</i>, while the AI lane keeps its existing
+    # MarkdownV2 contract unchanged.
+    render = postformat.to_telegram_html if is_agro else postformat.to_markdownv2
+    parse_mode = "HTML" if is_agro else "MarkdownV2"
+    to_plain = (postformat.unescape_telegram_html if is_agro
+                else postformat.unescape_markdownv2)
+    rendered = render(formatted)
     if dry_run:
         return send_message(token, chat_id or target_chat,
-                            formatted, dry_run=True)
+                            rendered, dry_run=True, parse_mode=parse_mode)
     if not token or not (chat_id or target_chat):
         # честный стоп: без секретов канала НЕ уходим в чужой токен/чат
         return PublishResult(False, error="no credentials for channel %s" % channel)
-    md = postformat.to_markdownv2(formatted)
     if image:
         target = chat_id or target_chat
         # 0) весь пост помещается в подпись (≤CAPTION_LIMIT) -> ЕДИНАЯ
         # публикация: фото с полным текстом, второго сообщения нет (не
         # создаём «второй пост» из одного и того же материала)
-        if len(md) <= CAPTION_LIMIT:
+        if len(rendered) <= CAPTION_LIMIT:
             res = send_photo(token, target, photo_bytes=image,
-                             caption=md, parse_mode="MarkdownV2")
+                             caption=rendered, parse_mode=parse_mode)
             if not res.ok:
                 err = str(res.error or "").lower()
                 if "400" in err and "parse" in err:
-                    log.warning("caption markdown rejected (400 parse) — "
+                    log.warning("caption markup rejected (400 parse) — "
                                 "повтор без parse_mode")
                     res = send_photo(token, target, photo_bytes=image,
-                                     caption=postformat.unescape_markdownv2(md))
+                                     caption=to_plain(rendered))
                 if not res.ok:
                     log.error("telegram photo publish failed: %s", res.error)
                     return res
             log.info("photo published with full caption #%s (%d chars)",
-                     res.message_id, len(md))
+                     res.message_id, len(rendered))
             return res
         # 1) не помещается в подпись: подпись заполняется целыми абзацами
         # тела (разрез только по границам смысловых блоков) + сообщение-
         # продолжение с остатком — без повторного заголовка и без дублей
         cap_plain, msg_plain = postformat.split_for_photo(
             formatted, caption_limit=CAPTION_LIMIT,
-            message_limit=MESSAGE_SAFE_LIMIT)
+            message_limit=MESSAGE_SAFE_LIMIT, render=render)
         if cap_plain is None:
             # корректное деление без потерь невозможно: в подпись не
             # помещается ни один абзац тела, либо продолжение с пометкой,
@@ -201,34 +209,36 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
                       "or continuation exceeds message limit")
             return PublishResult(False,
                                  error="post cannot be split without loss")
-        caption = fit_caption(postformat.to_markdownv2(cap_plain), CAPTION_LIMIT)
+        caption = render(cap_plain)
+        if not is_agro:
+            caption = fit_caption(caption, CAPTION_LIMIT)
         res = send_photo(token, target, photo_bytes=image,
-                         caption=caption, parse_mode="MarkdownV2")
+                         caption=caption, parse_mode=parse_mode)
         if not res.ok:
             err = str(res.error or "").lower()
             if "400" in err and "parse" in err:
-                log.warning("caption markdown rejected (400 parse) — повтор без parse_mode")
+                log.warning("caption markup rejected (400 parse) — повтор без parse_mode")
                 res = send_photo(token, target, photo_bytes=image,
-                                 caption=postformat.unescape_markdownv2(caption))
+                                 caption=to_plain(caption))
             if not res.ok:
                 log.error("telegram photo publish failed: %s", res.error)
                 return res
         # 2) полный текст отдельным сообщением (фото — над текстом в ленте)
-        full_md = postformat.to_markdownv2(msg_plain)
-        if len(full_md) > MESSAGE_SAFE_LIMIT:
+        full_md = render(msg_plain)
+        if len(full_md) > MESSAGE_SAFE_LIMIT and not is_agro:
             # страховка: split_for_photo уже проверил продолжение по
             # MESSAGE_SAFE_LIMIT ДО отправки фото, а контракт ИИ-редактуры
             # держит пост ≤3400 симв. — путь не должен срабатывать
             log.warning("full text %d chars > %d после экранирования — clamping",
                         len(full_md), MESSAGE_SAFE_LIMIT)
             full_md = fit_caption(full_md, MESSAGE_SAFE_LIMIT)
-        res2 = send_message(token, target, full_md, parse_mode="MarkdownV2")
+        res2 = send_message(token, target, full_md, parse_mode=parse_mode)
         if not res2.ok:
             err = str(res2.error or "").lower()
             if "400" in err and "parse" in err:
-                log.warning("markdownv2 rejected (400 parse) — повтор plain text")
+                log.warning("markup rejected (400 parse) — повтор plain text")
                 res2 = send_message(token, target,
-                                    postformat.unescape_markdownv2(full_md))
+                                    to_plain(full_md))
         if not res2.ok:
             # фото ушло, текст нет -> честный отказ (-> review без
             # авто-повтора, чтобы фото не задублировалось)
@@ -241,20 +251,20 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
                  res.message_id, res2.message_id)
         return PublishResult(True, message_id=res.message_id,
                              http_status=res.http_status)
-    if len(md) <= 4090:
-        res = send_message(token, chat_id or target_chat, md,
-                           parse_mode="MarkdownV2")
+    if len(rendered) <= 4090:
+        res = send_message(token, chat_id or target_chat, rendered,
+                           parse_mode=parse_mode)
         if res.ok:
             return res
         err = str(res.error or "").lower()
         if "400" not in err or "parse" not in err:
             log.error("telegram publish failed: %s", res.error)
             return res
-        log.warning("markdownv2 rejected (400 parse) — повтор plain text")
+        log.warning("markup rejected (400 parse) — повтор plain text")
     # plain-fallback: чистый текст без markdown-символов (** и _ не попадают
     # в опубликованное сообщение, даже если API отверг разметку)
     res = send_message(token, chat_id or target_chat,
-                       postformat.unescape_markdownv2(md))
+                       to_plain(rendered))
     if not res.ok:
         log.error("telegram publish failed: %s", res.error)
     return res

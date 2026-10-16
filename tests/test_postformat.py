@@ -172,11 +172,11 @@ def test_agro_vyvod_is_bold_label_with_italic_multiline_content():
             "Источник: https://example.com/a-b\n#Практика")
     f = pf.format_post(post, keep_headline_emoji=True, agro_style=True)
     assert "Обычный абзац остаётся без визуальных изменений." in f
-    assert ("**🌿 Вывод:** _Проверьте pH 5.5 (без спешки)!_\n"
-            "_Не вносите удобрение в сухую почву._") in f
-    md = pf.to_markdownv2(f)
-    assert r"*🌿 Вывод:* _Проверьте pH 5\.5 \(без спешки\)\!_" in md
-    assert r"_Не вносите удобрение в сухую почву\._" in md
+    assert ("**🌿 Вывод:** _Проверьте pH 5.5 (без спешки)!\n"
+            "Не вносите удобрение в сухую почву._") in f
+    payload = pf.to_telegram_html(f)
+    assert ("<b>🌿 Вывод:</b> <i>Проверьте pH 5.5 (без спешки)!\n"
+            "Не вносите удобрение в сухую почву.</i>") in payload
     assert pf.format_post(f, keep_headline_emoji=True, agro_style=True) == f
 
 
@@ -228,8 +228,26 @@ def test_telegram_enables_visual_style_for_agro_only(monkeypatch):
     assert telegram.publish_post(post).ok
     assert telegram.publish_post(post, channel="agro").ok
     assert "🌱" not in calls[0]["text"] and "🌿 Вывод" not in calls[0]["text"]
-    assert "*🌱 Посадка луковиц*" in calls[1]["text"]
-    assert r"*🌿 Вывод:* _Действуйте по погоде\." in calls[1]["text"]
+    assert calls[1]["parse_mode"] == "HTML"
+    assert "<b>🌱 Посадка луковиц</b>" in calls[1]["text"]
+    assert "<b>🌿 Вывод:</b> <i>Действуйте по погоде.</i>" in calls[1]["text"]
+
+
+def test_agro_html_payload_escapes_conclusion_and_keeps_other_text(monkeypatch):
+    post = ("Проверка грунта\n\nОбычный абзац <без> разметки & изменений.\n\n"
+            "Вывод: Проверьте <pH> & влажность.")
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "agro-token")
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO")
+    calls = _capturing_post(monkeypatch, [OK])
+
+    assert telegram.publish_post(post, channel="agro").ok
+
+    payload = calls[0]
+    assert payload["parse_mode"] == "HTML"
+    assert "<b>🌿 Вывод:</b> <i>Проверьте &lt;pH&gt; &amp; влажность.</i>" in payload["text"]
+    assert "Обычный абзац &lt;без&gt; разметки &amp; изменений." in payload["text"]
+    assert pf.unescape_telegram_html(payload["text"]).endswith(
+        "Вывод: Проверьте <pH> & влажность.")
 
 
 def test_agro_style_survives_photo_split_with_valid_markdown():

@@ -7,8 +7,10 @@
 затем to_markdownv2() даёт валидный MarkdownV2: жирное — ОДИНАРНЫМИ
 звёздочками *текст* (в MarkdownV2 **текст** не рендерится жирным), курсив —
 _текст_, спецсимволы экранированы, неразрешённые одиночные ** и _ выводятся
-буквально. Никакого HTML. Строку «Источник:» и хэштеги не трогаем.
+буквально. Для AGRO to_telegram_html() сериализует те же маркеры в безопасный
+Telegram HTML. Строку «Источник:» и хэштеги не трогаем.
 """
+import html
 import re
 
 # спецсимволы MarkdownV2 (Telegram Bot API)
@@ -98,7 +100,7 @@ def _paragraphs(text):
 CONTINUATION_HEADER = "Продолжение"
 
 
-def split_for_photo(text, caption_limit=None, message_limit=None):
+def split_for_photo(text, caption_limit=None, message_limit=None, render=None):
     """Разложение поста на (подпись к фото, сообщение-ПРОДОЛЖЕНИЕ).
 
     Публикация вызывает её ТОЛЬКО если весь пост не поместился в лимит
@@ -130,6 +132,10 @@ def split_for_photo(text, caption_limit=None, message_limit=None):
 
     Вырожденный случай (caption_limit не задан): пост целиком и в подписи,
     и в сообщении — дубль фиксируется логом publish_post."""
+    # `render` is the final Telegram serializer.  MarkdownV2 remains the
+    # default for the AI lane; AGRO passes its HTML serializer so the limits
+    # are checked against the exact payload sent to Telegram.
+    render = render or to_markdownv2
     body, src, tags = _extract_tail(text or "")
     blocks = [b.strip() for b in body.split("\n\n") if b.strip()]
     if not caption_limit:            # лимит не задан — делить нечего
@@ -144,7 +150,7 @@ def split_for_photo(text, caption_limit=None, message_limit=None):
         return "\n\n".join(x for x in [head] + parts if x)
 
     def fits(parts):
-        return len(to_markdownv2(cap_of(parts))) <= caption_limit
+        return len(render(cap_of(parts))) <= caption_limit
 
     chosen, pending = [], list(rest)
     # наполняем подпись целыми абзацами; первый не влезший блок и все
@@ -159,7 +165,7 @@ def split_for_photo(text, caption_limit=None, message_limit=None):
     msg = "\n\n".join(
         x for x in [CONTINUATION_HEADER] + pending
         + [y for y in (src, tags) if y] if x)
-    if message_limit and len(to_markdownv2(msg)) > message_limit:
+    if message_limit and len(render(msg)) > message_limit:
         return None, None           # продолжение не влезает — не режем
     return cap.strip(), msg.strip()
 
@@ -235,18 +241,16 @@ def _bold_vyvod(block):
 def _agro_vyvod(block):
     """Возвращает оформленный вывод или None, если блок не является выводом.
 
-    Каждая непустая строка содержания получает курсив отдельно: MarkdownV2
-    остаётся валидным и при многострочном выводе, а переносы не теряются.
+    Содержимое остаётся единым курсивным фрагментом: HTML-сериализатор AGRO
+    безопасно сохраняет переносы внутри тега <i>...</i>.
     """
     m = _AGRO_VYVOD_RX.match(block)
     if not m:
         return None
     content = m.group(2).strip()
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    if not lines:
+    if not content:
         return None
-    italic = "\n".join(line if line.startswith("_") and line.endswith("_")
-                       else "_%s_" % line for line in lines)
+    italic = content if content.startswith("_") and content.endswith("_") else "_%s_" % content
     return "**🌿 %s:** %s" % (m.group(1), italic)
 
 
@@ -346,6 +350,8 @@ def _esc_md(s):
 # непарные _ (URL «a_b», «файл_имя») разметкой НЕ считаются — литерал
 _ITALIC_RX = re.compile(
     r"(?<![\w\\])_([^_\n\s](?:[^_\n]{0,78}[^_\n\s])?)_(?![\w])")
+_HTML_ITALIC_RX = re.compile(
+    r"(?<![\w\\])_([^_](?:[^_]*[^_])?)_(?![\w])", re.DOTALL)
 
 
 def _md_plain(s):
@@ -382,6 +388,44 @@ def to_markdownv2(text):
     return "".join(segs)
 
 
+def _html_plain(s):
+    """Escapes a normal segment and renders explicit _italic_ markers.
+
+    The AGRO formatter owns these markers.  Everything else, including raw
+    HTML received from a source or model, is escaped before it reaches
+    Telegram.
+    """
+    out = []
+    pos = 0
+    for m in _HTML_ITALIC_RX.finditer(s):
+        out.append(html.escape(s[pos:m.start()]))
+        out.append("<i>%s</i>" % html.escape(m.group(1)))
+        pos = m.end()
+    out.append(html.escape(s[pos:]))
+    return "".join(out)
+
+
+def to_telegram_html(text):
+    """Serializes formatter markers to Telegram HTML with full escaping.
+
+    Only paired ``**bold**`` and ``_italic_`` markers emitted by this module
+    become tags.  Text from sources is escaped, so ``<``, ``>`` and ``&``
+    cannot break Telegram markup or inject an entity.
+    """
+    parts = text.split("**")
+    segs = []
+    n = len(parts)
+    for i, part in enumerate(parts):
+        bold = (i % 2 == 1) and (n % 2 == 1 or i <= n - 3)
+        if i % 2 == 1 and not bold:
+            part = "**" + part
+        if bold:
+            segs.append("<b>%s</b>" % html.escape(part))
+        else:
+            segs.append(_html_plain(part))
+    return "".join(segs)
+
+
 def unescape_markdownv2(text):
     """Снимает маркеры жирного (*текст*) и курсива (_текст_) и экранирование
     спецсимволов MarkdownV2 (тесты + plain-fallback подписи/сообщения, когда
@@ -390,3 +434,8 @@ def unescape_markdownv2(text):
     и снимаются как литералы уже вторым шагом."""
     text = re.sub(r"(?<!\\)[*_]", "", text)
     return re.sub(r"\\([_*\[\]()~`>#+\-=|{}.!\\])", r"\1", text)
+
+
+def unescape_telegram_html(text):
+    """Converts this module's safe Telegram HTML payload to plain text."""
+    return html.unescape(re.sub(r"</?(?:b|i)>", "", text, flags=re.IGNORECASE))
