@@ -1,0 +1,80 @@
+name: VK daily autopilot
+
+on:
+  schedule:
+    # Safe by default: without repository variable VK_PUBLISH=1 this only
+    # emits a dry diagnostic and never calls VK's mutating endpoints.
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "preview never posts; publish requires the confirmation phrase"
+        required: true
+        default: preview
+        type: choice
+        options: [preview, publish]
+      confirm:
+        description: "For publish enter PUBLISH_ONE_DAILY_VK_POST exactly"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vk-daily-autopilot
+  cancel-in-progress: false
+
+jobs:
+  daily-vk:
+    runs-on: ubuntu-latest
+    env:
+      VK_PUBLISH: ${{ vars.VK_PUBLISH }}
+      VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      # The committed queue is authoritative.  There is intentionally no
+      # actions/cache restore here: an AGRO cache miss cannot hide or erase a
+      # prepared VK post, and cannot change any AGRO/Telegram state.
+      - name: Preview durable image-required VK queue
+        run: python -m case_pipeline.vk_daily_autopilot preview --state vk_daily/queue.json --root .
+
+      - name: Require explicit production confirmation
+        if: inputs.mode == 'publish'
+        run: test "${{ inputs.confirm }}" = "PUBLISH_ONE_DAILY_VK_POST"
+
+      - name: Persist pre-publication claim
+        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        run: |
+          python -m case_pipeline.vk_daily_autopilot claim --state vk_daily/queue.json --root .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk_daily/queue.json
+          git commit -m "Claim daily VK post"
+          git push origin HEAD:main
+
+      - name: Publish one claimed VK post with approved image
+        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        env:
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+        run: python -m case_pipeline.vk_daily_autopilot publish --state vk_daily/queue.json --root .
+
+      - name: Persist final VK daily result
+        if: always() && inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        run: |
+          if git diff --quiet -- vk_daily/queue.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk_daily/queue.json
+          git commit -m "Record daily VK publication result"
+          git push origin HEAD:main
