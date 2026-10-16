@@ -50,24 +50,54 @@ def _write_state(path, state):
     os.replace(temp, path)
 
 
-def load_candidate(db_path, material_id):
-    """Read and render exactly one verified AGRO material, without DB writes."""
-    if not os.path.isfile(db_path):
-        raise TestPublishError("AGRO database is unavailable")
+def inspect_agro_db(db_path, material_id):
+    """Return a log-safe SQLite availability diagnostic, never material content."""
+    info = {"database_exists": os.path.isfile(db_path), "database_size": None,
+            "database_readable": False, "materials_count": None,
+            "material_found": False, "material_status": None,
+            "post_text_present": False, "source_url_present": False,
+            "stored_vk_text_present": False, "read_error": None}
+    if not info["database_exists"]:
+        return info
+    info["database_size"] = os.path.getsize(db_path)
+    db = None
     try:
         db = sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db_path).replace("\\", "/"), uri=True)
         db.row_factory = sqlite3.Row
+        info["database_readable"] = True
+        info["materials_count"] = int(db.execute("SELECT COUNT(*) FROM materials").fetchone()[0])
+        row = db.execute(
+            "SELECT id, status, url, post_text FROM materials WHERE id=?", (int(material_id),)).fetchone()
+        if row:
+            info.update({"material_found": True, "material_status": row["status"],
+                         "post_text_present": bool((row["post_text"] or "").strip()),
+                         "source_url_present": bool((row["url"] or "").startswith(("https://", "http://")))})
+            try:
+                vk = db.execute("SELECT vk_text FROM vk_publications WHERE material_id=?", (int(material_id),)).fetchone()
+                info["stored_vk_text_present"] = bool(vk and (vk["vk_text"] or "").strip())
+            except sqlite3.Error:
+                # Old snapshots may legitimately not have a VK queue table.
+                info["stored_vk_text_present"] = False
+    except sqlite3.Error as exc:
+        info["read_error"] = type(exc).__name__
+    finally:
+        if db is not None:
+            db.close()
+    return info
+
+
+def _candidate_from_sqlite(db_path, material_id, diagnostic):
+    if not diagnostic["database_exists"] or not diagnostic["database_readable"]:
+        raise TestPublishError("AGRO database is unavailable")
+    db = sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db_path).replace("\\", "/"), uri=True)
+    db.row_factory = sqlite3.Row
+    try:
         row = db.execute(
             "SELECT id, status, url, post_text FROM materials "
             "WHERE id=? AND status IN ('post_ready', 'published')", (int(material_id),)).fetchone()
-    except sqlite3.Error as exc:
-        raise TestPublishError("AGRO database cannot be read: %s" % type(exc).__name__)
     finally:
-        try:
-            db.close()
-        except UnboundLocalError:
-            pass
-    if not row or not (row["post_text"] or "").strip() or not (row["url"] or "").startswith(("https://", "http://")):
+        db.close()
+    if not row or not diagnostic["post_text_present"] or not diagnostic["source_url_present"]:
         raise TestPublishError("verified material text or source URL is unavailable")
     text = vk_autopilot.build_vk_post(row["post_text"], provider=ai.NullProvider())
     problem = vk_autopilot.vk_post_contract_error(text)
@@ -78,21 +108,55 @@ def load_candidate(db_path, material_id):
         raise TestPublishError("rendered VK text has no verified source link")
     fingerprint = hashlib.sha256((str(row["id"]) + "\n" + source_url + "\n" + text).encode("utf-8")).hexdigest()
     return {"material_id": int(row["id"]), "source_url": source_url,
-            "text": text, "fingerprint": fingerprint}
+            "text": text, "fingerprint": fingerprint, "input_source": "sqlite"}
 
 
-def preview(db_path, state_path, material_id):
-    candidate = load_candidate(db_path, material_id)
+def _candidate_from_snapshot(snapshot_path, material_id):
+    if not snapshot_path or not os.path.isfile(snapshot_path):
+        raise TestPublishError("verified material snapshot is unavailable")
+    try:
+        with open(snapshot_path, "r", encoding="utf-8") as fh:
+            snapshot = json.load(fh)
+        item = snapshot["material"]
+        candidate = {"material_id": int(item["material_id"]), "source_url": item["source_url"],
+                     "text": item["vk_text"], "fingerprint": item["fingerprint"],
+                     "input_source": "snapshot"}
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+        raise TestPublishError("verified material snapshot is invalid")
+    if candidate["material_id"] != int(material_id) or not candidate["source_url"].startswith(("https://", "http://")):
+        raise TestPublishError("verified material snapshot does not match requested material")
+    expected = hashlib.sha256((str(candidate["material_id"]) + "\n" + candidate["source_url"] + "\n" +
+                               candidate["text"]).encode("utf-8")).hexdigest()
+    if candidate["fingerprint"] != expected or vk_autopilot.vk_post_contract_error(candidate["text"]):
+        raise TestPublishError("verified material snapshot failed integrity checks")
+    if ("Источник: " + candidate["source_url"]) not in candidate["text"]:
+        raise TestPublishError("verified material snapshot has no source link")
+    return candidate
+
+
+def load_candidate(db_path, material_id, snapshot_path=None, diagnostic=None):
+    """Prefer the AGRO DB; use a committed, integrity-checked fallback snapshot."""
+    diagnostic = diagnostic or inspect_agro_db(db_path, material_id)
+    try:
+        return _candidate_from_sqlite(db_path, material_id, diagnostic)
+    except TestPublishError:
+        return _candidate_from_snapshot(snapshot_path, material_id)
+
+
+def preview(db_path, state_path, material_id, snapshot_path=None):
+    diagnostic = inspect_agro_db(db_path, material_id)
+    print("VK test input diagnostic: %s" % json.dumps(diagnostic, sort_keys=True, ensure_ascii=True))
+    candidate = load_candidate(db_path, material_id, snapshot_path=snapshot_path, diagnostic=diagnostic)
     state = _load_state(state_path)
     record = state["materials"].get(str(candidate["material_id"]))
-    print("VK test preview: material_id=%s source_available=true state=%s" %
-          (candidate["material_id"], (record or {}).get("status", "new")))
+    print("VK test preview: material_id=%s source_available=true input=%s state=%s" %
+          (candidate["material_id"], candidate["input_source"], (record or {}).get("status", "new")))
     print(candidate["text"])
     return candidate
 
 
-def claim(db_path, state_path, material_id):
-    candidate = load_candidate(db_path, material_id)
+def claim(db_path, state_path, material_id, snapshot_path=None):
+    candidate = load_candidate(db_path, material_id, snapshot_path=snapshot_path)
     state = _load_state(state_path)
     key = str(candidate["material_id"])
     if state["materials"].get(key):
@@ -104,8 +168,8 @@ def claim(db_path, state_path, material_id):
     return candidate
 
 
-def publish_claimed(db_path, state_path, material_id, publisher=None):
-    candidate = load_candidate(db_path, material_id)
+def publish_claimed(db_path, state_path, material_id, snapshot_path=None, publisher=None):
+    candidate = load_candidate(db_path, material_id, snapshot_path=snapshot_path)
     state = _load_state(state_path)
     record = state["materials"].get(str(candidate["material_id"]))
     if not record or record.get("status") != "publishing" or record.get("fingerprint") != candidate["fingerprint"]:
@@ -138,15 +202,16 @@ def main(argv=None):
     parser.add_argument("action", choices=("preview", "claim", "publish"))
     parser.add_argument("--db", required=True)
     parser.add_argument("--state", required=True)
+    parser.add_argument("--snapshot", required=True)
     parser.add_argument("--material-id", type=int, required=True)
     args = parser.parse_args(argv)
     try:
         if args.action == "preview":
-            preview(args.db, args.state, args.material_id)
+            preview(args.db, args.state, args.material_id, args.snapshot)
         elif args.action == "claim":
-            claim(args.db, args.state, args.material_id)
+            claim(args.db, args.state, args.material_id, args.snapshot)
         else:
-            publish_claimed(args.db, args.state, args.material_id)
+            publish_claimed(args.db, args.state, args.material_id, args.snapshot)
     except (TestPublishBlocked, TestPublishError) as exc:
         print("VK test publish blocked: %s" % str(exc)[:200], file=sys.stderr)
         return 1

@@ -39,11 +39,15 @@ jobs:
       # Candidate text is read-only from the same persisted AGRO snapshot. If
       # it is unavailable, preview and publish both fail closed.
       - name: Restore AGRO material snapshot
+        id: agro-cache
         uses: actions/cache/restore@v4
         with:
           path: data
           key: case-db-${{ github.run_id }}
           restore-keys: case-db-
+
+      - name: Report AGRO snapshot restore status
+        run: echo "AGRO cache restore hit=${{ steps.agro-cache.outputs.cache-hit }}"
 
       - run: pip install -r requirements.txt
 
@@ -54,6 +58,7 @@ jobs:
           python -m case_pipeline.vk_test_publish preview
           --db data/agro_channel.db
           --state vk_control/test_publish_state.json
+          --snapshot vk_control/material_29_snapshot.json
           --material-id 29
 
       - name: Require explicit publication confirmation
@@ -64,7 +69,7 @@ jobs:
       - name: Persist pre-publication duplicate claim
         if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_VK_POST'
         run: |
-          python -m case_pipeline.vk_test_publish claim --db data/agro_channel.db --state vk_control/test_publish_state.json --material-id 29
+          python -m case_pipeline.vk_test_publish claim --db data/agro_channel.db --state vk_control/test_publish_state.json --snapshot vk_control/material_29_snapshot.json --material-id 29
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vk_control/test_publish_state.json
@@ -81,6 +86,7 @@ jobs:
           python -m case_pipeline.vk_test_publish publish
           --db data/agro_channel.db
           --state vk_control/test_publish_state.json
+          --snapshot vk_control/material_29_snapshot.json
           --material-id 29
 
       - name: Persist final VK control-post result

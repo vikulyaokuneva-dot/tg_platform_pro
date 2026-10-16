@@ -25,6 +25,13 @@ def _candidate_db(tmp_path):
     return db_path, material_id
 
 
+def _snapshot(path, candidate):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "material": {"material_id": candidate["material_id"],
+                  "source_url": candidate["source_url"], "vk_text": candidate["text"],
+                  "fingerprint": candidate["fingerprint"]}}, fh, ensure_ascii=False)
+
+
 def test_vk_control_preview_and_durable_claim_block_duplicates(tmp_path, capsys):
     db_path, material_id = _candidate_db(tmp_path)
     state_path = str(tmp_path / "state.json")
@@ -43,6 +50,21 @@ def test_vk_control_preview_and_durable_claim_block_duplicates(tmp_path, capsys)
 def test_vk_control_fails_closed_without_a_restored_verified_material(tmp_path):
     with pytest.raises(vk_test_publish.TestPublishError):
         vk_test_publish.preview(str(tmp_path / "missing.db"), str(tmp_path / "state.json"), 29)
+
+
+def test_vk_control_preview_uses_integrity_checked_snapshot_when_ci_db_is_absent(tmp_path, capsys):
+    db_path, material_id = _candidate_db(tmp_path / "source")
+    candidate = vk_test_publish.load_candidate(db_path, material_id)
+    snapshot_path = str(tmp_path / "material_snapshot.json")
+    _snapshot(snapshot_path, candidate)
+
+    rendered = vk_test_publish.preview(str(tmp_path / "missing.db"), str(tmp_path / "state.json"),
+                                       material_id, snapshot_path=snapshot_path)
+
+    assert rendered["input_source"] == "snapshot"
+    output = capsys.readouterr().out
+    assert '"database_exists": false' in output
+    assert "input=snapshot" in output
 
 
 def test_vk_control_publish_records_post_id_and_timeout_stays_blocked(tmp_path):
@@ -92,7 +114,9 @@ def test_vk_control_workflow_is_manual_confirmed_text_only_and_durable():
     assert "VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}" in workflow
     assert "VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}" in workflow
     assert "actions/cache/restore@v4" in workflow
+    assert "AGRO cache restore hit=" in workflow
     assert "git push origin HEAD:main" in workflow
     assert "python runner.py" not in workflow
     assert "photos.getWallUploadServer" not in workflow
     assert "--material-id 29" in workflow
+    assert "--snapshot vk_control/material_29_snapshot.json" in workflow
