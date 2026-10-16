@@ -3,8 +3,11 @@
     "29": {
       "claimed_at": "2026-10-16T20:45:13Z",
       "fingerprint": "59f2bb9373622f4baad075e87170053879ebd88a20f2a91d4b0726d6ee5cd692",
+      "published_at": "2026-10-16T20:45:16Z",
       "source_url": "https://www.botanichka.ru/article/kak-rasschitat-czvetenie-gippeastruma-realnye-sroki-s-oseni-do-vesny/",
-      "status": "publishing"
+      "status": "published",
+      "vk_owner_id": -242354758,
+      "vk_post_id": 2
     }
   },
   "version": 1
