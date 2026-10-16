@@ -2,7 +2,7 @@ name: VK daily autopilot
 
 on:
   schedule:
-    # Safe by default: without repository variable VK_PUBLISH=1 this only
+    # Safe by default: without repository variable VK_DAILY_PUBLISH=1 this only
     # emits a dry diagnostic and never calls VK's mutating endpoints.
     - cron: "15 7 * * *"
   workflow_dispatch:
@@ -46,11 +46,33 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # The committed queue is authoritative.  There is intentionally no
-      # actions/cache restore here: an AGRO cache miss cannot hide or erase a
-      # prepared VK post, and cannot change any AGRO/Telegram state.
+      # Cache is an optional read-only AGRO intake, never the VK state source.
+      # A cache miss leaves the committed queue intact and publishes nothing.
+      - name: Restore optional AGRO input snapshot
+        if: github.event_name == 'schedule'
+        id: agro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: case-db-${{ github.run_id }}
+          restore-keys: case-db-
+
+      - name: Sync new verified AGRO materials and their image links
+        if: github.event_name == 'schedule'
+        run: python -m case_pipeline.vk_daily_autopilot sync --state vk_daily/queue.json --db data/agro_channel.db --root .
+
+      - name: Persist synchronized VK queue
+        if: github.event_name == 'schedule'
+        run: |
+          if git diff --quiet -- vk_daily/queue.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk_daily/queue.json
+          git commit -m "Sync verified AGRO material into VK queue"
+          git push origin HEAD:main
+
       - name: Preview durable image-required VK queue
-        run: python -m case_pipeline.vk_daily_autopilot preview --state vk_daily/queue.json --root .
+        run: python -m case_pipeline.vk_daily_autopilot preview --verify-media --state vk_daily/queue.json --root .
 
       - name: Require explicit production confirmation
         if: inputs.mode == 'publish'

@@ -17,7 +17,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import ai, config, vk_autopilot
+from . import ai, config, httpclient, vk_autopilot
 from .vk_publisher import VkPublisher
 
 
@@ -79,8 +79,13 @@ def _write_state(path, state):
     os.replace(temporary, target)
 
 
-def _media_error(record, root_dir):
-    """Validate an explicitly licensed local asset without fetching URLs."""
+def _runtime_media_path(state_path, material_id):
+    """Ephemeral same-run copy avoids downloading an approved AGRO image twice."""
+    return Path(state_path).parent / ".runtime" / ("%s.bin" % material_id)
+
+
+def _media_error(record, root_dir, fetch_source=False):
+    """Load only an explicitly approved local or linked AGRO-source asset."""
     media = record.get("media") or {}
     license_kind = media.get("license")
     path = media.get("path")
@@ -89,6 +94,26 @@ def _media_error(record, root_dir):
         return "media license is not explicitly approved", None
     if not isinstance(media.get("rights_reference"), str) or not media["rights_reference"].strip():
         return "media rights evidence is absent", None
+    source_image_url = media.get("source_image_url")
+    if source_image_url:
+        if (media.get("origin") != "agro_source"
+                or source_image_url != record.get("agro_image_url")
+                or not source_image_url.startswith(("https://", "http://"))):
+            return "AGRO source image link is not bound to this material", None
+        if not isinstance(checksum, str) or len(checksum) != 64:
+            return "approved AGRO image checksum is absent", None
+        if not fetch_source:
+            return "approved AGRO image has not been prepared", None
+        try:
+            data = httpclient.fetch_bytes(source_image_url)
+        except httpclient.FetchError:
+            return "approved AGRO image is unavailable", None
+        if hashlib.sha256(data).hexdigest() != checksum:
+            return "approved AGRO image checksum does not match", None
+        _, image_error = VkPublisher.prepare_photo(data)
+        if image_error:
+            return image_error, None
+        return "", data
     if not isinstance(path, str) or not path or os.path.isabs(path):
         return "approved local media file is unavailable", None
     root = Path(root_dir).resolve()
@@ -109,19 +134,19 @@ def _is_published_today(record, now=None):
     return bool(published_at) and published_at[:10] == (now or _now())[:10]
 
 
-def _next_publishable(state, root_dir, now=None):
+def _next_publishable(state, root_dir, now=None, fetch_source=False):
     """Return first durable pending record with verified local media."""
     for material_id in sorted(state["materials"], key=lambda value: int(value)):
         record = state["materials"][material_id]
         if record.get("status") != "pending":
             continue
-        error, image = _media_error(record, root_dir)
+        error, image = _media_error(record, root_dir, fetch_source=fetch_source)
         if not error:
             return material_id, record, image
     return None, None, None
 
 
-def queue_diagnostics(state_path, root_dir="."):
+def queue_diagnostics(state_path, root_dir=".", verify_source=False):
     """Safe aggregate status; never logs source text, URL, or media paths."""
     state = _load_state(state_path)
     counts = {}
@@ -130,10 +155,10 @@ def queue_diagnostics(state_path, root_dir="."):
         status = record.get("status", "invalid")
         counts[status] = counts.get(status, 0) + 1
         if status == "pending":
-            error, _ = _media_error(record, root_dir)
+            error, _ = _media_error(record, root_dir, fetch_source=verify_source)
             if error:
                 media_reasons[error] = media_reasons.get(error, 0) + 1
-    material_id, _, _ = _next_publishable(state, root_dir)
+    material_id, _, _ = _next_publishable(state, root_dir, fetch_source=verify_source)
     return {"queue_version": STATE_VERSION, "materials": len(state["materials"]),
             "states": counts, "media_holds": media_reasons,
             "publishable_material_present": material_id is not None,
@@ -149,14 +174,14 @@ def sync_verified_sqlite(state_path, db_path, root_dir="."):
     """
     state = _load_state(state_path)
     outcome = {"database_available": False, "added": 0, "already_present": 0,
-               "rejected": 0}
+               "media_linked": 0, "rejected": 0}
     if not os.path.isfile(db_path):
         return outcome
     try:
         db = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
         db.row_factory = sqlite3.Row
         rows = db.execute(
-            "SELECT id, post_text FROM materials "
+            "SELECT id, post_text, image_url FROM materials "
             "WHERE status IN ('post_ready', 'published') ORDER BY id"
         ).fetchall()
     except (OSError, sqlite3.Error):
@@ -167,6 +192,19 @@ def sync_verified_sqlite(state_path, db_path, root_dir="."):
             material_id = str(row["id"])
             if material_id in state["materials"]:
                 outcome["already_present"] += 1
+                current = state["materials"][material_id]
+                image_url = (row["image_url"] or "").strip()
+                media = current.get("media") or {}
+                # Preserve a human-approved licence/reference/checksum, but
+                # bind its AGRO URL to the verified material if it was absent.
+                if image_url and not media.get("source_image_url"):
+                    media.update({"origin": "agro_source", "source_image_url": image_url,
+                                  "license": media.get("license"),
+                                  "rights_reference": media.get("rights_reference"),
+                                  "sha256": media.get("sha256"), "path": None})
+                    current["media"] = media
+                    current["agro_image_url"] = image_url
+                    outcome["media_linked"] += 1
                 continue
             text = vk_autopilot.build_vk_post(row["post_text"], provider=ai.NullProvider())
             if vk_autopilot.vk_post_contract_error(text):
@@ -181,13 +219,15 @@ def sync_verified_sqlite(state_path, db_path, root_dir="."):
             state["materials"][material_id] = {
                 "material_id": int(material_id), "source_url": source_url,
                 "fingerprint": fingerprint, "vk_text": text,
-                "editorial_status": "verified", "media": {"license": None, "path": None, "sha256": None},
+                "editorial_status": "verified", "agro_image_url": (row["image_url"] or "").strip() or None,
+                "media": {"origin": "agro_source", "source_image_url": (row["image_url"] or "").strip() or None,
+                          "license": None, "rights_reference": None, "path": None, "sha256": None},
                 "status": "pending", "created_at": _now(),
             }
             outcome["added"] += 1
     finally:
         db.close()
-    if outcome["added"]:
+    if outcome["added"] or outcome["media_linked"]:
         _write_state(state_path, state)
     return outcome
 
@@ -197,13 +237,19 @@ def claim_one(state_path, root_dir=".", now=None):
     state = _load_state(state_path)
     if any(_is_published_today(record, now) for record in state["materials"].values()):
         raise DailyPublishBlocked("daily VK limit is already reached")
-    material_id, record, _ = _next_publishable(state, root_dir, now)
+    material_id, record, image = _next_publishable(state, root_dir, now, fetch_source=True)
     if not record:
         raise DailyPublishBlocked("no verified queue item has approved local media")
     record["status"] = "publishing"
     record["claimed_at"] = now or _now()
     record.pop("last_error", None)
     _write_state(state_path, state)
+    # Source bytes were already checked above; keep them only for this runner.
+    # The committed claim and SHA-256 remain the cross-run safety boundary.
+    if image is not None and (record.get("media") or {}).get("source_image_url"):
+        runtime = _runtime_media_path(state_path, material_id)
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_bytes(image)
     return deepcopy(record)
 
 
@@ -215,7 +261,18 @@ def publish_claimed(state_path, root_dir=".", publisher=None, now=None):
     if len(claimed) != 1:
         raise DailyPublishBlocked("exactly one durable publishing claim is required")
     material_id, record = claimed[0]
-    media_error, image = _media_error(record, root_dir)
+    runtime = _runtime_media_path(state_path, material_id)
+    image = None
+    if runtime.is_file():
+        candidate = runtime.read_bytes()
+        expected = (record.get("media") or {}).get("sha256")
+        if hashlib.sha256(candidate).hexdigest() == expected:
+            _, image_error = VkPublisher.prepare_photo(candidate)
+            if not image_error:
+                image = candidate
+    media_error = ""
+    if image is None:
+        media_error, image = _media_error(record, root_dir, fetch_source=True)
     if media_error:
         record["last_error"] = {"kind": "media", "reason": media_error}
         _write_state(state_path, state)
@@ -250,11 +307,14 @@ def main(argv=None):
     parser.add_argument("--state", required=True)
     parser.add_argument("--root", default=".")
     parser.add_argument("--db", default="data/agro_channel.db")
+    parser.add_argument("--verify-media", action="store_true",
+                        help="read approved AGRO image URLs without publishing")
     args = parser.parse_args(argv)
     try:
         if args.action == "preview":
             print("VK daily queue diagnostic: %s" % json.dumps(
-                queue_diagnostics(args.state, args.root), sort_keys=True, ensure_ascii=True))
+                queue_diagnostics(args.state, args.root, verify_source=args.verify_media),
+                sort_keys=True, ensure_ascii=True))
         elif args.action == "sync":
             print("VK daily queue sync: %s" % json.dumps(
                 sync_verified_sqlite(args.state, args.db, args.root), sort_keys=True, ensure_ascii=True))

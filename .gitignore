@@ -5,6 +5,7 @@
 
 # Персистентные данные пайплайна и артефакты прогонов
 data/
+vk_daily/.runtime/
 runs/
 jobs/*/storage.json
 jobs/*/stats.json

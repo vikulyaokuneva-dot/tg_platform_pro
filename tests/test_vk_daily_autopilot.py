@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from case_pipeline import storage as storage_mod, vk_daily_autopilot
+from case_pipeline import httpclient, storage as storage_mod, vk_daily_autopilot
 from case_pipeline.vk_publisher import VkResult
 
 
@@ -23,6 +23,7 @@ def _record(material_id=77, status="pending", media=None):
 
 
 def _write_queue(tmp_path, records):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "queue.json"
     path.write_text(json.dumps({"version": 1, "materials": {
         str(item["material_id"]): item for item in records}}, ensure_ascii=False), encoding="utf-8")
@@ -38,6 +39,13 @@ def _approved_media(tmp_path, license_kind="own"):
     return {"license": license_kind, "rights_reference": "internal-rights-record-1",
             "path": "assets/approved.jpg",
             "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def _approved_agro_media(data):
+    url = "https://images.example.test/agro.jpg"
+    return {"origin": "agro_source", "source_image_url": url,
+            "license": "licensed", "rights_reference": "license-record-77",
+            "path": None, "sha256": hashlib.sha256(data).hexdigest()}, url
 
 
 def test_daily_queue_blocks_missing_or_unlicensed_media(tmp_path):
@@ -103,7 +111,8 @@ def test_daily_queue_keeps_claim_blocked_on_vk_error_or_timeout(tmp_path):
 def test_daily_queue_cache_miss_is_safe_and_control_post_is_excluded(tmp_path):
     state = _write_queue(tmp_path, [_record(29, status="published"), _record(77)])
     outcome = vk_daily_autopilot.sync_verified_sqlite(state, str(tmp_path / "missing.db"), str(tmp_path))
-    assert outcome == {"database_available": False, "added": 0, "already_present": 0, "rejected": 0}
+    assert outcome == {"database_available": False, "added": 0, "already_present": 0,
+                       "media_linked": 0, "rejected": 0}
     report = vk_daily_autopilot.queue_diagnostics(state, str(tmp_path))
     assert report["control_material_29_state"] == "published"
     loaded = json.loads(open(state, encoding="utf-8").read())
@@ -124,11 +133,72 @@ def test_daily_queue_sync_reads_agro_database_without_changing_telegram_rows(tmp
 
     outcome = vk_daily_autopilot.sync_verified_sqlite(state, db_path, str(tmp_path))
 
-    assert outcome == {"database_available": True, "added": 1, "already_present": 0, "rejected": 0}
+    assert outcome == {"database_available": True, "added": 1, "already_present": 0,
+                       "media_linked": 0, "rejected": 0}
     restored = storage_mod.Storage(db_path)
     assert restored.get(material_id)["status"] == "post_ready"
     assert restored.get(material_id)["post_text"] == original
     assert restored.db.execute("SELECT COUNT(*) FROM vk_publications").fetchone()[0] == 0
+
+
+def test_daily_queue_links_existing_agro_image_without_granting_rights(tmp_path):
+    db_path = str(tmp_path / "agro.db")
+    st = storage_mod.Storage(db_path)
+    material_id = st.add("https://example.test/source", "source")
+    verified = ("Практический материал\n\n"
+                "Перед хранением просушите луковицы.\n\n"
+                "Вывод: храните только сухие луковицы.\n\n"
+                "Источник: https://example.test/source")
+    image_url = "https://images.example.test/agro.jpg"
+    st.update(material_id, status="post_ready", post_text=verified, image_url=image_url)
+    st.close()
+    state = _write_queue(tmp_path, [_record(material_id)])
+
+    outcome = vk_daily_autopilot.sync_verified_sqlite(state, db_path, str(tmp_path))
+
+    assert outcome == {"database_available": True, "added": 0, "already_present": 1,
+                       "media_linked": 1, "rejected": 0}
+    linked = json.loads(open(state, encoding="utf-8").read())["materials"][str(material_id)]
+    assert linked["agro_image_url"] == image_url
+    assert linked["media"]["source_image_url"] == image_url
+    assert linked["media"]["license"] is None
+    assert vk_daily_autopilot.queue_diagnostics(state, str(tmp_path))["publishable_material_present"] is False
+
+
+def test_daily_queue_reuses_verified_agro_bytes_once_and_blocks_unavailable_url(tmp_path, monkeypatch):
+    image = b"\xff\xd8\xff" + b"x" * 2048
+    media, image_url = _approved_agro_media(image)
+    record = _record(media=media)
+    record["agro_image_url"] = image_url
+    state = _write_queue(tmp_path, [record])
+    calls = []
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
+                        lambda url: calls.append(url) or image)
+
+    vk_daily_autopilot.claim_one(state, str(tmp_path))
+
+    class Publisher:
+        def check_access(self, require_photo_upload=False):
+            assert require_photo_upload
+            return VkResult(True)
+
+        def publish(self, text, photo_bytes=None, dry_run=False):
+            assert photo_bytes == image and not dry_run
+            return VkResult(True, post_id=101, owner_id=-242354758)
+
+    vk_daily_autopilot.publish_claimed(state, str(tmp_path), Publisher())
+    assert calls == [image_url]  # one existing downloader call, then runtime reuse
+
+    bad_media, bad_url = _approved_agro_media(image)
+    bad = _record(78, media=bad_media)
+    bad["agro_image_url"] = bad_url
+    bad_state = _write_queue(tmp_path / "bad", [bad])
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
+                        lambda url: (_ for _ in ()).throw(httpclient.FetchError(url, status=404)))
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.claim_one(bad_state, str(tmp_path / "bad"))
+    stored = json.loads(open(bad_state, encoding="utf-8").read())["materials"]["78"]
+    assert stored["status"] == "pending"
 
 
 def test_daily_queue_rejects_tampered_editorial_text(tmp_path):
@@ -151,5 +221,7 @@ def test_daily_workflow_is_independent_durable_and_disabled_by_default():
     assert "PUBLISH_ONE_DAILY_VK_POST" in workflow
     assert "concurrency:" in workflow and "vk-daily-autopilot" in workflow
     assert "git push origin HEAD:main" in workflow
-    assert "uses: actions/cache" not in workflow and "runner.py" not in workflow
+    assert "actions/cache/restore@v4" in workflow and "runner.py" not in workflow
+    assert "Sync new verified AGRO materials and their image links" in workflow
+    assert "--verify-media" in workflow
     assert "photos.getWallUploadServer" not in workflow
