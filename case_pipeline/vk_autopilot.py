@@ -426,13 +426,19 @@ def self_check(publisher=None):
                                    "expected_group_fields": ["id"],
                                    "group_container": None, "direct_id_present": False,
                                    "nested_structure_present": None,
-                                   "community_id_match": None}}
+                                   "community_id_match": None,
+                                   "response_object_fields": [],
+                                   "groups_container": {"present": False, "type": None,
+                                                        "first_item_type": None,
+                                                        "first_item_has_id": None}}}
     result = client.check_access(require_photo_upload=False)
     shape = {"response_present": False, "error_present": False,
              "response_type": None, "expected_response_types": ["dict", "list"],
              "expected_group_fields": ["id"], "group_container": None,
              "direct_id_present": False, "nested_structure_present": None,
-             "community_id_match": None}
+             "community_id_match": None, "response_object_fields": [],
+             "groups_container": {"present": False, "type": None,
+                                  "first_item_type": None, "first_item_has_id": None}}
     shape.update(result.response_meta or {})
     return {"configured": True, "ok": bool(result.ok),
             "error_code": result.error_code,

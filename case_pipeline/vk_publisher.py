@@ -98,6 +98,33 @@ class VkPublisher:
                 "response_type": cls._response_type(payload.get("response"))
                 if response_present else None}
 
+    @classmethod
+    def _list_shape(cls, value, present):
+        """Describe a list container without retaining any list values."""
+        shape = {"present": bool(present), "type": cls._response_type(value) if present else None,
+                 "first_item_type": None, "first_item_has_id": None}
+        if isinstance(value, list) and value:
+            first = value[0]
+            shape["first_item_type"] = cls._response_type(first)
+            shape["first_item_has_id"] = isinstance(first, dict) and "id" in first
+        return shape
+
+    @classmethod
+    def _object_shape(cls, value):
+        """Return names and types only; never response values or nested keys."""
+        if not isinstance(value, dict):
+            return []
+        fields = []
+        for key in sorted(value):
+            item = {"name": str(key), "type": cls._response_type(value[key])}
+            if isinstance(value[key], list):
+                item.update(cls._list_shape(value[key], present=True))
+                item.pop("present", None)
+                item.pop("type", None)
+                item["type"] = "list"
+            fields.append(item)
+        return fields
+
     def _api(self, method, params=None, mutating=False):
         if not self.configured():
             return self._error(None, "VK_ACCESS_TOKEN or VK_GROUP_ID is not configured",
@@ -209,6 +236,10 @@ class VkPublisher:
                               "direct_id_present": has_direct_id,
                               "nested_structure_present": nested_structure_present,
                               "community_id_match": None})
+        if isinstance(result.data, dict):
+            response_meta["response_object_fields"] = self._object_shape(result.data)
+            response_meta["groups_container"] = self._list_shape(
+                result.data.get("groups"), present="groups" in result.data)
         id_matches = has_direct_id and str(group["id"]) == self.group_id
         if has_direct_id:
             response_meta["community_id_match"] = id_matches

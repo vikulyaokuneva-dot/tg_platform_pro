@@ -238,7 +238,11 @@ def test_vk_read_only_self_check_calls_groups_get_by_id_only(monkeypatch):
                                          "expected_group_fields": ["id"], "group_container": "list_first_item",
                                          "direct_id_present": True, "nested_structure_present": False,
                                          "first_item_type": "dict",
-                                         "community_id_match": True}}
+                                         "community_id_match": True,
+                                         "response_object_fields": [],
+                                         "groups_container": {"present": False, "type": None,
+                                                              "first_item_type": None,
+                                                              "first_item_has_id": None}}}
     assert methods == ["groups.getById"]
 
 
@@ -256,7 +260,11 @@ def test_vk_self_check_preserves_vk_api_error_code(monkeypatch):
                                          "expected_group_fields": ["id"],
                                          "group_container": None, "direct_id_present": False,
                                          "nested_structure_present": None,
-                                         "community_id_match": None}}
+                                         "community_id_match": None,
+                                         "response_object_fields": [],
+                                         "groups_container": {"present": False, "type": None,
+                                                              "first_item_type": None,
+                                                              "first_item_has_id": None}}}
 
 
 def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
@@ -273,7 +281,11 @@ def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
                                          "expected_group_fields": ["id"],
                                          "group_container": None, "direct_id_present": False,
                                          "nested_structure_present": None,
-                                         "community_id_match": None}}
+                                         "community_id_match": None,
+                                         "response_object_fields": [],
+                                         "groups_container": {"present": False, "type": None,
+                                                              "first_item_type": None,
+                                                              "first_item_has_id": None}}}
 
 
 def test_vk_self_check_classifies_http_network_json_and_response_errors(monkeypatch):
@@ -311,7 +323,10 @@ def test_vk_self_check_accepts_direct_object_response(monkeypatch):
         "expected_response_types": ["dict", "list"], "expected_group_fields": ["id"],
         "group_container": "object", "direct_id_present": True,
         "nested_structure_present": False, "first_item_type": None,
-        "community_id_match": True}
+        "community_id_match": True,
+        "response_object_fields": [{"name": "id", "type": "number"}],
+        "groups_container": {"present": False, "type": None,
+                             "first_item_type": None, "first_item_has_id": None}}
 
 
 def test_vk_self_check_rejects_missing_or_mismatched_id_without_guessing_nested_path(monkeypatch):
@@ -336,6 +351,11 @@ def test_vk_self_check_rejects_missing_or_mismatched_id_without_guessing_nested_
     assert nested_id["response_shape"]["direct_id_present"] is False
     assert nested_id["response_shape"]["nested_structure_present"] is True
     assert nested_id["response_shape"]["community_id_match"] is None
+    assert nested_id["response_shape"]["response_object_fields"] == [
+        {"name": "group", "type": "dict"}]
+    assert nested_id["response_shape"]["groups_container"] == {
+        "present": False, "type": None, "first_item_type": None,
+        "first_item_has_id": None}
 
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
                         lambda *a, **k: _api_ok([{"id": 1, "name": "not logged"}]))
@@ -344,6 +364,21 @@ def test_vk_self_check_rejects_missing_or_mismatched_id_without_guessing_nested_
     assert wrong_id["error_kind"] == "access"
     assert wrong_id["http_status"] == 200
     assert wrong_id["response_shape"]["community_id_match"] is False
+
+
+def test_vk_self_check_reports_groups_shape_without_parsing_it_as_a_group(monkeypatch):
+    _configure_vk(monkeypatch)
+    publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: _api_ok({
+        "groups": [{"id": 242354758, "name": "not logged"}], "count": 1}))
+
+    result = vk_autopilot.self_check(publisher)
+
+    assert result["error_kind"] == "access"
+    assert result["response_shape"]["groups_container"] == {
+        "present": True, "type": "list", "first_item_type": "dict",
+        "first_item_has_id": True}
+    assert result["response_shape"]["community_id_match"] is None
 
 
 def test_vk_defaults_are_safe_and_daily_limit_is_one():
