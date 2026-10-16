@@ -234,8 +234,10 @@ def test_vk_read_only_self_check_calls_groups_get_by_id_only(monkeypatch):
     assert result == {"configured": True, "ok": True, "error_code": None,
                       "http_status": 200, "error_kind": "ok",
                       "response_shape": {"response_present": True, "error_present": False,
-                                         "response_type": "list", "expected_response_type": "list",
-                                         "expected_group_fields": ["id"], "first_item_type": "dict",
+                                         "response_type": "list", "expected_response_types": ["dict", "list"],
+                                         "expected_group_fields": ["id"], "group_container": "list_first_item",
+                                         "direct_id_present": True, "nested_structure_present": False,
+                                         "first_item_type": "dict",
                                          "community_id_match": True}}
     assert methods == ["groups.getById"]
 
@@ -250,8 +252,10 @@ def test_vk_self_check_preserves_vk_api_error_code(monkeypatch):
     assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
                       "error_code": 5, "http_status": 200,
                       "response_shape": {"response_present": False, "error_present": True,
-                                         "response_type": None, "expected_response_type": "list",
+                                         "response_type": None, "expected_response_types": ["dict", "list"],
                                          "expected_group_fields": ["id"],
+                                         "group_container": None, "direct_id_present": False,
+                                         "nested_structure_present": None,
                                          "community_id_match": None}}
 
 
@@ -265,8 +269,10 @@ def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
     assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
                       "error_code": None, "http_status": 200,
                       "response_shape": {"response_present": False, "error_present": True,
-                                         "response_type": None, "expected_response_type": "list",
+                                         "response_type": None, "expected_response_types": ["dict", "list"],
                                          "expected_group_fields": ["id"],
+                                         "group_container": None, "direct_id_present": False,
+                                         "nested_structure_present": None,
                                          "community_id_match": None}}
 
 
@@ -291,20 +297,45 @@ def test_vk_self_check_classifies_http_network_json_and_response_errors(monkeypa
     assert vk_autopilot.self_check(publisher)["error_kind"] == "response"
 
 
-def test_vk_self_check_reports_safe_shape_and_preserves_access_http_status(monkeypatch):
+def test_vk_self_check_accepts_direct_object_response(monkeypatch):
     _configure_vk(monkeypatch)
     publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
 
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
                         lambda *a, **k: _api_ok({"id": 242354758}))
-    unexpected_type = vk_autopilot.self_check(publisher)
+    result = vk_autopilot.self_check(publisher)
 
-    assert unexpected_type["error_kind"] == "access"
-    assert unexpected_type["http_status"] == 200
-    assert unexpected_type["response_shape"] == {
+    assert result["ok"] and result["http_status"] == 200
+    assert result["response_shape"] == {
         "response_present": True, "error_present": False, "response_type": "dict",
-        "expected_response_type": "list", "expected_group_fields": ["id"],
-        "first_item_type": None, "community_id_match": None}
+        "expected_response_types": ["dict", "list"], "expected_group_fields": ["id"],
+        "group_container": "object", "direct_id_present": True,
+        "nested_structure_present": False, "first_item_type": None,
+        "community_id_match": True}
+
+
+def test_vk_self_check_rejects_missing_or_mismatched_id_without_guessing_nested_path(monkeypatch):
+    _configure_vk(monkeypatch)
+    publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok({"name": "not logged"}))
+    missing_id = vk_autopilot.self_check(publisher)
+
+    assert missing_id["error_kind"] == "access"
+    assert missing_id["http_status"] == 200
+    assert missing_id["response_shape"]["direct_id_present"] is False
+    assert missing_id["response_shape"]["nested_structure_present"] is False
+    assert missing_id["response_shape"]["community_id_match"] is None
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok({"group": {"id": 242354758}}))
+    nested_id = vk_autopilot.self_check(publisher)
+
+    assert nested_id["error_kind"] == "access"
+    assert nested_id["response_shape"]["direct_id_present"] is False
+    assert nested_id["response_shape"]["nested_structure_present"] is True
+    assert nested_id["response_shape"]["community_id_match"] is None
 
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
                         lambda *a, **k: _api_ok([{"id": 1, "name": "not logged"}]))

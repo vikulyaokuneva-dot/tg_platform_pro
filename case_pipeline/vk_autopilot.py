@@ -422,13 +422,17 @@ def self_check(publisher=None):
         return {"configured": False, "ok": False, "error_code": None,
                 "http_status": None, "error_kind": "credentials_not_configured",
                 "response_shape": {"response_present": False, "error_present": False,
-                                   "response_type": None, "expected_response_type": "list",
+                                   "response_type": None, "expected_response_types": ["dict", "list"],
                                    "expected_group_fields": ["id"],
+                                   "group_container": None, "direct_id_present": False,
+                                   "nested_structure_present": None,
                                    "community_id_match": None}}
     result = client.check_access(require_photo_upload=False)
     shape = {"response_present": False, "error_present": False,
-             "response_type": None, "expected_response_type": "list",
-             "expected_group_fields": ["id"], "community_id_match": None}
+             "response_type": None, "expected_response_types": ["dict", "list"],
+             "expected_group_fields": ["id"], "group_container": None,
+             "direct_id_present": False, "nested_structure_present": None,
+             "community_id_match": None}
     shape.update(result.response_meta or {})
     return {"configured": True, "ok": bool(result.ok),
             "error_code": result.error_code,

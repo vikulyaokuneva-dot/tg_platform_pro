@@ -184,15 +184,33 @@ class VkPublisher:
         result = self._api("groups.getById", {"group_id": self.group_id})
         if not result.ok:
             return result
-        groups = result.data if isinstance(result.data, list) else []
-        group = groups[0] if groups and isinstance(groups[0], dict) else {}
         response_meta = dict(result.response_meta or {})
-        response_meta.update({"expected_response_type": "list",
+        group = {}
+        group_container = None
+        nested_structure_present = None
+        if isinstance(result.data, dict):
+            # Accept only the documented direct object form.  A nested object
+            # is diagnosed structurally below, never searched for a guessed ID.
+            group = result.data
+            group_container = "object"
+            nested_structure_present = any(
+                isinstance(value, (dict, list)) for value in result.data.values())
+        elif isinstance(result.data, list):
+            group_container = "list_first_item"
+            if result.data and isinstance(result.data[0], dict):
+                group = result.data[0]
+            nested_structure_present = False
+        has_direct_id = bool(group) and group.get("id") is not None
+        response_meta.update({"expected_response_types": ["dict", "list"],
                               "expected_group_fields": ["id"],
-                              "first_item_type": self._response_type(groups[0]) if groups else None,
+                              "group_container": group_container,
+                              "first_item_type": self._response_type(result.data[0])
+                              if isinstance(result.data, list) and result.data else None,
+                              "direct_id_present": has_direct_id,
+                              "nested_structure_present": nested_structure_present,
                               "community_id_match": None})
-        id_matches = bool(group) and str(group.get("id") or "") == self.group_id
-        if group:
+        id_matches = has_direct_id and str(group["id"]) == self.group_id
+        if has_direct_id:
             response_meta["community_id_match"] = id_matches
         if not id_matches:
             return self._error(None, "requested VK group is not available to this token",
