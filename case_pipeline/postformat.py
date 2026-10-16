@@ -205,9 +205,26 @@ def _parse_blocks(text):
     return blocks
 
 
-# «Вывод: ...» — слово жирным, сам текст вывода обычный (регрессия визуальной
-# подачи агро-статей); уже отформатированный блок **Вывод**: не трогаем
+# «Вывод: ...» в AGRO получает свой компактный визуальный акцент. Общий
+# formatter сохраняет прежний нейтральный вид, поэтому AI Automation не
+# затрагивается.
 _VYVOD_RX = re.compile(r"^(Вывод)\s*:\s*(\S.*)$", re.IGNORECASE | re.UNICODE)
+_AGRO_VYVOD_RX = re.compile(
+    r"^\s*(?:\*\*)?(?:🌿\s*)?(Вывод)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(\S[\s\S]*)$",
+    re.IGNORECASE | re.UNICODE)
+_AGRO_SUBHEAD_RX = re.compile(r"^\s*\*\*([^*\n]+?)\*\*\s*$", re.UNICODE)
+_EMOJI_ANY_RX = re.compile(r"[%s]" % _EMOJI_CHARS, re.UNICODE)
+_AGRO_SUBHEAD_EMOJIS = (
+    (re.compile(r"предупрежд|опасн|не\s+делайт|ошибк|важно", re.I), "⚠️"),
+    (re.compile(r"болезн|вредител|защит|гнил|плесен|пятн", re.I), "🛡️"),
+    (re.compile(r"обрез|срез|секатор|плет", re.I), "✂️"),
+    (re.compile(r"полив|влажн|увлажн|сырост", re.I), "💧"),
+    (re.compile(r"проветр|просуш|сушк|вентиляц", re.I), "🌬️"),
+    (re.compile(r"подкорм|удобрен|питани", re.I), "🌿"),
+    (re.compile(r"осенн|зим|листв|укрыт", re.I), "🍂"),
+    (re.compile(r"посад|пересад|выращ|рассад|укорен", re.I), "🌱"),
+    (re.compile(r"осмотр|диагност|проверь|разберите", re.I), "🔍"),
+)
 
 
 def _bold_vyvod(block):
@@ -215,12 +232,48 @@ def _bold_vyvod(block):
     return "**%s**: %s" % (m.group(1), m.group(2)) if m else block
 
 
-def format_post(text, keep_headline_emoji=False):
+def _agro_vyvod(block):
+    """Возвращает оформленный вывод или None, если блок не является выводом.
+
+    Каждая непустая строка содержания получает курсив отдельно: MarkdownV2
+    остаётся валидным и при многострочном выводе, а переносы не теряются.
+    """
+    m = _AGRO_VYVOD_RX.match(block)
+    if not m:
+        return None
+    content = m.group(2).strip()
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines:
+        return None
+    italic = "\n".join(line if line.startswith("_") and line.endswith("_")
+                       else "_%s_" % line for line in lines)
+    return "**🌿 %s:** %s" % (m.group(1), italic)
+
+
+def _agro_subheading(block, used):
+    """Добавляет один тематический emoji только к явному жирному подзаголовку."""
+    if used >= 4:
+        return block, False
+    m = _AGRO_SUBHEAD_RX.match(block)
+    if not m:
+        return block, False
+    heading = m.group(1).strip()
+    if _EMOJI_ANY_RX.search(heading):
+        return block, False
+    for rx, emoji in _AGRO_SUBHEAD_EMOJIS:
+        if rx.search(heading):
+            return "**%s %s**" % (emoji, heading), True
+    return block, False
+
+
+def format_post(text, keep_headline_emoji=False, agro_style=False):
     """Обычный/старый пост -> целевой макет с **маркерами** (без экранирования).
 
     keep_headline_emoji=True (agro-канал): ведущий эмодзи первого абзаца —
     часть заголовка и сохраняется (стилевая подача «заголовок с эмодзи»);
     в AI-канале эмодзи по-прежнему снимается.
+    agro_style=True добавляет только к AGRO: тематические emoji к уже жирным
+    практическим подзаголовкам и курсивное содержание существующего вывода.
     Идемпотентен: повторный прогон по уже отформатированному тексту не меняет
     его (кроме нормализации пустых строк)."""
     if not text or not text.strip():
@@ -249,12 +302,22 @@ def format_post(text, keep_headline_emoji=False):
         if len(l0) == 1 and len(l0[0]) <= 60 and ":" not in l0[0]:
             blocks[0] = {"label": "Компания", "mode": "inline", "lines": l0}
 
+    agro_subheads = 0
     for b in blocks:
         lines = [x.strip() for x in b["lines"] if x.strip()]
         if not lines:
             continue
         if b["label"] is None:
-            rendered.append(_bold_vyvod(" ".join(lines)))
+            raw = "\n".join(lines)
+            agro_vyvod = _agro_vyvod(raw) if agro_style else None
+            if agro_vyvod:
+                rendered.append(agro_vyvod)
+                continue
+            block = _bold_vyvod(" ".join(lines))
+            if agro_style:
+                block, added = _agro_subheading(block, agro_subheads)
+                agro_subheads += int(added)
+            rendered.append(block)
         elif b["mode"] == "inline":
             rendered.append("**%s:** %s" % (b["label"], _join_inline(lines)))
         elif b["mode"] == "auto":

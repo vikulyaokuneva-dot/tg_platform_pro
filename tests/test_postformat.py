@@ -164,6 +164,92 @@ def test_vyvod_word_bold_rest_plain():
     assert pf.format_post(f) == f                     # идемпотентность сохранена
 
 
+def test_agro_vyvod_is_bold_label_with_italic_multiline_content():
+    post = ("Осенняя подготовка грядки\n\n"
+            "Обычный абзац остаётся без визуальных изменений.\n\n"
+            "Вывод: Проверьте pH 5.5 (без спешки)!\n"
+            "Не вносите удобрение в сухую почву.\n\n"
+            "Источник: https://example.com/a-b\n#Практика")
+    f = pf.format_post(post, keep_headline_emoji=True, agro_style=True)
+    assert "Обычный абзац остаётся без визуальных изменений." in f
+    assert ("**🌿 Вывод:** _Проверьте pH 5.5 (без спешки)!_\n"
+            "_Не вносите удобрение в сухую почву._") in f
+    md = pf.to_markdownv2(f)
+    assert r"*🌿 Вывод:* _Проверьте pH 5\.5 \(без спешки\)\!_" in md
+    assert r"_Не вносите удобрение в сухую почву\._" in md
+    assert pf.format_post(f, keep_headline_emoji=True, agro_style=True) == f
+
+
+def test_agro_subheadings_get_thematic_emoji_without_duplicates():
+    post = ("Как подготовить луковицы\n\n"
+            "Обычный вводный абзац.\n\n"
+            "**Разберите и осмотрите каждую луковицу**\n\n"
+            "Обычный текст рекомендации.\n\n"
+            "**Полив перед посадкой**\n\n"
+            "Обычный текст о влажности.\n\n"
+            "**✂️ Обрезка повреждённых корней**\n\n"
+            "Обычный текст об обрезке.\n\n"
+            "**Подкормка после пересадки**\n\n"
+            "Обычный текст о подкормке.\n\n"
+            "**Осенние работы перед морозами**\n\n"
+            "Обычный финальный абзац.\n\n"
+            "**Посадка на подготовленную грядку**\n\n"
+            "Обычный заключительный абзац.")
+    f = pf.format_post(post, keep_headline_emoji=True, agro_style=True)
+    assert "**🔍 Разберите и осмотрите каждую луковицу**" in f
+    assert "**💧 Полив перед посадкой**" in f
+    assert "**✂️ Обрезка повреждённых корней**" in f
+    assert "**🌿 Подкормка после пересадки**" in f
+    assert "**🍂 Осенние работы перед морозами**" in f
+    # Лимит 2–4: следующий подзаголовок не перегружается дополнительным emoji.
+    assert "**Посадка на подготовленную грядку**" in f
+    assert f.count("✂️") == 1
+    assert "Обычный текст рекомендации." in f
+
+
+def test_agro_style_is_opt_in_and_post_without_vyvod_is_safe():
+    post = ("Заголовок\n\n**Посадка луковиц**\n\n"
+            "Обычный абзац без вывода.\n\nИсточник: https://example.com/a")
+    ai_f = pf.format_post(post)
+    agro_f = pf.format_post(post, keep_headline_emoji=True, agro_style=True)
+    assert "**🌱 Посадка луковиц**" not in ai_f
+    assert "**🌱 Посадка луковиц**" in agro_f
+    assert "Вывод" not in agro_f
+
+
+def test_telegram_enables_visual_style_for_agro_only(monkeypatch):
+    post = ("Подготовка грядки\n\n**Посадка луковиц**\n\n"
+            "Совет из источника.\n\nВывод: Действуйте по погоде.")
+    monkeypatch.setattr(config, "BOT_TOKEN", "ai-token")
+    monkeypatch.setattr(config, "CHAT_ID", "-100AI")
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "agro-token")
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO")
+    calls = _capturing_post(monkeypatch, [OK, OK])
+    assert telegram.publish_post(post).ok
+    assert telegram.publish_post(post, channel="agro").ok
+    assert "🌱" not in calls[0]["text"] and "🌿 Вывод" not in calls[0]["text"]
+    assert "*🌱 Посадка луковиц*" in calls[1]["text"]
+    assert r"*🌿 Вывод:* _Действуйте по погоде\." in calls[1]["text"]
+
+
+def test_agro_style_survives_photo_split_with_valid_markdown():
+    long = "Практическая рекомендация с подробным пояснением. " * 18
+    post = ("Осенняя защита сада\n\nВводный абзац о подготовке сада.\n\n"
+            "**Осмотрите растения на болезни**\n\n" + long + "\n\n"
+            "**Проветривание и просушка укрытий**\n\n" + long + "\n\n"
+            "Вывод: Действуйте в сухую погоду и не спешите с укрытием.\n\n"
+            "Источник: https://example.com/autumn\n#Практика #Сад")
+    f = pf.format_post(post, keep_headline_emoji=True, agro_style=True)
+    cap, cont = pf.split_for_photo(f, caption_limit=1024, message_limit=4090)
+    assert cap and cont
+    assert "**🛡️ Осмотрите растения на болезни**" in f
+    assert "**🌬️ Проветривание и просушка укрытий**" in f
+    assert "**🌿 Вывод:** _Действуйте в сухую погоду и не спешите с укрытием._" in cont
+    for part in (cap, cont):
+        assert part.count("**") % 2 == 0
+        assert pf.to_markdownv2(part)
+
+
 def test_italic_rendering_single_underscore():
     """Короткие ремарки доходят читателю курсивом: парные _..._ -> курсив
     MarkdownV2 (одинарные _); непарные _ (слово с подчёркиванием, URL) —

@@ -267,7 +267,11 @@ def test_publish_short_post_single_photo_with_full_caption(st, monkeypatch):
     assert re.search(r"[.!?…]$", cap_blocks[1]), cap_blocks[1]
     # полнота: рекомендации и вывод — в подписи (пост целиком, без обрезки)
     for b in AI_POST.split("\n\n")[2:]:
-        assert b in cap, b
+        if b.startswith("Вывод:"):
+            assert "🌿 Вывод:" in cap
+            assert b.split(":", 1)[1].strip() in cap
+        else:
+            assert b in cap, b
     # короткий пост: источник указан ровно один раз — в конце единого сообщения
     assert cap.count("Источник: " + ART_URL) == 1
     assert " ".join(r["hashtags"]) in cap
@@ -509,7 +513,7 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert cap_blocks[0] == YAB_TITLE                  # текст заголовка цел
     # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
     assert "*%s*" % _esc(YAB_TITLE) in seen["caption"]
-    assert "*Вывод*:" in seen["full"]
+    assert "*🌿 Вывод:*" in seen["full"]
     assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "держит листья" in cap_blocks[1]             # вступление в подписи
     assert "Обрывать листья вручную не нужно" in cap   # советы уже в подписи
@@ -531,7 +535,11 @@ def test_regression_msg81_full_post_photo_intro_recs_in_message(st, monkeypatch)
     assert "Обрывать листья вручную не нужно" not in full  # и тело из подписи
     # каждый абзац тела — ровно в одном сообщении (нет потерь и дублей)
     for b in YAB_POST.split("\n\n")[1:]:
-        assert (b in cap) != (b in full), b
+        if b.startswith("Вывод:"):
+            assert "🌿 Вывод:" in full
+            assert b.split(":", 1)[1].strip() in full
+        else:
+            assert (b in cap) != (b in full), b
     # источник ровно один раз — в конце последнего сообщения
     assert full.count("Источник: " + YAB_URL) == 1
     assert "…" not in full and "…" not in cap
@@ -863,7 +871,7 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     assert cap_blocks[0] == POB_TITLE                  # текст заголовка цел
     # заголовок и «Вывод» жирными (одинарные *), маркеры ** не публикуются
     assert "*%s*" % _esc(POB_TITLE) in seen["caption"]
-    assert "*Вывод*:" in seen["full"]
+    assert "*🌿 Вывод:*" in seen["full"]
     assert "**" not in seen["caption"] and "**" not in seen["full"]
     assert "После дождей побелка" in cap_blocks[1]      # вступление в подписи
     assert "Оцените состояние коры" in cap              # советы уже в подписи
@@ -886,7 +894,11 @@ def test_regression_pobelka_long_post_is_photo_plus_continuation(st, monkeypatch
     assert full.count("Источник: " + POB_URL) == 1
     # каждый совет и вывод — ровно в одном сообщении (нет потерь и дублей)
     for b in POB_POST.split("\n\n")[2:]:
-        assert (b in cap) != (b in full), b
+        if b.startswith("Вывод:"):
+            assert "🌿 Вывод:" in full
+            assert b.split(":", 1)[1].strip() in full
+        else:
+            assert (b in cap) != (b in full), b
     assert "…" not in full and "…" not in cap
     assert len(seen["full"]) <= 4090
     # пост действительно длиннее лимита подписи -> именно два сообщения

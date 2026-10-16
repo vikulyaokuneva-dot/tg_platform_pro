@@ -154,7 +154,8 @@ def publish_post(text, chat_id=None, dry_run=False, channel="ai", image=None):
     token, target_chat = credentials(channel)
     # agro-канал: ведущий эмодзи заголовка — часть стиля и НЕ удаляется
     formatted = postformat.format_post(text,
-                                       keep_headline_emoji=(channel == "agro"))
+                                       keep_headline_emoji=(channel == "agro"),
+                                       agro_style=(channel == "agro"))
     if dry_run:
         return send_message(token, chat_id or target_chat,
                             formatted, dry_run=True)
