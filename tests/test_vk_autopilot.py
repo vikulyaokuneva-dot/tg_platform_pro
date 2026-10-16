@@ -231,8 +231,52 @@ def test_vk_read_only_self_check_calls_groups_get_by_id_only(monkeypatch):
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", fake_post)
     result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
 
-    assert result == {"configured": True, "ok": True, "error_code": None, "error_kind": "ok"}
+    assert result == {"configured": True, "ok": True, "error_code": None,
+                      "http_status": 200, "error_kind": "ok"}
     assert methods == ["groups.getById"]
+
+
+def test_vk_self_check_preserves_vk_api_error_code(monkeypatch):
+    _configure_vk(monkeypatch)
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: Response({
+        "error": {"error_code": "5", "error_msg": "User authorization failed"}}))
+
+    result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
+
+    assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
+                      "error_code": 5, "http_status": 200}
+
+
+def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
+    _configure_vk(monkeypatch)
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: Response({
+        "error": {"error_msg": "Unknown API error"}}))
+
+    result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
+
+    assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
+                      "error_code": None, "http_status": 200}
+
+
+def test_vk_self_check_classifies_http_network_json_and_response_errors(monkeypatch):
+    _configure_vk(monkeypatch)
+    publisher = VkPublisher("vk-test-token", "242354758", retries=0, sleep=lambda _: None)
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: Response({}, status=429))
+    assert vk_autopilot.self_check(publisher)["error_kind"] == "http"
+    assert vk_autopilot.self_check(publisher)["http_status"] == 429
+
+    def timeout(*args, **kwargs):
+        raise requests.Timeout("network")
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", timeout)
+    assert vk_autopilot.self_check(publisher)["error_kind"] == "network"
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: Response(ValueError("invalid JSON")))
+    assert vk_autopilot.self_check(publisher)["error_kind"] == "json"
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: Response({"bad": "shape"}))
+    assert vk_autopilot.self_check(publisher)["error_kind"] == "response"
 
 
 def test_vk_defaults_are_safe_and_daily_limit_is_one():

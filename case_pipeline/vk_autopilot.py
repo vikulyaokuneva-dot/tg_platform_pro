@@ -417,13 +417,15 @@ def aggregate_diagnostics(report):
 
 def self_check(publisher=None):
     """Read-only credentials/group check.  It never calls upload or wall.post."""
-    if not config.VK_ACCESS_TOKEN or not config.VK_GROUP_ID:
+    client = publisher or VkPublisher()
+    if not client.configured():
         return {"configured": False, "ok": False, "error_code": None,
-                "error_kind": "credentials_not_configured"}
-    result = (publisher or VkPublisher()).check_access(require_photo_upload=False)
+                "http_status": None, "error_kind": "credentials_not_configured"}
+    result = client.check_access(require_photo_upload=False)
     return {"configured": True, "ok": bool(result.ok),
             "error_code": result.error_code,
-            "error_kind": "ok" if result.ok else "api_error"}
+            "http_status": result.http_status,
+            "error_kind": "ok" if result.ok else (result.error_kind or "unknown")}
 
 
 def enqueue_eligible(st, provider=None):

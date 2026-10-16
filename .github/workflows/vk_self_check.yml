@@ -34,7 +34,7 @@ jobs:
           if result["ok"]:
               print("VK self-check: OK")
           else:
-              print("VK self-check: FAILED (kind=%s, code=%s)" % (
-                  result["error_kind"], result["error_code"]))
+              print("VK self-check: FAILED (kind=%s, code=%s, http_status=%s)" % (
+                  result["error_kind"], result["error_code"], result["http_status"]))
               raise SystemExit(1)
           PY

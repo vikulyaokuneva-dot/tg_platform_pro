@@ -31,6 +31,8 @@ class VkResult:
     retryable: bool = False
     uncertain: bool = False
     data: object = None
+    # Bounded diagnostic category; response bodies are never kept for logs.
+    error_kind: str = ""
 
 
 class VkPublisher:
@@ -47,17 +49,28 @@ class VkPublisher:
         return bool(self.token and self.group_id.isdigit() and int(self.group_id) > 0)
 
     @staticmethod
-    def _error(code, message, http_status=None, retryable=False, uncertain=False):
+    def _error(code, message, http_status=None, retryable=False, uncertain=False,
+               error_kind="vk_api"):
         # VK error payload does not need request echoing; avoid carrying tokens
         # or signed upload URLs into logs/SQLite diagnostics.
         return VkResult(False, error="VK error%s: %s" %
                         ((" %s" % code) if code is not None else "", (message or "unknown")[:300]),
                         error_code=code, http_status=http_status,
-                        retryable=retryable, uncertain=uncertain)
+                        retryable=retryable, uncertain=uncertain,
+                        error_kind=error_kind)
+
+    @staticmethod
+    def _vk_error_code(value):
+        """Return an integer VK API error code, never an arbitrary payload."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _api(self, method, params=None, mutating=False):
         if not self.configured():
-            return self._error(None, "VK_ACCESS_TOKEN or VK_GROUP_ID is not configured")
+            return self._error(None, "VK_ACCESS_TOKEN or VK_GROUP_ID is not configured",
+                               error_kind="configuration")
         payload = dict(params or {})
         payload.update({"access_token": self.token, "v": config.VK_API_VERSION})
         last = None
@@ -69,50 +82,64 @@ class VkPublisher:
                 if mutating:
                     return self._error(None, "network error during %s: %s" %
                                        (method, type(exc).__name__),
-                                       retryable=True, uncertain=True)
+                                       retryable=True, uncertain=True,
+                                       error_kind="network")
                 last = self._error(None, "network error during %s: %s" %
-                                   (method, type(exc).__name__), retryable=True)
+                                   (method, type(exc).__name__), retryable=True,
+                                   error_kind="network")
             else:
                 if response.status_code == 429:
-                    last = self._error(429, "HTTP rate limit", response.status_code, retryable=True)
+                    last = self._error(None, "HTTP rate limit", response.status_code,
+                                       retryable=True, error_kind="http")
                 elif response.status_code >= 500:
                     if mutating:
-                        return self._error(response.status_code,
+                        return self._error(None,
                                            "server error during %s" % method,
                                            response.status_code, retryable=True,
-                                           uncertain=True)
-                    last = self._error(response.status_code,
+                                           uncertain=True, error_kind="http")
+                    last = self._error(None,
                                        "server error during %s" % method,
-                                       response.status_code, retryable=True)
+                                       response.status_code, retryable=True,
+                                       error_kind="http")
                 else:
                     try:
                         data = response.json()
                     except ValueError:
                         if mutating:
-                            return self._error(response.status_code,
+                            return self._error(None,
                                                "invalid response during %s" % method,
-                                               response.status_code, uncertain=True)
-                        last = self._error(response.status_code,
+                                               response.status_code, uncertain=True,
+                                               error_kind="json")
+                        last = self._error(None,
                                            "invalid response during %s" % method,
-                                           response.status_code, retryable=True)
+                                           response.status_code, retryable=True,
+                                           error_kind="json")
                     else:
-                        err = data.get("error") if isinstance(data, dict) else None
-                        if not err:
+                        if not isinstance(data, dict):
+                            return self._error(None, "unexpected JSON response during %s" % method,
+                                               response.status_code, error_kind="response")
+                        err = data.get("error")
+                        if isinstance(err, dict):
+                            code = self._vk_error_code(err.get("error_code"))
+                            message = err.get("error_msg") or "VK API error"
+                            # Error response is a confirmed non-publication, so a
+                            # small bounded retry for VK throttling is safe.
+                            last = self._error(code, message, response.status_code,
+                                               retryable=code in (6, 9),
+                                               error_kind="vk_api")
+                            if code not in (6, 9):
+                                return last
+                        elif "response" in data:
                             return VkResult(True, http_status=response.status_code,
-                                            data=data.get("response") if isinstance(data, dict) else data)
-                        code = err.get("error_code")
-                        message = err.get("error_msg") or "VK API error"
-                        # Error response is a confirmed non-publication, so a
-                        # small bounded retry for VK throttling is safe.
-                        last = self._error(code, message, response.status_code,
-                                           retryable=code in (6, 9))
-                        if code not in (6, 9):
-                            return last
+                                            data=data["response"])
+                        else:
+                            return self._error(None, "unexpected VK response envelope during %s" % method,
+                                               response.status_code, error_kind="response")
             if attempt < self.retries and last and last.retryable:
                 self.sleep(min(2 ** attempt, 4))
                 continue
-            return last or self._error(None, "VK API call failed")
-        return last or self._error(None, "VK API call failed")
+            return last or self._error(None, "VK API call failed", error_kind="unknown")
+        return last or self._error(None, "VK API call failed", error_kind="unknown")
 
     def check_access(self, require_photo_upload=False):
         """Verifies token + requested community without creating a post."""
@@ -122,10 +149,11 @@ class VkPublisher:
         groups = result.data if isinstance(result.data, list) else []
         group = groups[0] if groups else {}
         if str(group.get("id") or "") != self.group_id:
-            return self._error(None, "requested VK group is not available to this token")
+            return self._error(None, "requested VK group is not available to this token",
+                               error_kind="access")
         info = {"group": {"id": group.get("id"), "name": group.get("name", "")}}
         if not require_photo_upload:
-            return VkResult(True, data=info)
+            return VkResult(True, data=info, http_status=result.http_status)
         upload = self._api("photos.getWallUploadServer", {"group_id": self.group_id})
         if not upload.ok:
             if upload.error_code == 27:
