@@ -216,10 +216,18 @@ class VkPublisher:
         group_container = None
         nested_structure_present = None
         if isinstance(result.data, dict):
-            # Accept only the documented direct object form.  A nested object
-            # is diagnosed structurally below, never searched for a guessed ID.
-            group = result.data
-            group_container = "object"
+            # Only the confirmed direct object and ``groups`` list formats are
+            # supported.  Do not recursively search arbitrary nested values.
+            if result.data.get("id") is not None:
+                group = result.data
+                group_container = "object"
+            elif isinstance(result.data.get("groups"), list):
+                group_container = "object_groups_first_item"
+                groups = result.data["groups"]
+                if groups and isinstance(groups[0], dict):
+                    group = groups[0]
+            else:
+                group_container = "object"
             nested_structure_present = any(
                 isinstance(value, (dict, list)) for value in result.data.values())
         elif isinstance(result.data, list):

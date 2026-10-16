@@ -366,19 +366,41 @@ def test_vk_self_check_rejects_missing_or_mismatched_id_without_guessing_nested_
     assert wrong_id["response_shape"]["community_id_match"] is False
 
 
-def test_vk_self_check_reports_groups_shape_without_parsing_it_as_a_group(monkeypatch):
+def test_vk_self_check_accepts_confirmed_groups_container(monkeypatch):
     _configure_vk(monkeypatch)
     publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: _api_ok({
-        "groups": [{"id": 242354758, "name": "not logged"}], "count": 1}))
+        "groups": [{"id": 242354758, "name": "not logged"}], "profiles": []}))
 
     result = vk_autopilot.self_check(publisher)
 
-    assert result["error_kind"] == "access"
+    assert result["ok"] and result["http_status"] == 200
+    assert result["response_shape"]["group_container"] == "object_groups_first_item"
     assert result["response_shape"]["groups_container"] == {
         "present": True, "type": "list", "first_item_type": "dict",
         "first_item_has_id": True}
-    assert result["response_shape"]["community_id_match"] is None
+    assert result["response_shape"]["community_id_match"] is True
+
+
+def test_vk_self_check_rejects_empty_or_wrong_groups_container_id(monkeypatch):
+    _configure_vk(monkeypatch)
+    publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok({"groups": [], "profiles": []}))
+    empty_groups = vk_autopilot.self_check(publisher)
+
+    assert empty_groups["error_kind"] == "access"
+    assert empty_groups["response_shape"]["group_container"] == "object_groups_first_item"
+    assert empty_groups["response_shape"]["community_id_match"] is None
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok({"groups": [{"id": 1}], "profiles": []}))
+    wrong_group = vk_autopilot.self_check(publisher)
+
+    assert wrong_group["error_kind"] == "access"
+    assert wrong_group["http_status"] == 200
+    assert wrong_group["response_shape"]["community_id_match"] is False
 
 
 def test_vk_defaults_are_safe_and_daily_limit_is_one():
