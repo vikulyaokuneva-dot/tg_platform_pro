@@ -30,7 +30,10 @@ jobs:
   daily-vk:
     runs-on: ubuntu-latest
     env:
-      VK_PUBLISH: ${{ vars.VK_PUBLISH }}
+      # Deliberately separate from the existing VK_PUBLISH variable consumed
+      # by daily_jobs.yml.  This keeps the new image-required lane independent
+      # and prevents enabling it from activating the legacy AGRO-side VK call.
+      VK_PUBLISH: ${{ vars.VK_DAILY_PUBLISH }}
       VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +57,9 @@ jobs:
         run: test "${{ inputs.confirm }}" = "PUBLISH_ONE_DAILY_VK_POST"
 
       - name: Persist pre-publication claim
-        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        if: >-
+          (github.event_name == 'schedule' && vars.VK_DAILY_PUBLISH == '1') ||
+          (inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_DAILY_PUBLISH == '1')
         run: |
           python -m case_pipeline.vk_daily_autopilot claim --state vk_daily/queue.json --root .
           git config user.name "github-actions[bot]"
@@ -64,13 +69,17 @@ jobs:
           git push origin HEAD:main
 
       - name: Publish one claimed VK post with approved image
-        if: inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        if: >-
+          (github.event_name == 'schedule' && vars.VK_DAILY_PUBLISH == '1') ||
+          (inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_DAILY_PUBLISH == '1')
         env:
           VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
         run: python -m case_pipeline.vk_daily_autopilot publish --state vk_daily/queue.json --root .
 
       - name: Persist final VK daily result
-        if: always() && inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_PUBLISH == '1'
+        if: >-
+          always() && ((github.event_name == 'schedule' && vars.VK_DAILY_PUBLISH == '1') ||
+          (inputs.mode == 'publish' && inputs.confirm == 'PUBLISH_ONE_DAILY_VK_POST' && vars.VK_DAILY_PUBLISH == '1'))
         run: |
           if git diff --quiet -- vk_daily/queue.json; then exit 0; fi
           git config user.name "github-actions[bot]"

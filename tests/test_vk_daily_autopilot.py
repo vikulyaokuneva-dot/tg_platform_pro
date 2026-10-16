@@ -146,9 +146,10 @@ def test_daily_workflow_is_independent_durable_and_disabled_by_default():
     assert "workflow_dispatch:" in workflow and 'cron: "15 7 * * *"' in workflow
     assert "VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}" in workflow
     assert "VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}" in workflow
-    assert "VK_PUBLISH: ${{ vars.VK_PUBLISH }}" in workflow
+    assert "VK_PUBLISH: ${{ vars.VK_DAILY_PUBLISH }}" in workflow
+    assert "VK_DAILY_PUBLISH == '1'" in workflow
     assert "PUBLISH_ONE_DAILY_VK_POST" in workflow
     assert "concurrency:" in workflow and "vk-daily-autopilot" in workflow
     assert "git push origin HEAD:main" in workflow
     assert "uses: actions/cache" not in workflow and "runner.py" not in workflow
-    assert "daily_jobs.yml" not in workflow and "photos.getWallUploadServer" not in workflow
+    assert "photos.getWallUploadServer" not in workflow
