@@ -232,7 +232,11 @@ def test_vk_read_only_self_check_calls_groups_get_by_id_only(monkeypatch):
     result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
 
     assert result == {"configured": True, "ok": True, "error_code": None,
-                      "http_status": 200, "error_kind": "ok"}
+                      "http_status": 200, "error_kind": "ok",
+                      "response_shape": {"response_present": True, "error_present": False,
+                                         "response_type": "list", "expected_response_type": "list",
+                                         "expected_group_fields": ["id"], "first_item_type": "dict",
+                                         "community_id_match": True}}
     assert methods == ["groups.getById"]
 
 
@@ -244,7 +248,11 @@ def test_vk_self_check_preserves_vk_api_error_code(monkeypatch):
     result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
 
     assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
-                      "error_code": 5, "http_status": 200}
+                      "error_code": 5, "http_status": 200,
+                      "response_shape": {"response_present": False, "error_present": True,
+                                         "response_type": None, "expected_response_type": "list",
+                                         "expected_group_fields": ["id"],
+                                         "community_id_match": None}}
 
 
 def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
@@ -255,7 +263,11 @@ def test_vk_self_check_classifies_error_payload_without_code(monkeypatch):
     result = vk_autopilot.self_check(VkPublisher("vk-test-token", "242354758", sleep=lambda _: None))
 
     assert result == {"configured": True, "ok": False, "error_kind": "vk_api",
-                      "error_code": None, "http_status": 200}
+                      "error_code": None, "http_status": 200,
+                      "response_shape": {"response_present": False, "error_present": True,
+                                         "response_type": None, "expected_response_type": "list",
+                                         "expected_group_fields": ["id"],
+                                         "community_id_match": None}}
 
 
 def test_vk_self_check_classifies_http_network_json_and_response_errors(monkeypatch):
@@ -277,6 +289,30 @@ def test_vk_self_check_classifies_http_network_json_and_response_errors(monkeypa
 
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", lambda *a, **k: Response({"bad": "shape"}))
     assert vk_autopilot.self_check(publisher)["error_kind"] == "response"
+
+
+def test_vk_self_check_reports_safe_shape_and_preserves_access_http_status(monkeypatch):
+    _configure_vk(monkeypatch)
+    publisher = VkPublisher("vk-test-token", "242354758", sleep=lambda _: None)
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok({"id": 242354758}))
+    unexpected_type = vk_autopilot.self_check(publisher)
+
+    assert unexpected_type["error_kind"] == "access"
+    assert unexpected_type["http_status"] == 200
+    assert unexpected_type["response_shape"] == {
+        "response_present": True, "error_present": False, "response_type": "dict",
+        "expected_response_type": "list", "expected_group_fields": ["id"],
+        "first_item_type": None, "community_id_match": None}
+
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
+                        lambda *a, **k: _api_ok([{"id": 1, "name": "not logged"}]))
+    wrong_id = vk_autopilot.self_check(publisher)
+
+    assert wrong_id["error_kind"] == "access"
+    assert wrong_id["http_status"] == 200
+    assert wrong_id["response_shape"]["community_id_match"] is False
 
 
 def test_vk_defaults_are_safe_and_daily_limit_is_one():
@@ -462,6 +498,8 @@ def test_vk_self_check_workflow_is_manual_and_read_only():
     assert 'VK_PUBLISH: "0"' in workflow and 'VK_SELF_CHECK: "1"' in workflow
     assert "vk_autopilot.self_check()" in workflow
     assert "VK self-check: OK" in workflow
+    assert 'result["response_shape"]' in workflow
+    assert 'result["error"]' not in workflow
     assert "runner.py" not in workflow
     assert "wall.post" not in workflow and "photos.getWallUploadServer" not in workflow
     assert "cache/" not in workflow and "sqlite" not in workflow.lower()

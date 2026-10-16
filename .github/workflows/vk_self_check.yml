@@ -28,9 +28,12 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import json
           from case_pipeline import vk_autopilot
 
           result = vk_autopilot.self_check()
+          print("VK self-check diagnostic: %s" % json.dumps(
+              result["response_shape"], sort_keys=True, ensure_ascii=True))
           if result["ok"]:
               print("VK self-check: OK")
           else:

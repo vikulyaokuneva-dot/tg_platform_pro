@@ -420,12 +420,21 @@ def self_check(publisher=None):
     client = publisher or VkPublisher()
     if not client.configured():
         return {"configured": False, "ok": False, "error_code": None,
-                "http_status": None, "error_kind": "credentials_not_configured"}
+                "http_status": None, "error_kind": "credentials_not_configured",
+                "response_shape": {"response_present": False, "error_present": False,
+                                   "response_type": None, "expected_response_type": "list",
+                                   "expected_group_fields": ["id"],
+                                   "community_id_match": None}}
     result = client.check_access(require_photo_upload=False)
+    shape = {"response_present": False, "error_present": False,
+             "response_type": None, "expected_response_type": "list",
+             "expected_group_fields": ["id"], "community_id_match": None}
+    shape.update(result.response_meta or {})
     return {"configured": True, "ok": bool(result.ok),
             "error_code": result.error_code,
             "http_status": result.http_status,
-            "error_kind": "ok" if result.ok else (result.error_kind or "unknown")}
+            "error_kind": "ok" if result.ok else (result.error_kind or "unknown"),
+            "response_shape": shape}
 
 
 def enqueue_eligible(st, provider=None):
