@@ -1,54 +1,128 @@
 {
   "materials": {
+    "102": {
+      "editorial_status": "verified",
+      "fingerprint": "17ba13cc482906af7a7bd7d4172b1d860694c5a12dd790b9c8498e3ed8d0b1c0",
+      "material_id": 102,
+      "media": {
+        "license": null,
+        "path": null,
+        "sha256": null
+      },
+      "source_url": "https://www.botanichka.ru/article/fosfor-dlya-yagodnika-osenyu-3-sluchaya-kogda-on-dejstvitelno-nuzhen/",
+      "status": "pending",
+      "vk_text": "🌿 Фосфор для ягодника осенью: 3 случая, когда он действительно нужен\n\nСовет «осенью под ягодники нужен фосфор» повторяют каждый год, но работает он не так, как обещают. Суперфосфат, внесённый в октябре, почти не поможет кусту перезимовать: в холодной земле фосфор усваивается плохо и начнёт действовать только весной.\n\n🌿 И нужен он далеко не всем кустам. Ниже о том, как без лаборатории понять, нужен ли он вашим посадкам, сколько и как его вносить и что в октябре важнее подкормки.\n\n🌿 Речь о смородине, крыжовнике, малине и голубике. У клубники свои сроки, о ней здесь не говорим.\n\n🍂 Не поздно ли в октябре Пока земля не промёрзла, вносить можно. Воздух остывает быстро, почва медленно: на траве по утрам иней, а под мульчей и листвой земля ещё тёплая и мягкая.\n\nИсточник: https://www.botanichka.ru/article/fosfor-dlya-yagodnika-osenyu-3-sluchaya-kogda-on-dejstvitelno-nuzhen/"
+    },
+    "104": {
+      "agro_image_url": "https://cdn2.botanichka.ru/wp-content/uploads/2026/10/chem-protirat-listya-dlya-bleska-0-1.jpg",
+      "claimed_at": "2026-10-17T11:15:00Z",
+      "editorial_status": "verified",
+      "fingerprint": "b06b930abae4fccb34e96273dd57fc5f38e309f4b76fb8f3ddb0c90c57c5d6d2",
+      "material_id": 104,
+      "media": {
+        "attribution": "Фото: Smatu / Wikimedia Commons — CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/",
+        "author": "Smatu",
+        "license": "licensed",
+        "license_name": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        "origin": "licensed_file",
+        "path": "vk_daily/assets/monstera-deliciosa-smatu-cc-by-sa-4.0.jpg",
+        "rights_reference": "https://commons.wikimedia.org/wiki/File:Monstera_deliciosa_DSC02605.jpg",
+        "sha256": "df8576d4a94edbac8b4d56204628a8ff1a94f8c7cb608c9bbb2c8d4e751f7a1a",
+        "source_image_url": "https://upload.wikimedia.org/wikipedia/commons/6/64/Monstera_deliciosa_DSC02605.jpg"
+      },
+      "source_url": "https://www.botanichka.ru/article/chem-protirat-listya-komnatnyh-rastenij-dlya-bleska/",
+      "status": "publishing",
+      "vk_text": "🌿 Чем протирать листья комнатных растений для блеска?\n\nОсенью фикус, который летом радовал глянцем, частенько незаметно тускнеет. Включили отопление, пыль стала оседать быстрее, на тёмных листьях проступили белёсые разводы от капель, а монстера в углу кажется скорее серой, чем зелёной.\n\n🌿 Рука тянется к тряпке, а память подсказывает советы из интернета: протереть молоком, капнуть масла, натереть банановой кожурой или купить спрей-полироль. Почти все эти приёмы работают одинаково.\n\n⚠️ Они оставляют на листе плёнку, которая блестит день-другой, а потом собирает пыль быстрее чистой поверхности. Гладкому листу не нужно добавлять блеск извне: у него есть собственный восковой слой, кутикула, и чаще всего достаточно снять то, что её закрывает.\n\nИсточник: https://www.botanichka.ru/article/chem-protirat-listya-komnatnyh-rastenij-dlya-bleska/\n\nФото: Smatu / Wikimedia Commons — CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
+    },
+    "123": {
+      "agro_image_url": "https://aif-s3.aif.ru/images/048/130/39b7f915d5d8aa51f0a41c14451b2a42.webp",
+      "editorial_status": "verified",
+      "fingerprint": "c1cdca2de67109dbcbd48e64463c0ebb19aba782b86af1dd0926191d6c3abb58",
+      "material_id": 123,
+      "media": {
+        "license": null,
+        "origin": "agro_source",
+        "path": null,
+        "rights_reference": null,
+        "sha256": null,
+        "source_image_url": "https://aif-s3.aif.ru/images/048/130/39b7f915d5d8aa51f0a41c14451b2a42.webp"
+      },
+      "source_url": "https://aif.ru/dacha/ogorod/agronom-terentev-rasskazal-kak-s-polzoy-ispolzovat-opavshuyu-listvu",
+      "status": "pending",
+      "vk_text": "🍂 Агроном Терентьев рассказал, как с пользой использовать опавшую листву\n\nОчистка газонов и дорожек от опавших листьев — это обязательная процедура сезонной гигиены сада. Однако выбрасывать собранное сырье за забор или сжигать его не стоит, ведь сухие листья можно утилизировать с умом и превратить в ценный бесплатный ресурс для будущих посадок.\n\n🛡️ «Часть сухих листьев можно собрать в мешки и сохранить до следующего сезона. Весной и летом ими удобно мульчировать овощные грядки. Даже крупная листва яблони, груши, клена и других деревьев для этого пригодна», — советует агроном Денис Терентьев. Важное преимущество такого подхода — биологическая избирательность вредителей и болезней.\n\nИсточник: https://aif.ru/dacha/ogorod/agronom-terentev-rasskazal-kak-s-polzoy-ispolzovat-opavshuyu-listvu"
+    },
+    "124": {
+      "agro_image_url": "https://aif-s3.aif.ru/images/048/126/de834d6b5b4a5040472dff193464cf70.webp",
+      "editorial_status": "verified",
+      "fingerprint": "48073a93f41b518159481b246c5811208c026183beecabc58fd946e9db01a139",
+      "material_id": 124,
+      "media": {
+        "license": null,
+        "origin": "agro_source",
+        "path": null,
+        "rights_reference": null,
+        "sha256": null,
+        "source_image_url": "https://aif-s3.aif.ru/images/048/126/de834d6b5b4a5040472dff193464cf70.webp"
+      },
+      "source_url": "https://aif.ru/dacha/ogorod/pravila-otbora-podzimnyaya-gryadka-ot-i-do-glavnaya-oshibka-pri-posadke-chesnoka",
+      "status": "pending",
+      "vk_text": "🍂 Правила отбора. Подзимняя грядка от и до: главная ошибка при посадке чеснока\n\nПосадка чеснока под зиму только на первый взгляд кажется простым делом, не требующим особых хитростей. На самом деле будущий размер головок напрямую зависит от ювелирной точности садовода: от калибра каждого зубчика до рецепта весенней азотной подкормки.\n\n💧 Садовод-огородник, ландшафтный дизайнер Ольга Черноусова составила подробную шпаргалку, в которой собрала личный опыт и жёсткие правила, которые превратят ваши грядки в образцово-показательный огород. Правила отбора посадочного материала Раньше с чесноком я делала то, что казалось совершенно разумным: самые крупные и красивые головки оставляла на еду, а на посадку разбирала те, что помельче.\n\n🌿 Теперь делаю наоборот. Лучший чеснок приходится буквально отбирать у кухни.\n\nИсточник: https://aif.ru/dacha/ogorod/pravila-otbora-podzimnyaya-gryadka-ot-i-do-glavnaya-oshibka-pri-posadke-chesnoka"
+    },
     "29": {
       "editorial_status": "verified",
       "fingerprint": "59f2bb9373622f4baad075e87170053879ebd88a20f2a91d4b0726d6ee5cd692",
       "material_id": 29,
-      "media": {"license": null, "path": null, "sha256": null},
+      "media": {
+        "license": null,
+        "path": null,
+        "sha256": null
+      },
+      "published_at": "2026-10-16T00:00:00Z",
       "source_url": "https://www.botanichka.ru/article/kak-rasschitat-czvetenie-gippeastruma-realnye-sroki-s-oseni-do-vesny/",
       "status": "published",
       "vk_owner_id": -242354758,
       "vk_post_id": 2,
-      "published_at": "2026-10-16T00:00:00Z",
       "vk_text": "🍂 Как рассчитать цветение гиппеаструма: реальные сроки с осени до весны\n\nВ начале октября на подоконнике стоит крепкий гиппеаструм с длинными зелёными листьями, и появляется соблазн всё рассчитать: сейчас отправить его отдыхать, а к Новому году получить стрелку. До праздника почти три месяца, и кажется, что этого хватит.\n\n🌱 На деле такой гиппеаструм обычно зацветает уже после праздников, в лучшем случае в конце января, а чаще в феврале или марте. В расчёте «в октябре покой, в декабре цветы» пропущены два этапа.\n\n🌱 Сначала листьям нужно несколько недель, чтобы пожелтеть и отдать луковице накопленное за лето, и только потом начинается сам отдых длиной 8–12 недель. Второй этап идёт после пробуждения: цветоносу требуется ещё 4–8 недель, чтобы вырасти и раскрыть бутоны.\n\nИсточник: https://www.botanichka.ru/article/kak-rasschitat-czvetenie-gippeastruma-realnye-sroki-s-oseni-do-vesny/"
     },
     "30": {
-      "editorial_status": "verified", "fingerprint": "2cf57de969cbaa94347674b190f423475989e9b3b1785ee1e813d8486d8aa026", "material_id": 30,
-      "media": {"license": null, "path": null, "sha256": null}, "source_url": "https://www.botanichka.ru/article/kak-perevesti-krolikov-na-zimnee-kormlenie/", "status": "pending",
+      "editorial_status": "verified",
+      "fingerprint": "2cf57de969cbaa94347674b190f423475989e9b3b1785ee1e813d8486d8aa026",
+      "material_id": 30,
+      "media": {
+        "license": null,
+        "path": null,
+        "sha256": null
+      },
+      "source_url": "https://www.botanichka.ru/article/kak-perevesti-krolikov-na-zimnee-kormlenie/",
+      "status": "pending",
       "vk_text": "🍂 Как перевести кроликов на зимнее кормление?\n\nВ середине осени трава на участке редеет, одуванчики почти пропадают, и кролик, привыкший к охапке свежей зелени, вдруг остаётся без любимой еды. Многим первым делом хочется насыпать побольше зерна или гранул, чтобы зверёк не голодал.\n\n💧 Делать этого не нужно. Если у кролика всегда есть хорошее сено и чистая вода, траву можно убирать постепенно, каждый день поглядывая на аппетит и содержимое лотка, и в большинстве случаев всё проходит спокойно.\n\n🌿 Есть, правда, ситуация, в которой ни о каком привыкании речи не идёт. Если кролик перестал есть, почти не оставляет помёта, сидит сгорбившись, скрипит зубами или у него заметно вздулся живот, звоните ветеринару сразу, желательно тому, кто работает с кроликами.\n\nИсточник: https://www.botanichka.ru/article/kak-perevesti-krolikov-na-zimnee-kormlenie/"
     },
     "31": {
-      "editorial_status": "verified", "fingerprint": "5f400776398f71afeb01af28db64296735cca2e9e1eb41c9274c0667f8eba3da", "material_id": 31,
-      "media": {"license": null, "path": null, "sha256": null}, "source_url": "https://www.botanichka.ru/article/chto-prigotovit-iz-tykvy-bystro-i-vkusno-9-otlichnyh-reczeptov/", "status": "pending",
+      "editorial_status": "verified",
+      "fingerprint": "5f400776398f71afeb01af28db64296735cca2e9e1eb41c9274c0667f8eba3da",
+      "material_id": 31,
+      "media": {
+        "license": null,
+        "path": null,
+        "sha256": null
+      },
+      "source_url": "https://www.botanichka.ru/article/chto-prigotovit-iz-tykvy-bystro-i-vkusno-9-otlichnyh-reczeptov/",
+      "status": "pending",
       "vk_text": "🌿 Что приготовить из тыквы быстро и вкусно? 9 отличных рецептов\n\nИз тыквы получается гораздо больше, чем каша: густой суп, сливочный соус для пасты, гарнир к мясу, тёплый салат и даже кекс, который за пару минут готовится в кружке в микроволновке. Почти ни один рецепт ниже не займёт больше 35–40 минут вместе с нарезкой и жаркой, а для двух десертов понадобится заранее приготовленное пюре.\n\n🌱 Во всех рецептах масса тыквы указана уже после очистки от кожуры и семян. На отходы обычно уходит около четверти веса, а у крупных тыкв с толстой коркой и большой семенной камерой бывает и треть, так что для рецепта на 500 г лучше брать кусок примерно в 700 г.\n\n💧 Удобнее всего работать с мускатными сортами, например с баттернатом. Мякоть у них плотная и сладкая, воды немного, а тонкую кожуру легко снять овощечисткой.\n\nИсточник: https://www.botanichka.ru/article/chto-prigotovit-iz-tykvy-bystro-i-vkusno-9-otlichnyh-reczeptov/"
     },
     "81": {
-      "editorial_status": "verified", "fingerprint": "a35b7a1e8d7c23c7372b8e1086b07242a44caa469530ba8c1f132a682d99ce87", "material_id": 81,
-      "media": {"license": null, "path": null, "sha256": null}, "source_url": "https://www.botanichka.ru/article/podgotovka-pionov-k-zime-chto-sdelat-sejchas-a-s-chem-ne-speshit/", "status": "pending",
+      "editorial_status": "verified",
+      "fingerprint": "a35b7a1e8d7c23c7372b8e1086b07242a44caa469530ba8c1f132a682d99ce87",
+      "material_id": 81,
+      "media": {
+        "license": null,
+        "path": null,
+        "sha256": null
+      },
+      "source_url": "https://www.botanichka.ru/article/podgotovka-pionov-k-zime-chto-sdelat-sejchas-a-s-chem-ne-speshit/",
+      "status": "pending",
       "vk_text": "🍂 Подготовка пионов к зиме: что сделать сейчас, а с чем не спешить\n\nВ октябре многие выходят к пионам с секатором и за один выходной стараются сделать всё сразу: срезать ботву, подсыпать удобрение, пролить землю «от болезней» и укрыть куст. Заметная часть этой работы пиону не нужна, а кое-что ему вредит.\n\n⚠️ Здоровые листья, срезанные раньше времени, могли бы ещё несколько недель питать корни, химия не заменит уборку больной ботвы, а толстый слой сырой мульчи на почках скорее повредит, чем защитит. Поэтому ориентироваться стоит на состояние куста и погоду, а дата в календаре здесь мало что значит.\n\n🍂 И одно предупреждение: пышного цветения осенние процедуры сами по себе не обеспечат. В октябре достаточно убрать то, что может навредить, и не создать новых проблем.\n\nИсточник: https://www.botanichka.ru/article/podgotovka-pionov-k-zime-chto-sdelat-sejchas-a-s-chem-ne-speshit/"
-    },
-    "102": {
-      "editorial_status": "verified", "fingerprint": "17ba13cc482906af7a7bd7d4172b1d860694c5a12dd790b9c8498e3ed8d0b1c0", "material_id": 102,
-      "media": {"license": null, "path": null, "sha256": null}, "source_url": "https://www.botanichka.ru/article/fosfor-dlya-yagodnika-osenyu-3-sluchaya-kogda-on-dejstvitelno-nuzhen/", "status": "pending",
-      "vk_text": "🌿 Фосфор для ягодника осенью: 3 случая, когда он действительно нужен\n\nСовет «осенью под ягодники нужен фосфор» повторяют каждый год, но работает он не так, как обещают. Суперфосфат, внесённый в октябре, почти не поможет кусту перезимовать: в холодной земле фосфор усваивается плохо и начнёт действовать только весной.\n\n🌿 И нужен он далеко не всем кустам. Ниже о том, как без лаборатории понять, нужен ли он вашим посадкам, сколько и как его вносить и что в октябре важнее подкормки.\n\n🌿 Речь о смородине, крыжовнике, малине и голубике. У клубники свои сроки, о ней здесь не говорим.\n\n🍂 Не поздно ли в октябре Пока земля не промёрзла, вносить можно. Воздух остывает быстро, почва медленно: на траве по утрам иней, а под мульчей и листвой земля ещё тёплая и мягкая.\n\nИсточник: https://www.botanichka.ru/article/fosfor-dlya-yagodnika-osenyu-3-sluchaya-kogda-on-dejstvitelno-nuzhen/"
-    },
-    "104": {
-      "editorial_status": "verified", "fingerprint": "b06b930abae4fccb34e96273dd57fc5f38e309f4b76fb8f3ddb0c90c57c5d6d2", "material_id": 104,
-      "agro_image_url": "https://cdn2.botanichka.ru/wp-content/uploads/2026/10/chem-protirat-listya-dlya-bleska-0-1.jpg",
-      "media": {"origin": "licensed_file", "source_image_url": "https://upload.wikimedia.org/wikipedia/commons/6/64/Monstera_deliciosa_DSC02605.jpg", "license": "licensed", "license_name": "CC BY-SA 4.0", "license_url": "https://creativecommons.org/licenses/by-sa/4.0/", "rights_reference": "https://commons.wikimedia.org/wiki/File:Monstera_deliciosa_DSC02605.jpg", "author": "Smatu", "attribution": "Фото: Smatu / Wikimedia Commons — CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/", "path": "vk_daily/assets/monstera-deliciosa-smatu-cc-by-sa-4.0.jpg", "sha256": "df8576d4a94edbac8b4d56204628a8ff1a94f8c7cb608c9bbb2c8d4e751f7a1a"}, "source_url": "https://www.botanichka.ru/article/chem-protirat-listya-komnatnyh-rastenij-dlya-bleska/", "status": "pending",
-      "vk_text": "🌿 Чем протирать листья комнатных растений для блеска?\n\nОсенью фикус, который летом радовал глянцем, частенько незаметно тускнеет. Включили отопление, пыль стала оседать быстрее, на тёмных листьях проступили белёсые разводы от капель, а монстера в углу кажется скорее серой, чем зелёной.\n\n🌿 Рука тянется к тряпке, а память подсказывает советы из интернета: протереть молоком, капнуть масла, натереть банановой кожурой или купить спрей-полироль. Почти все эти приёмы работают одинаково.\n\n⚠️ Они оставляют на листе плёнку, которая блестит день-другой, а потом собирает пыль быстрее чистой поверхности. Гладкому листу не нужно добавлять блеск извне: у него есть собственный восковой слой, кутикула, и чаще всего достаточно снять то, что её закрывает.\n\nИсточник: https://www.botanichka.ru/article/chem-protirat-listya-komnatnyh-rastenij-dlya-bleska/\n\nФото: Smatu / Wikimedia Commons — CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
-    },
-    "123": {
-      "editorial_status": "verified", "fingerprint": "c1cdca2de67109dbcbd48e64463c0ebb19aba782b86af1dd0926191d6c3abb58", "material_id": 123,
-      "agro_image_url": "https://aif-s3.aif.ru/images/048/130/39b7f915d5d8aa51f0a41c14451b2a42.webp",
-      "media": {"origin": "agro_source", "source_image_url": "https://aif-s3.aif.ru/images/048/130/39b7f915d5d8aa51f0a41c14451b2a42.webp", "license": null, "rights_reference": null, "path": null, "sha256": null}, "source_url": "https://aif.ru/dacha/ogorod/agronom-terentev-rasskazal-kak-s-polzoy-ispolzovat-opavshuyu-listvu", "status": "pending",
-      "vk_text": "🍂 Агроном Терентьев рассказал, как с пользой использовать опавшую листву\n\nОчистка газонов и дорожек от опавших листьев — это обязательная процедура сезонной гигиены сада. Однако выбрасывать собранное сырье за забор или сжигать его не стоит, ведь сухие листья можно утилизировать с умом и превратить в ценный бесплатный ресурс для будущих посадок.\n\n🛡️ «Часть сухих листьев можно собрать в мешки и сохранить до следующего сезона. Весной и летом ими удобно мульчировать овощные грядки. Даже крупная листва яблони, груши, клена и других деревьев для этого пригодна», — советует агроном Денис Терентьев. Важное преимущество такого подхода — биологическая избирательность вредителей и болезней.\n\nИсточник: https://aif.ru/dacha/ogorod/agronom-terentev-rasskazal-kak-s-polzoy-ispolzovat-opavshuyu-listvu"
-    },
-    "124": {
-      "editorial_status": "verified", "fingerprint": "48073a93f41b518159481b246c5811208c026183beecabc58fd946e9db01a139", "material_id": 124,
-      "agro_image_url": "https://aif-s3.aif.ru/images/048/126/de834d6b5b4a5040472dff193464cf70.webp",
-      "media": {"origin": "agro_source", "source_image_url": "https://aif-s3.aif.ru/images/048/126/de834d6b5b4a5040472dff193464cf70.webp", "license": null, "rights_reference": null, "path": null, "sha256": null}, "source_url": "https://aif.ru/dacha/ogorod/pravila-otbora-podzimnyaya-gryadka-ot-i-do-glavnaya-oshibka-pri-posadke-chesnoka", "status": "pending",
-      "vk_text": "🍂 Правила отбора. Подзимняя грядка от и до: главная ошибка при посадке чеснока\n\nПосадка чеснока под зиму только на первый взгляд кажется простым делом, не требующим особых хитростей. На самом деле будущий размер головок напрямую зависит от ювелирной точности садовода: от калибра каждого зубчика до рецепта весенней азотной подкормки.\n\n💧 Садовод-огородник, ландшафтный дизайнер Ольга Черноусова составила подробную шпаргалку, в которой собрала личный опыт и жёсткие правила, которые превратят ваши грядки в образцово-показательный огород. Правила отбора посадочного материала Раньше с чесноком я делала то, что казалось совершенно разумным: самые крупные и красивые головки оставляла на еду, а на посадку разбирала те, что помельче.\n\n🌿 Теперь делаю наоборот. Лучший чеснок приходится буквально отбирать у кухни.\n\nИсточник: https://aif.ru/dacha/ogorod/pravila-otbora-podzimnyaya-gryadka-ot-i-do-glavnaya-oshibka-pri-posadke-chesnoka"
     }
   },
   "version": 1
