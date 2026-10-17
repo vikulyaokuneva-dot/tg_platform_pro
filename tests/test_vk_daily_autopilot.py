@@ -211,6 +211,42 @@ def test_daily_queue_reuses_verified_agro_bytes_once_and_blocks_unavailable_url(
     assert stored["status"] == "pending"
 
 
+@pytest.mark.parametrize("status, expected", [
+    (403, "approved image HTTP 403 unavailable"),
+    (404, "approved image HTTP 404 unavailable"),
+    (429, "approved image HTTP 429 rate limited"),
+])
+def test_daily_queue_classifies_remote_image_http_failures(tmp_path, monkeypatch, status, expected):
+    image = b"\xff\xd8\xff" + b"x" * 2048
+    media, _ = _approved_licensed_url_media(image)
+    record = _record(media=media)
+    record["vk_text"] += "\n\n" + media["attribution"]
+    record["fingerprint"] = hashlib.sha256(
+        ("77\n" + record["source_url"] + "\n" + record["vk_text"]).encode("utf-8")).hexdigest()
+    state = _write_queue(tmp_path, [record])
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
+                        lambda url: (_ for _ in ()).throw(httpclient.FetchError(url, status=status)))
+    report = vk_daily_autopilot.queue_diagnostics(state, str(tmp_path), verify_source=True)
+    assert report["metadata_eligible_material_present"] is True
+    assert report["verified_media_material_present"] is False
+    assert report["publication_ready"] is False
+    assert report["media_holds"] == {expected: 1}
+
+
+def test_daily_queue_classifies_network_image_failure(tmp_path, monkeypatch):
+    image = b"\xff\xd8\xff" + b"x" * 2048
+    media, _ = _approved_licensed_url_media(image)
+    record = _record(media=media)
+    record["vk_text"] += "\n\n" + media["attribution"]
+    record["fingerprint"] = hashlib.sha256(
+        ("77\n" + record["source_url"] + "\n" + record["vk_text"]).encode("utf-8")).hexdigest()
+    state = _write_queue(tmp_path, [record])
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
+                        lambda url: (_ for _ in ()).throw(httpclient.FetchError(url, reason="ConnectionError")))
+    assert vk_daily_autopilot.queue_diagnostics(state, str(tmp_path), verify_source=True)["media_holds"] == {
+        "approved image network error (ConnectionError)": 1}
+
+
 def test_daily_queue_accepts_only_explicitly_licensed_external_image_with_attribution(tmp_path, monkeypatch):
     image = b"\xff\xd8\xff" + b"x" * 2048
     media, _ = _approved_licensed_url_media(image)
@@ -224,7 +260,8 @@ def test_daily_queue_accepts_only_explicitly_licensed_external_image_with_attrib
     report = vk_daily_autopilot.queue_diagnostics(state, str(tmp_path), verify_source=True)
     assert report["publishable_material_present"] is True
     assert vk_daily_autopilot.preview_material(state, 77, str(tmp_path), verify_source=True) == {
-        "material_id": 77, "status": "pending", "media_verified": True, "publishable": True}
+        "material_id": 77, "status": "pending", "media_location": "remote_url",
+        "media_verified": True, "publication_ready": True, "publishable": True}
     claimed = vk_daily_autopilot.claim_one(state, str(tmp_path), expected_material_id=77)
     assert claimed["status"] == "publishing"
 
@@ -259,6 +296,36 @@ def test_daily_queue_rejects_tampered_editorial_text(tmp_path):
     state = _write_queue(tmp_path, [record])
     with pytest.raises(vk_daily_autopilot.DailyQueueError):
         vk_daily_autopilot.queue_diagnostics(state, str(tmp_path))
+
+
+def test_committed_control_image_is_offline_ready_and_integral(monkeypatch):
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    state_path = os.path.join(root, "vk_daily", "queue.json")
+    state = json.load(open(state_path, encoding="utf-8"))
+    media = state["materials"]["104"]["media"]
+    assert media["origin"] == "licensed_file"
+    assert media["path"] == "vk_daily/assets/monstera-deliciosa-smatu-cc-by-sa-4.0.jpg"
+    assert media["source_image_url"].startswith("https://upload.wikimedia.org/")
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
+                        lambda url: (_ for _ in ()).throw(AssertionError("network must not be used")))
+    preview = vk_daily_autopilot.preview_material(state_path, 104, root, verify_source=True)
+    assert preview["media_location"] == "repository_file"
+    assert preview["publication_ready"] is True
+
+
+def test_daily_queue_blocks_missing_or_tampered_local_image(tmp_path):
+    media = _approved_media(tmp_path)
+    state = _write_queue(tmp_path, [_record(media=media)])
+    os.remove(tmp_path / media["path"])
+    assert vk_daily_autopilot.queue_diagnostics(state, str(tmp_path))["media_holds"] == {
+        "approved local media file is unavailable": 1}
+
+    media = _approved_media(tmp_path)
+    path = tmp_path / media["path"]
+    path.write_bytes(b"\xff\xd8\xff" + b"corrupted" * 300)
+    tampered = _write_queue(tmp_path, [_record(media=media)])
+    assert vk_daily_autopilot.queue_diagnostics(tampered, str(tmp_path))["media_holds"] == {
+        "approved local media checksum does not match": 1}
 
 
 def test_daily_workflow_is_independent_durable_and_disabled_by_default():

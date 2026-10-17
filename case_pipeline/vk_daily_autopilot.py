@@ -84,64 +84,86 @@ def _runtime_media_path(state_path, material_id):
     return Path(state_path).parent / ".runtime" / ("%s.bin" % material_id)
 
 
-def _media_error(record, root_dir, fetch_source=False):
-    """Load only an explicitly approved AGRO asset or licensed external asset."""
+def _media_metadata_error(record):
+    """Validate licence/provenance fields without reading media bytes."""
     media = record.get("media") or {}
-    license_kind = media.get("license")
-    path = media.get("path")
-    checksum = media.get("sha256")
-    if license_kind not in ALLOWED_MEDIA_LICENSES:
-        return "media license is not explicitly approved", None
+    if media.get("license") not in ALLOWED_MEDIA_LICENSES:
+        return "media license is not explicitly approved"
     if not isinstance(media.get("rights_reference"), str) or not media["rights_reference"].strip():
-        return "media rights evidence is absent", None
+        return "media rights evidence is absent"
+    checksum = media.get("sha256")
+    if not isinstance(checksum, str) or len(checksum) != 64:
+        return "approved image checksum is absent"
+    origin = media.get("origin")
+    if origin in {"licensed_url", "licensed_file"}:
+        attribution = media.get("attribution")
+        license_url = media.get("license_url")
+        if (not isinstance(attribution, str) or not attribution.strip()
+                or attribution not in record.get("vk_text", "")):
+            return "licensed image attribution is absent from VK text"
+        if not isinstance(license_url, str) or not license_url.startswith("https://"):
+            return "licensed image licence URL is absent"
     source_image_url = media.get("source_image_url")
     if source_image_url:
-        origin = media.get("origin")
         if not source_image_url.startswith(("https://", "http://")):
-            return "approved image URL is invalid", None
-        if origin == "agro_source":
-            if source_image_url != record.get("agro_image_url"):
-                return "AGRO source image link is not bound to this material", None
-        elif origin == "licensed_url":
-            # A separately licensed illustration is permitted only with a
-            # complete attribution already in the VK post.  This deliberately
-            # does not turn arbitrary URLs into reusable media.
-            attribution = media.get("attribution")
-            license_url = media.get("license_url")
-            if (not isinstance(attribution, str) or not attribution.strip()
-                    or attribution not in record.get("vk_text", "")):
-                return "licensed image attribution is absent from VK text", None
-            if not isinstance(license_url, str) or not license_url.startswith("https://"):
-                return "licensed image licence URL is absent", None
-        else:
-            return "image origin is not explicitly supported", None
-        if not isinstance(checksum, str) or len(checksum) != 64:
-            return "approved image checksum is absent", None
+            return "approved image URL is invalid"
+        if origin == "agro_source" and source_image_url != record.get("agro_image_url"):
+            return "AGRO source image link is not bound to this material"
+        if origin not in {"agro_source", "licensed_url", "licensed_file"}:
+            return "image origin is not explicitly supported"
+    elif not isinstance(media.get("path"), str) or not media["path"]:
+        return "approved local media file is unavailable"
+    return ""
+
+
+def _fetch_error_message(exc):
+    """Bounded diagnostic that never exposes a URL or response body."""
+    if exc.status == 429:
+        return "approved image HTTP 429 rate limited"
+    if exc.status in (403, 404, 410):
+        return "approved image HTTP %s unavailable" % exc.status
+    if exc.status is not None:
+        return "approved image HTTP %s failed" % exc.status
+    return "approved image network error (%s)" % str(exc.reason or "unknown")[:80]
+
+
+def _media_error(record, root_dir, fetch_source=False):
+    """Load only explicitly approved media; local files take precedence."""
+    media = record.get("media") or {}
+    metadata_error = _media_metadata_error(record)
+    if metadata_error:
+        return metadata_error, None
+    path = media.get("path")
+    checksum = media.get("sha256")
+    if isinstance(path, str) and path:
+        if os.path.isabs(path):
+            return "approved local media file is unavailable", None
+        root = Path(root_dir).resolve()
+        candidate = (root / path).resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            return "approved local media file is unavailable", None
+        data = candidate.read_bytes()
+        if hashlib.sha256(data).hexdigest() != checksum:
+            return "approved local media checksum does not match", None
+        _, image_error = VkPublisher.prepare_photo(data)
+        if image_error:
+            return image_error, None
+        return "", data
+    source_image_url = media.get("source_image_url")
+    if source_image_url:
         if not fetch_source:
             return "approved image has not been prepared", None
         try:
             data = httpclient.fetch_bytes(source_image_url)
-        except httpclient.FetchError:
-            return "approved image is unavailable", None
+        except httpclient.FetchError as exc:
+            return _fetch_error_message(exc), None
         if hashlib.sha256(data).hexdigest() != checksum:
             return "approved image checksum does not match", None
         _, image_error = VkPublisher.prepare_photo(data)
         if image_error:
             return image_error, None
         return "", data
-    if not isinstance(path, str) or not path or os.path.isabs(path):
-        return "approved local media file is unavailable", None
-    root = Path(root_dir).resolve()
-    candidate = (root / path).resolve()
-    if root not in candidate.parents or not candidate.is_file():
-        return "approved local media file is unavailable", None
-    data = candidate.read_bytes()
-    if not isinstance(checksum, str) or hashlib.sha256(data).hexdigest() != checksum:
-        return "approved local media checksum does not match", None
-    _, image_error = VkPublisher.prepare_photo(data)
-    if image_error:
-        return image_error, None
-    return "", data
+    return "approved local media file is unavailable", None
 
 
 def _is_published_today(record, now=None):
@@ -162,7 +184,7 @@ def _next_publishable(state, root_dir, now=None, fetch_source=False):
 
 
 def queue_diagnostics(state_path, root_dir=".", verify_source=False):
-    """Safe aggregate status; never logs source text, URL, or media paths."""
+    """Safe aggregate status; metadata and byte availability stay separate."""
     state = _load_state(state_path)
     counts = {}
     media_reasons = {}
@@ -173,9 +195,15 @@ def queue_diagnostics(state_path, root_dir=".", verify_source=False):
             error, _ = _media_error(record, root_dir, fetch_source=verify_source)
             if error:
                 media_reasons[error] = media_reasons.get(error, 0) + 1
+    metadata_eligible = any(
+        record.get("status") == "pending" and not _media_metadata_error(record)
+        for record in state["materials"].values())
     material_id, _, _ = _next_publishable(state, root_dir, fetch_source=verify_source)
     return {"queue_version": STATE_VERSION, "materials": len(state["materials"]),
             "states": counts, "media_holds": media_reasons,
+            "metadata_eligible_material_present": metadata_eligible,
+            "verified_media_material_present": material_id is not None,
+            "publication_ready": material_id is not None,
             "publishable_material_present": material_id is not None,
             "control_material_29_state": (state["materials"].get("29") or {}).get("status")}
 
@@ -192,7 +220,9 @@ def preview_material(state_path, material_id, root_dir=".", verify_source=False)
     if error:
         raise DailyPublishBlocked(error)
     return {"material_id": record["material_id"], "status": record["status"],
-            "media_verified": bool(verify_source), "publishable": True}
+            "media_location": "repository_file" if (record.get("media") or {}).get("path") else "remote_url",
+            "media_verified": bool(verify_source), "publication_ready": True,
+            "publishable": True}
 
 
 def sync_verified_sqlite(state_path, db_path, root_dir="."):

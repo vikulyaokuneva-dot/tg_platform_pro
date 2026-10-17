@@ -22,3 +22,10 @@ the licence kind, a rights-evidence URL, the licence URL, and attribution. The
 exact attribution string must also be present in `vk_text`. This route is for
 independently licensed assets such as Wikimedia Commons; it does not grant any
 rights to the original AGRO source image.
+
+For a control post, a verified JPEG/PNG may instead be committed under
+`vk_daily/assets/`. Use `origin: "licensed_file"`, retain the public source URL
+as provenance, and set `path` to the repository-relative asset. The local file
+takes precedence over the URL and its exact SHA-256 is checked before any VK
+API call. This keeps GitHub Actions independent of temporary rate limits at
+the source host; the committed binary is not managed by Git LFS.
