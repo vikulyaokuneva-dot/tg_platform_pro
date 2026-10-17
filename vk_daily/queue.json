@@ -18,6 +18,11 @@
       "claimed_at": "2026-10-17T11:15:00Z",
       "editorial_status": "verified",
       "fingerprint": "b06b930abae4fccb34e96273dd57fc5f38e309f4b76fb8f3ddb0c90c57c5d6d2",
+      "last_error": {
+        "code": 27,
+        "http_status": 200,
+        "kind": "vk_api"
+      },
       "material_id": 104,
       "media": {
         "attribution": "Фото: Smatu / Wikimedia Commons — CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/",
