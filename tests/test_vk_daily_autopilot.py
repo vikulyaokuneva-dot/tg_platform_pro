@@ -361,6 +361,13 @@ def test_daily_queue_does_not_create_a_second_unresolved_claim(tmp_path):
         vk_daily_autopilot.claim_one(state, str(tmp_path), expected_material_id=78)
 
 
+def test_preview_of_unresolved_claim_checks_media_but_never_marks_it_publishable(tmp_path):
+    state = _write_queue(tmp_path, [_record(77, status="publishing", media=_approved_media(tmp_path))])
+    assert vk_daily_autopilot.preview_material(state, 77, str(tmp_path), verify_source=True) == {
+        "material_id": 77, "status": "publishing", "media_location": "repository_file",
+        "media_verified": True, "publication_ready": False, "publishable": False}
+
+
 def test_daily_queue_rejects_tampered_editorial_text(tmp_path):
     record = _record(media=_approved_media(tmp_path))
     record["vk_text"] = "changed"
@@ -379,9 +386,8 @@ def test_committed_control_image_is_offline_ready_and_integral(monkeypatch):
     assert media["source_image_url"].startswith("https://upload.wikimedia.org/")
     monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes",
                         lambda url: (_ for _ in ()).throw(AssertionError("network must not be used")))
-    preview = vk_daily_autopilot.preview_material(state_path, 104, root, verify_source=True)
-    assert preview["media_location"] == "repository_file"
-    assert preview["publication_ready"] is True
+    error, image = vk_daily_autopilot._media_error(state["materials"]["104"], root, fetch_source=True)
+    assert error == "" and image
 
 
 def test_daily_queue_blocks_missing_or_tampered_local_image(tmp_path):

@@ -214,15 +214,16 @@ def preview_material(state_path, material_id, root_dir=".", verify_source=False)
     record = state["materials"].get(str(material_id))
     if not record:
         raise DailyPublishBlocked("requested material is absent from the durable queue")
-    if record.get("status") != "pending":
-        raise DailyPublishBlocked("requested material is not pending")
+    if record.get("status") not in {"pending", "publishing"}:
+        raise DailyPublishBlocked("requested material is not previewable")
     error, _ = _media_error(record, root_dir, fetch_source=verify_source)
     if error:
         raise DailyPublishBlocked(error)
+    ready = record["status"] == "pending"
     return {"material_id": record["material_id"], "status": record["status"],
             "media_location": "repository_file" if (record.get("media") or {}).get("path") else "remote_url",
-            "media_verified": bool(verify_source), "publication_ready": True,
-            "publishable": True}
+            "media_verified": bool(verify_source), "publication_ready": ready,
+            "publishable": ready}
 
 
 def _vk_diagnostic(result, fallback_stage):
