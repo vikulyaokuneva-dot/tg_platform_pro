@@ -118,6 +118,77 @@ def test_daily_queue_keeps_claim_blocked_on_vk_error_or_timeout(tmp_path):
         assert record["last_error"]["uncertain"] is result.uncertain
 
 
+@pytest.mark.parametrize("stage, code, kind", [
+    ("groups.getById", 5, "vk_api"),
+    ("photos.getWallUploadServer", 27, "vk_api"),
+])
+def test_daily_queue_records_access_stage_before_any_upload_or_wall(tmp_path, stage, code, kind):
+    state = _write_queue(tmp_path, [_record(media=_approved_media(tmp_path))])
+    vk_daily_autopilot.claim_one(state, str(tmp_path))
+
+    class Publisher:
+        def check_access(self, require_photo_upload=False):
+            assert require_photo_upload
+            return VkResult(False, error="VK error %s" % code, error_code=code,
+                            http_status=200, error_kind=kind, stage=stage)
+
+        def publish(self, *args, **kwargs):
+            raise AssertionError("publish must not run after access failure")
+
+    with pytest.raises(vk_daily_autopilot.DailyQueueError, match="stage=%s" % stage):
+        vk_daily_autopilot.publish_claimed(state, str(tmp_path), Publisher())
+    record = json.loads(open(state, encoding="utf-8").read())["materials"]["77"]
+    assert record["status"] == "publishing"
+    assert record["last_error"] == {
+        "stage": stage, "kind": kind, "code": code, "http_status": 200,
+        "retryable": False, "uncertain": False, "message": "VK error %s" % code}
+
+
+@pytest.mark.parametrize("stage, uncertain", [
+    ("photo_multipart_upload", True),
+    ("photos.saveWallPhoto", False),
+    ("wall.post", True),
+])
+def test_daily_queue_records_each_publish_stage_and_never_retries_ambiguous_result(tmp_path, stage, uncertain):
+    state = _write_queue(tmp_path, [_record(media=_approved_media(tmp_path))])
+    vk_daily_autopilot.claim_one(state, str(tmp_path))
+
+    class Publisher:
+        def check_access(self, require_photo_upload=False):
+            return VkResult(True, stage="photos.getWallUploadServer")
+
+        def publish(self, *args, **kwargs):
+            return VkResult(False, error="diagnostic failure", error_kind="network" if uncertain else "vk_api",
+                            error_code=None if uncertain else 15, http_status=None if uncertain else 200,
+                            uncertain=uncertain, retryable=uncertain, stage=stage)
+
+    expected = vk_daily_autopilot.DailyPublishBlocked if uncertain else vk_daily_autopilot.DailyQueueError
+    with pytest.raises(expected):
+        vk_daily_autopilot.publish_claimed(state, str(tmp_path), Publisher())
+    record = json.loads(open(state, encoding="utf-8").read())["materials"]["77"]
+    assert record["status"] == "publishing"
+    assert record["last_error"]["stage"] == stage
+    assert record["last_error"]["uncertain"] is uncertain
+
+
+def test_read_only_photo_access_diagnostic_is_safe():
+    class Publisher:
+        def configured(self):
+            return True
+
+        def check_access(self, require_photo_upload=False):
+            assert require_photo_upload
+            return VkResult(False, error="VK error 27: Group authorization failed",
+                            error_code=27, http_status=200, error_kind="vk_api",
+                            stage="photos.getWallUploadServer")
+
+    assert vk_daily_autopilot.photo_access_diagnostics(Publisher()) == {
+        "configured": True, "ok": False, "stage": "photos.getWallUploadServer",
+        "kind": "vk_api", "code": 27, "http_status": 200,
+        "retryable": False, "uncertain": False,
+        "message": "VK error 27: Group authorization failed"}
+
+
 def test_daily_queue_cache_miss_is_safe_and_control_post_is_excluded(tmp_path):
     state = _write_queue(tmp_path, [_record(29, status="published"), _record(77)])
     outcome = vk_daily_autopilot.sync_verified_sqlite(state, str(tmp_path / "missing.db"), str(tmp_path))
@@ -358,3 +429,16 @@ def test_manual_image_control_workflow_is_single_post_and_safe_by_default():
     assert "--material-id \"${{ inputs.material_id }}\"" in workflow
     assert "VK_PUBLISH: '1'" in workflow
     assert "photos.getWallUploadServer" not in workflow and "wall.post" not in workflow
+
+
+def test_photo_access_diagnostic_workflow_is_manual_and_read_only():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    workflow = io.open(os.path.join(root, ".github", "workflows", "vk_photo_access_diagnostic.yml"),
+                       encoding="utf-8").read()
+    assert "workflow_dispatch:" in workflow and "schedule:" not in workflow
+    assert "contents: read" in workflow
+    assert "VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}" in workflow
+    assert "VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}" in workflow
+    assert "access-check" in workflow
+    assert "runner.py" not in workflow and "wall.post" not in workflow
+    assert "photos.saveWallPhoto" not in workflow and "git push" not in workflow

@@ -225,6 +225,25 @@ def preview_material(state_path, material_id, root_dir=".", verify_source=False)
             "publishable": True}
 
 
+def _vk_diagnostic(result, fallback_stage):
+    """Persist/log only bounded VK failure metadata, never request payloads."""
+    return {"stage": result.stage or fallback_stage,
+            "kind": result.error_kind or "unknown",
+            "code": result.error_code,
+            "http_status": result.http_status,
+            "retryable": bool(result.retryable),
+            "uncertain": bool(result.uncertain),
+            "message": (result.error or "unknown")[:300]}
+
+
+def photo_access_diagnostics(publisher=None):
+    """Read-only token/community/photo-server check; never uploads or posts."""
+    client = publisher or VkPublisher()
+    result = client.check_access(require_photo_upload=True)
+    return {"configured": client.configured(), "ok": result.ok,
+            **_vk_diagnostic(result, "photos.getWallUploadServer")}
+
+
 def sync_verified_sqlite(state_path, db_path, root_dir="."):
     """Optionally import verified AGRO text; cache is intake only, never state.
 
@@ -344,30 +363,32 @@ def publish_claimed(state_path, root_dir=".", publisher=None, now=None):
     client = publisher or VkPublisher()
     access = client.check_access(require_photo_upload=True)
     if not access.ok:
-        record["last_error"] = {"kind": access.error_kind or "access", "code": access.error_code,
-                                "http_status": access.http_status}
+        diagnostic = _vk_diagnostic(access, "photo_access_check")
+        record["last_error"] = diagnostic
         _write_state(state_path, state)
-        raise DailyQueueError("VK access or photo upload check failed")
+        raise DailyQueueError("VK photo access check failed (stage=%s, kind=%s, code=%s, http_status=%s)" % (
+            diagnostic["stage"], diagnostic["kind"], diagnostic["code"], diagnostic["http_status"]))
     result = client.publish(record["vk_text"], photo_bytes=image, dry_run=False)
     if result.ok:
         record.update({"status": "published", "vk_post_id": result.post_id,
                        "vk_owner_id": result.owner_id, "published_at": now or _now()})
         _write_state(state_path, state)
         return result
-    record["last_error"] = {"kind": result.error_kind or "unknown", "code": result.error_code,
-                            "http_status": result.http_status, "uncertain": bool(result.uncertain)}
+    diagnostic = _vk_diagnostic(result, "wall.post")
+    record["last_error"] = diagnostic
     # Both a timeout and a confirmed error retain the claim.  Retrying after a
     # confirmed failure is a separate, deliberate editorial decision; a timeout
     # must first be reconciled manually to avoid a duplicate wall post.
     _write_state(state_path, state)
     if result.uncertain:
-        raise DailyPublishBlocked("wall.post outcome is uncertain; durable claim remains blocked")
-    raise DailyQueueError("VK wall.post failed; durable claim remains blocked")
+        raise DailyPublishBlocked("VK %s outcome is uncertain; durable claim remains blocked" % diagnostic["stage"])
+    raise DailyQueueError("VK %s failed (kind=%s, code=%s, http_status=%s); durable claim remains blocked" % (
+        diagnostic["stage"], diagnostic["kind"], diagnostic["code"], diagnostic["http_status"]))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Durable, image-required VK daily queue")
-    parser.add_argument("action", choices=("preview", "sync", "claim", "publish"))
+    parser.add_argument("action", choices=("preview", "sync", "claim", "publish", "access-check"))
     parser.add_argument("--state", required=True)
     parser.add_argument("--root", default=".")
     parser.add_argument("--db", default="data/agro_channel.db")
@@ -392,6 +413,12 @@ def main(argv=None):
         elif args.action == "claim":
             record = claim_one(args.state, args.root, expected_material_id=args.material_id)
             print("VK daily queue claim: material_id=%s status=publishing" % record["material_id"])
+        elif args.action == "access-check":
+            diagnostic = photo_access_diagnostics()
+            print("VK photo access diagnostic: %s" % json.dumps(
+                diagnostic, sort_keys=True, ensure_ascii=True))
+            if not diagnostic["ok"]:
+                return 1
         else:
             if not config.VK_PUBLISH:
                 raise DailyPublishBlocked("VK_PUBLISH is not enabled")

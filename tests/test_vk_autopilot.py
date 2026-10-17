@@ -93,6 +93,7 @@ def test_vk_token_and_photo_permission_errors_are_diagnostic(monkeypatch):
                                                                "error_msg": "User authorization failed"}}))
     bad = VkPublisher("bad", "242354758", sleep=lambda _: None).check_access()
     assert not bad.ok and bad.error_code == 5 and "authorization" in bad.error
+    assert bad.stage == "groups.getById"
 
     replies = iter([
         _api_ok([{"id": 242354758, "name": "Сад без хлопот"}]),
@@ -103,6 +104,7 @@ def test_vk_token_and_photo_permission_errors_are_diagnostic(monkeypatch):
     photo_denied = VkPublisher("token", "242354758", sleep=lambda _: None).check_access(True)
     assert not photo_denied.ok and photo_denied.error_code == 27
     assert "user access token" in photo_denied.error
+    assert photo_denied.stage == "photos.getWallUploadServer"
 
 
 def test_vk_retries_rate_limit_but_stops_on_ambiguous_wall_timeout(monkeypatch):

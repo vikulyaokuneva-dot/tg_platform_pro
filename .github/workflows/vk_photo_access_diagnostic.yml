@@ -1,0 +1,32 @@
+name: VK photo access diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vk-photo-access-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Read-only token, community and photo-server diagnostic
+        env:
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+        run: >-
+          python -m case_pipeline.vk_daily_autopilot access-check
+          --state vk_daily/queue.json --root .

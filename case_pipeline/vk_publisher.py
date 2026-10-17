@@ -35,6 +35,8 @@ class VkResult:
     error_kind: str = ""
     # Structural metadata only: no response values, request data or headers.
     response_meta: object = None
+    # VK operation that produced this result; safe to persist in diagnostics.
+    stage: str = ""
 
 
 class VkPublisher:
@@ -49,6 +51,11 @@ class VkPublisher:
 
     def configured(self):
         return bool(self.token and self.group_id.isdigit() and int(self.group_id) > 0)
+
+    @staticmethod
+    def _at_stage(result, stage):
+        result.stage = stage
+        return result
 
     @staticmethod
     def _error(code, message, http_status=None, retryable=False, uncertain=False,
@@ -210,7 +217,7 @@ class VkPublisher:
         """Verifies token + requested community without creating a post."""
         result = self._api("groups.getById", {"group_id": self.group_id})
         if not result.ok:
-            return result
+            return self._at_stage(result, "groups.getById")
         response_meta = dict(result.response_meta or {})
         group = {}
         group_container = None
@@ -252,25 +259,28 @@ class VkPublisher:
         if has_direct_id:
             response_meta["community_id_match"] = id_matches
         if not id_matches:
-            return self._error(None, "requested VK group is not available to this token",
-                               http_status=result.http_status, error_kind="access",
-                               response_meta=response_meta)
+            return self._at_stage(self._error(
+                None, "requested VK group is not available to this token",
+                http_status=result.http_status, error_kind="access",
+                response_meta=response_meta), "groups.getById")
         info = {"group": {"id": group.get("id"), "name": group.get("name", "")}}
         if not require_photo_upload:
             response_meta["community_id_match"] = True
             return VkResult(True, data=info, http_status=result.http_status,
-                            response_meta=response_meta)
+                            response_meta=response_meta, stage="groups.getById")
         upload = self._api("photos.getWallUploadServer", {"group_id": self.group_id})
         if not upload.ok:
             if upload.error_code == 27:
                 upload.error += ("; photo upload is unavailable for this token. "
                                  "Use a VK user access token with wall and photos permissions "
                                  "for this community, or publish text-only.")
-            return upload
+            return self._at_stage(upload, "photos.getWallUploadServer")
         info["upload_url"] = upload.data.get("upload_url") if isinstance(upload.data, dict) else ""
         if not info["upload_url"]:
-            return self._error(None, "VK did not return a wall photo upload URL")
-        return VkResult(True, data=info)
+            return self._at_stage(self._error(
+                None, "VK did not return a wall photo upload URL"),
+                "photos.getWallUploadServer")
+        return VkResult(True, data=info, stage="photos.getWallUploadServer")
 
     @staticmethod
     def prepare_photo(photo_bytes):
@@ -287,13 +297,15 @@ class VkPublisher:
     def _upload_photo(self, photo_bytes):
         upload_server = self._api("photos.getWallUploadServer", {"group_id": self.group_id})
         if not upload_server.ok:
-            return upload_server
+            return self._at_stage(upload_server, "photos.getWallUploadServer")
         upload_url = (upload_server.data or {}).get("upload_url")
         if not upload_url:
-            return self._error(None, "VK did not return a wall photo upload URL")
+            return self._at_stage(self._error(
+                None, "VK did not return a wall photo upload URL"),
+                "photos.getWallUploadServer")
         meta, error = self.prepare_photo(photo_bytes)
         if error:
-            return self._error(None, error)
+            return self._at_stage(self._error(None, error), "photo_multipart_upload")
         try:
             response = requests.post(upload_url,
                                      files={"photo": (meta[0], photo_bytes, meta[1])},
@@ -302,30 +314,35 @@ class VkPublisher:
         except (requests.RequestException, ValueError) as exc:
             # An upload can have succeeded server-side.  Keep the queue locked
             # rather than starting a new media chain automatically.
-            return self._error(None, "photo upload outcome is uncertain: %s" % type(exc).__name__,
-                               retryable=True, uncertain=True)
+            return self._at_stage(self._error(
+                None, "photo upload outcome is uncertain: %s" % type(exc).__name__,
+                retryable=True, uncertain=True), "photo_multipart_upload")
         if response.status_code != 200 or not all(data.get(k) is not None for k in ("server", "photo", "hash")):
-            return self._error(response.status_code, "VK photo upload rejected", response.status_code)
+            return self._at_stage(self._error(
+                response.status_code, "VK photo upload rejected", response.status_code),
+                "photo_multipart_upload")
         saved = self._api("photos.saveWallPhoto", {
             "group_id": self.group_id, "server": data["server"],
             "photo": data["photo"], "hash": data["hash"]}, mutating=True)
         if not saved.ok:
-            return saved
+            return self._at_stage(saved, "photos.saveWallPhoto")
         photos = saved.data if isinstance(saved.data, list) else []
         photo = photos[0] if photos else {}
         if not photo.get("id") or photo.get("owner_id") is None:
-            return self._error(None, "VK did not return saved wall photo")
+            return self._at_stage(self._error(
+                None, "VK did not return saved wall photo"), "photos.saveWallPhoto")
         attachment = "photo%s_%s" % (photo["owner_id"], photo["id"])
         if photo.get("access_key"):
             attachment += "_" + str(photo["access_key"])
-        return VkResult(True, data={"attachment": attachment})
+        return VkResult(True, data={"attachment": attachment}, stage="photos.saveWallPhoto")
 
     def publish(self, text, photo_bytes=None, dry_run=False):
         """Creates one wall post.  ``dry_run`` performs no VK API call."""
         if dry_run:
-            return VkResult(True, post_id=0, owner_id=-int(self.group_id or 0), data={"dry_run": True})
+            return VkResult(True, post_id=0, owner_id=-int(self.group_id or 0),
+                            data={"dry_run": True}, stage="dry_run")
         if not (text or "").strip():
-            return self._error(None, "VK post text is empty")
+            return self._at_stage(self._error(None, "VK post text is empty"), "validation")
         attachment = ""
         if photo_bytes is not None:
             photo = self._upload_photo(photo_bytes)
@@ -338,10 +355,11 @@ class VkPublisher:
             params["attachments"] = attachment
         posted = self._api("wall.post", params, mutating=True)
         if not posted.ok:
-            return posted
+            return self._at_stage(posted, "wall.post")
         data = posted.data if isinstance(posted.data, dict) else {}
         post_id = data.get("post_id")
         if not post_id:
-            return self._error(None, "VK did not return wall post id", uncertain=True)
+            return self._at_stage(self._error(
+                None, "VK did not return wall post id", uncertain=True), "wall.post")
         return VkResult(True, post_id=int(post_id), owner_id=-int(self.group_id),
-                        http_status=posted.http_status)
+                        http_status=posted.http_status, stage="wall.post")
