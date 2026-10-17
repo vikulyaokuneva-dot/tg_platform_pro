@@ -15,3 +15,10 @@ accepts JPEG and PNG only.
 
 The same-run bytes are held only under `vk_daily/.runtime/`, which is ignored
 by Git. No AGRO or Telegram record is updated by this bridge.
+
+For a genuinely separate illustration, use `origin: "licensed_url"` only when
+the committed record contains the source image URL, SHA-256 of its exact bytes,
+the licence kind, a rights-evidence URL, the licence URL, and attribution. The
+exact attribution string must also be present in `vk_text`. This route is for
+independently licensed assets such as Wikimedia Commons; it does not grant any
+rights to the original AGRO source image.

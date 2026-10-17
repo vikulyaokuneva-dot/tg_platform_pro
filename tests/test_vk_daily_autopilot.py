@@ -48,6 +48,16 @@ def _approved_agro_media(data):
             "path": None, "sha256": hashlib.sha256(data).hexdigest()}, url
 
 
+def _approved_licensed_url_media(data, attribution=None):
+    url = "https://images.example.test/licensed.jpg"
+    attribution = attribution or "Фото: Example Author / Example Archive — CC BY-SA 4.0"
+    return {"origin": "licensed_url", "source_image_url": url,
+            "license": "licensed", "rights_reference": "https://example.test/file",
+            "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+            "attribution": attribution, "path": None,
+            "sha256": hashlib.sha256(data).hexdigest()}, url
+
+
 def test_daily_queue_blocks_missing_or_unlicensed_media(tmp_path):
     missing = _write_queue(tmp_path, [_record()])
     report = vk_daily_autopilot.queue_diagnostics(missing, str(tmp_path))
@@ -201,6 +211,48 @@ def test_daily_queue_reuses_verified_agro_bytes_once_and_blocks_unavailable_url(
     assert stored["status"] == "pending"
 
 
+def test_daily_queue_accepts_only_explicitly_licensed_external_image_with_attribution(tmp_path, monkeypatch):
+    image = b"\xff\xd8\xff" + b"x" * 2048
+    media, _ = _approved_licensed_url_media(image)
+    record = _record(media=media)
+    record["vk_text"] += "\n\n" + media["attribution"]
+    record["fingerprint"] = hashlib.sha256(
+        ("77\n" + record["source_url"] + "\n" + record["vk_text"]).encode("utf-8")).hexdigest()
+    state = _write_queue(tmp_path, [record])
+    monkeypatch.setattr(vk_daily_autopilot.httpclient, "fetch_bytes", lambda url: image)
+
+    report = vk_daily_autopilot.queue_diagnostics(state, str(tmp_path), verify_source=True)
+    assert report["publishable_material_present"] is True
+    assert vk_daily_autopilot.preview_material(state, 77, str(tmp_path), verify_source=True) == {
+        "material_id": 77, "status": "pending", "media_verified": True, "publishable": True}
+    claimed = vk_daily_autopilot.claim_one(state, str(tmp_path), expected_material_id=77)
+    assert claimed["status"] == "publishing"
+
+    missing_credit = _record(78, media=media)
+    missing_credit["fingerprint"] = hashlib.sha256(
+        ("78\n" + missing_credit["source_url"] + "\n" + missing_credit["vk_text"]).encode("utf-8")).hexdigest()
+    blocked = _write_queue(tmp_path / "missing_credit", [missing_credit])
+    assert vk_daily_autopilot.queue_diagnostics(blocked, str(tmp_path / "missing_credit"))["publishable_material_present"] is False
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.claim_one(blocked, str(tmp_path / "missing_credit"))
+
+
+def test_daily_queue_refuses_a_different_requested_material(tmp_path):
+    state = _write_queue(tmp_path, [_record(media=_approved_media(tmp_path))])
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.claim_one(state, str(tmp_path), expected_material_id=78)
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.preview_material(state, 78, str(tmp_path))
+
+
+def test_daily_queue_does_not_create_a_second_unresolved_claim(tmp_path):
+    first = _record(77, status="publishing", media=_approved_media(tmp_path))
+    second = _record(78, media=_approved_media(tmp_path))
+    state = _write_queue(tmp_path, [first, second])
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.claim_one(state, str(tmp_path), expected_material_id=78)
+
+
 def test_daily_queue_rejects_tampered_editorial_text(tmp_path):
     record = _record(media=_approved_media(tmp_path))
     record["vk_text"] = "changed"
@@ -225,3 +277,17 @@ def test_daily_workflow_is_independent_durable_and_disabled_by_default():
     assert "Sync new verified AGRO materials and their image links" in workflow
     assert "--verify-media" in workflow
     assert "photos.getWallUploadServer" not in workflow
+
+
+def test_manual_image_control_workflow_is_single_post_and_safe_by_default():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    workflow = io.open(os.path.join(root, ".github", "workflows", "vk_image_control_publish.yml"),
+                       encoding="utf-8").read()
+    assert "workflow_dispatch:" in workflow and "schedule:" not in workflow
+    assert "runner.py" not in workflow and "daily_jobs.yml" not in workflow
+    assert "VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}" in workflow
+    assert "VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}" in workflow
+    assert "PUBLISH_ONE_LICENSED_VK_IMAGE" in workflow
+    assert "--material-id \"${{ inputs.material_id }}\"" in workflow
+    assert "VK_PUBLISH: '1'" in workflow
+    assert "photos.getWallUploadServer" not in workflow and "wall.post" not in workflow

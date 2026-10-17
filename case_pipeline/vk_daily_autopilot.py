@@ -85,7 +85,7 @@ def _runtime_media_path(state_path, material_id):
 
 
 def _media_error(record, root_dir, fetch_source=False):
-    """Load only an explicitly approved local or linked AGRO-source asset."""
+    """Load only an explicitly approved AGRO asset or licensed external asset."""
     media = record.get("media") or {}
     license_kind = media.get("license")
     path = media.get("path")
@@ -96,20 +96,35 @@ def _media_error(record, root_dir, fetch_source=False):
         return "media rights evidence is absent", None
     source_image_url = media.get("source_image_url")
     if source_image_url:
-        if (media.get("origin") != "agro_source"
-                or source_image_url != record.get("agro_image_url")
-                or not source_image_url.startswith(("https://", "http://"))):
-            return "AGRO source image link is not bound to this material", None
+        origin = media.get("origin")
+        if not source_image_url.startswith(("https://", "http://")):
+            return "approved image URL is invalid", None
+        if origin == "agro_source":
+            if source_image_url != record.get("agro_image_url"):
+                return "AGRO source image link is not bound to this material", None
+        elif origin == "licensed_url":
+            # A separately licensed illustration is permitted only with a
+            # complete attribution already in the VK post.  This deliberately
+            # does not turn arbitrary URLs into reusable media.
+            attribution = media.get("attribution")
+            license_url = media.get("license_url")
+            if (not isinstance(attribution, str) or not attribution.strip()
+                    or attribution not in record.get("vk_text", "")):
+                return "licensed image attribution is absent from VK text", None
+            if not isinstance(license_url, str) or not license_url.startswith("https://"):
+                return "licensed image licence URL is absent", None
+        else:
+            return "image origin is not explicitly supported", None
         if not isinstance(checksum, str) or len(checksum) != 64:
-            return "approved AGRO image checksum is absent", None
+            return "approved image checksum is absent", None
         if not fetch_source:
-            return "approved AGRO image has not been prepared", None
+            return "approved image has not been prepared", None
         try:
             data = httpclient.fetch_bytes(source_image_url)
         except httpclient.FetchError:
-            return "approved AGRO image is unavailable", None
+            return "approved image is unavailable", None
         if hashlib.sha256(data).hexdigest() != checksum:
-            return "approved AGRO image checksum does not match", None
+            return "approved image checksum does not match", None
         _, image_error = VkPublisher.prepare_photo(data)
         if image_error:
             return image_error, None
@@ -163,6 +178,21 @@ def queue_diagnostics(state_path, root_dir=".", verify_source=False):
             "states": counts, "media_holds": media_reasons,
             "publishable_material_present": material_id is not None,
             "control_material_29_state": (state["materials"].get("29") or {}).get("status")}
+
+
+def preview_material(state_path, material_id, root_dir=".", verify_source=False):
+    """Validate one named queue item without claiming or changing state."""
+    state = _load_state(state_path)
+    record = state["materials"].get(str(material_id))
+    if not record:
+        raise DailyPublishBlocked("requested material is absent from the durable queue")
+    if record.get("status") != "pending":
+        raise DailyPublishBlocked("requested material is not pending")
+    error, _ = _media_error(record, root_dir, fetch_source=verify_source)
+    if error:
+        raise DailyPublishBlocked(error)
+    return {"material_id": record["material_id"], "status": record["status"],
+            "media_verified": bool(verify_source), "publishable": True}
 
 
 def sync_verified_sqlite(state_path, db_path, root_dir="."):
@@ -232,14 +262,18 @@ def sync_verified_sqlite(state_path, db_path, root_dir="."):
     return outcome
 
 
-def claim_one(state_path, root_dir=".", now=None):
+def claim_one(state_path, root_dir=".", now=None, expected_material_id=None):
     """Persist a claim before any upload or wall.post request."""
     state = _load_state(state_path)
+    if any(record.get("status") == "publishing" for record in state["materials"].values()):
+        raise DailyPublishBlocked("an earlier VK publication claim requires reconciliation")
     if any(_is_published_today(record, now) for record in state["materials"].values()):
         raise DailyPublishBlocked("daily VK limit is already reached")
     material_id, record, image = _next_publishable(state, root_dir, now, fetch_source=True)
     if not record:
         raise DailyPublishBlocked("no verified queue item has approved local media")
+    if expected_material_id is not None and int(material_id) != int(expected_material_id):
+        raise DailyPublishBlocked("requested material is not the next verified queue item")
     record["status"] = "publishing"
     record["claimed_at"] = now or _now()
     record.pop("last_error", None)
@@ -309,17 +343,24 @@ def main(argv=None):
     parser.add_argument("--db", default="data/agro_channel.db")
     parser.add_argument("--verify-media", action="store_true",
                         help="read approved AGRO image URLs without publishing")
+    parser.add_argument("--material-id", type=int,
+                        help="claim only this next verified material")
     args = parser.parse_args(argv)
     try:
         if args.action == "preview":
             print("VK daily queue diagnostic: %s" % json.dumps(
                 queue_diagnostics(args.state, args.root, verify_source=args.verify_media),
                 sort_keys=True, ensure_ascii=True))
+            if args.material_id is not None:
+                print("VK daily material preview: %s" % json.dumps(
+                    preview_material(args.state, args.material_id, args.root,
+                                     verify_source=args.verify_media),
+                    sort_keys=True, ensure_ascii=True))
         elif args.action == "sync":
             print("VK daily queue sync: %s" % json.dumps(
                 sync_verified_sqlite(args.state, args.db, args.root), sort_keys=True, ensure_ascii=True))
         elif args.action == "claim":
-            record = claim_one(args.state, args.root)
+            record = claim_one(args.state, args.root, expected_material_id=args.material_id)
             print("VK daily queue claim: material_id=%s status=publishing" % record["material_id"])
         else:
             if not config.VK_PUBLISH:
