@@ -48,6 +48,60 @@ def _approved_agro_media(data):
             "path": None, "sha256": hashlib.sha256(data).hexdigest()}, url
 
 
+def _existing_vk_media(photo_id=9001, access_key=None):
+    media = {"type": "vk_existing_photo", "photo_owner_id": -242354758,
+             "photo_id": photo_id, "source_image_url": "https://vk.example/photo.jpg",
+             "license": "licensed", "rights_reference": "https://example.test/rights",
+             "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+             "attribution": "Example Author / CC BY-SA 4.0"}
+    if access_key:
+        media["access_key"] = access_key
+    return media
+
+
+def test_existing_vk_photo_preview_is_read_only_and_safe(tmp_path):
+    state = _write_queue(tmp_path, [_record(104, status="publishing", media=_existing_vk_media(access_key="secret"))])
+    before = open(state, encoding="utf-8").read()
+    report = vk_daily_autopilot.preview_existing_material(state, 104, -242354758, 9001, "secret")
+    assert report["attachment"] == "photo-242354758_9001_secret"
+    assert report["access_key_present"] is True
+    assert open(state, encoding="utf-8").read() == before
+
+
+def test_existing_vk_photo_publish_skips_upload_api(tmp_path):
+    state = _write_queue(tmp_path, [_record(104, status="publishing", media=_existing_vk_media())])
+    calls = []
+    class Publisher:
+        def check_access(self, require_photo_upload=False):
+            calls.append(("access", require_photo_upload))
+            return VkResult(True)
+        def publish(self, text, photo_bytes=None, dry_run=False, existing_attachment=None):
+            calls.append(("publish", photo_bytes, existing_attachment))
+            return VkResult(True, post_id=901, owner_id=-242354758)
+    result = vk_daily_autopilot.publish_claimed(state, str(tmp_path), Publisher())
+    assert result.post_id == 901
+    assert calls == [("access", False), ("publish", None, "photo-242354758_9001")]
+
+
+def test_existing_vk_photo_requires_rights_and_does_not_reset_claim(tmp_path):
+    media = _existing_vk_media()
+    media["rights_reference"] = ""
+    state = _write_queue(tmp_path, [_record(104, status="publishing", media=media)])
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked, match="rights evidence"):
+        vk_daily_autopilot.publish_claimed(state, str(tmp_path), publisher=None)
+    stored = json.loads(open(state, encoding="utf-8").read())["materials"]["104"]
+    assert stored["status"] == "publishing"
+
+
+def test_reconcile_claim_requires_explicit_confirmation(tmp_path):
+    state = _write_queue(tmp_path, [_record(104, status="publishing", media=_existing_vk_media())])
+    with pytest.raises(vk_daily_autopilot.DailyPublishBlocked):
+        vk_daily_autopilot.reconcile_claim(state, 104, "wrong")
+    vk_daily_autopilot.reconcile_claim(state, 104, "RECONCILE_VK_CLAIM_AFTER_MANUAL_CHECK")
+    stored = json.loads(open(state, encoding="utf-8").read())["materials"]["104"]
+    assert stored["status"] == "pending"
+
+
 def _approved_licensed_url_media(data, attribution=None):
     url = "https://images.example.test/licensed.jpg"
     attribution = attribution or "Фото: Example Author / Example Archive — CC BY-SA 4.0"

@@ -336,14 +336,25 @@ class VkPublisher:
             attachment += "_" + str(photo["access_key"])
         return VkResult(True, data={"attachment": attachment}, stage="photos.saveWallPhoto")
 
-    def publish(self, text, photo_bytes=None, dry_run=False):
+    def check_existing_photo(self, photo_owner_id, photo_id, access_key=None):
+        """Read-only lookup of an existing attachment; never uploads or posts."""
+        token = "%s_%s" % (int(photo_owner_id), int(photo_id))
+        if access_key:
+            token += "_%s" % str(access_key)
+        result = self._api("photos.getById", {"photos": token})
+        return self._at_stage(result, "photos.getById")
+
+    def publish(self, text, photo_bytes=None, dry_run=False, existing_attachment=None):
         """Creates one wall post.  ``dry_run`` performs no VK API call."""
         if dry_run:
             return VkResult(True, post_id=0, owner_id=-int(self.group_id or 0),
                             data={"dry_run": True}, stage="dry_run")
         if not (text or "").strip():
             return self._at_stage(self._error(None, "VK post text is empty"), "validation")
-        attachment = ""
+        if photo_bytes is not None and existing_attachment:
+            return self._at_stage(self._error(
+                None, "photo_bytes and existing_attachment are mutually exclusive"), "validation")
+        attachment = existing_attachment or ""
         if photo_bytes is not None:
             photo = self._upload_photo(photo_bytes)
             if not photo.ok:

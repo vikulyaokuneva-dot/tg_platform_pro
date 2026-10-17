@@ -87,6 +87,33 @@ def test_vk_uploads_photo_then_attaches_it_to_wall_post(monkeypatch):
     assert wall["attachments"] == "photo-242354758_55_key"
 
 
+def test_vk_existing_photo_attaches_without_photo_upload(monkeypatch):
+    calls = []
+    def fake_post(url, data=None, files=None, timeout=None, **kwargs):
+        calls.append(url)
+        if url.endswith("wall.post"):
+            assert data["attachments"] == "photo-242354758_104_key"
+            return _api_ok({"post_id": 79})
+        raise AssertionError("unexpected VK method: %s" % url)
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", fake_post)
+    result = VkPublisher("token", "242354758", sleep=lambda _: None).publish(
+        "Текст", existing_attachment="photo-242354758_104_key")
+    assert result.ok and result.post_id == 79
+    assert calls == ["https://api.vk.com/method/wall.post"]
+
+
+def test_vk_existing_photo_read_only_lookup_uses_get_by_id(monkeypatch):
+    calls = []
+    def fake_post(url, data=None, **kwargs):
+        calls.append(url)
+        assert data["photos"] == "-242354758_104_key"
+        return _api_ok([{"id": 104, "owner_id": -242354758}])
+    monkeypatch.setattr("case_pipeline.vk_publisher.requests.post", fake_post)
+    result = VkPublisher("token", "242354758", sleep=lambda _: None).check_existing_photo(
+        -242354758, 104, "key")
+    assert result.ok and calls == ["https://api.vk.com/method/photos.getById"]
+
+
 def test_vk_token_and_photo_permission_errors_are_diagnostic(monkeypatch):
     monkeypatch.setattr("case_pipeline.vk_publisher.requests.post",
                         lambda *a, **k: Response({"error": {"error_code": 5,

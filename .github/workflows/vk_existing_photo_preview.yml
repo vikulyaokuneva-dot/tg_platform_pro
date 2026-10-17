@@ -1,0 +1,46 @@
+name: VK existing photo preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      material_id:
+        description: 'Prepared VK material id'
+        required: true
+        default: '104'
+      photo_owner_id:
+        description: 'VK photo owner id (usually negative community id)'
+        required: true
+      photo_id:
+        description: 'Existing VK photo id'
+        required: true
+      access_key:
+        description: 'Optional photo access key; never printed'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vk-existing-photo-preview
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Preview existing VK photo attachment
+        env:
+          VK_ACCESS_TOKEN: ''
+          VK_PUBLISH: '0'
+          PHOTO_ACCESS_KEY: ${{ inputs.access_key }}
+        run: >-
+          python -m case_pipeline.vk_daily_autopilot preview-existing
+          --state vk_daily/queue.json --root .
+          --material-id "${{ inputs.material_id }}"
+          --photo-owner-id "${{ inputs.photo_owner_id }}"
+          --photo-id "${{ inputs.photo_id }}"
+          --access-key "$PHOTO_ACCESS_KEY"

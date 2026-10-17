@@ -91,8 +91,9 @@ def _media_metadata_error(record):
         return "media license is not explicitly approved"
     if not isinstance(media.get("rights_reference"), str) or not media["rights_reference"].strip():
         return "media rights evidence is absent"
+    media_type = media.get("type")
     checksum = media.get("sha256")
-    if not isinstance(checksum, str) or len(checksum) != 64:
+    if media_type != "vk_existing_photo" and (not isinstance(checksum, str) or len(checksum) != 64):
         return "approved image checksum is absent"
     origin = media.get("origin")
     if origin in {"licensed_url", "licensed_file"}:
@@ -104,6 +105,20 @@ def _media_metadata_error(record):
         if not isinstance(license_url, str) or not license_url.startswith("https://"):
             return "licensed image licence URL is absent"
     source_image_url = media.get("source_image_url")
+    if media_type == "vk_existing_photo":
+        try:
+            owner_id = int(media.get("photo_owner_id"))
+            photo_id = int(media.get("photo_id"))
+        except (TypeError, ValueError):
+            return "VK existing photo identifiers are invalid"
+        if not owner_id or photo_id <= 0:
+            return "VK existing photo identifiers are invalid"
+        access_key = media.get("access_key")
+        if access_key is not None and (not isinstance(access_key, str) or not access_key.strip()):
+            return "VK existing photo access key is invalid"
+        if not isinstance(source_image_url, str) or not source_image_url.startswith("https://"):
+            return "VK existing photo source is absent"
+        return ""
     if source_image_url:
         if not source_image_url.startswith(("https://", "http://")):
             return "approved image URL is invalid"
@@ -135,6 +150,8 @@ def _media_error(record, root_dir, fetch_source=False):
         return metadata_error, None
     path = media.get("path")
     checksum = media.get("sha256")
+    if media.get("type") == "vk_existing_photo":
+        return "", None
     if isinstance(path, str) and path:
         if os.path.isabs(path):
             return "approved local media file is unavailable", None
@@ -235,6 +252,48 @@ def _vk_diagnostic(result, fallback_stage):
             "retryable": bool(result.retryable),
             "uncertain": bool(result.uncertain),
             "message": (result.error or "unknown")[:300]}
+
+
+def _existing_photo_attachment(media):
+    """Build VK's attachment token without exposing an access key in logs."""
+    try:
+        owner_id = int(media.get("photo_owner_id"))
+        photo_id = int(media.get("photo_id"))
+    except (TypeError, ValueError):
+        return None, "VK existing photo identifiers are invalid"
+    if not owner_id or photo_id <= 0:
+        return None, "VK existing photo identifiers are invalid"
+    attachment = "photo%s_%s" % (owner_id, photo_id)
+    access_key = media.get("access_key")
+    if access_key:
+        attachment += "_%s" % access_key
+    return attachment, ""
+
+
+def preview_existing_material(state_path, material_id, photo_owner_id, photo_id,
+                              access_key=None, root_dir="."):
+    """Prepare a future wall.post attachment without changing queue state."""
+    state = _load_state(state_path)
+    record = state["materials"].get(str(material_id))
+    if not record:
+        raise DailyPublishBlocked("requested material is absent from the durable queue")
+    candidate = deepcopy(record)
+    media = deepcopy(candidate.get("media") or {})
+    media.update({"type": "vk_existing_photo", "photo_owner_id": photo_owner_id,
+                  "photo_id": photo_id, "access_key": access_key})
+    candidate["media"] = media
+    error = _media_metadata_error(candidate)
+    if error:
+        raise DailyPublishBlocked(error)
+    attachment, error = _existing_photo_attachment(media)
+    if error:
+        raise DailyPublishBlocked(error)
+    return {"material_id": int(material_id), "status": record.get("status"),
+            "wall_owner_id": -int(config.VK_GROUP_ID or 0),
+            "attachment": attachment,
+            "access_key_present": bool(access_key),
+            "availability": "not_checked",
+            "publication_ready": record.get("status") == "pending"}
 
 
 def photo_access_diagnostics(publisher=None):
@@ -345,9 +404,22 @@ def publish_claimed(state_path, root_dir=".", publisher=None, now=None):
     if len(claimed) != 1:
         raise DailyPublishBlocked("exactly one durable publishing claim is required")
     material_id, record = claimed[0]
+    media = record.get("media") or {}
+    existing_attachment = None
+    if media.get("type") == "vk_existing_photo":
+        media_error = _media_metadata_error(record)
+        existing_attachment, attachment_error = _existing_photo_attachment(media)
+        media_error = media_error or attachment_error
+        image = None
+        if media_error:
+            record["last_error"] = {"kind": "media", "reason": media_error}
+            _write_state(state_path, state)
+            raise DailyPublishBlocked(media_error)
+    else:
+        media_error = ""
     runtime = _runtime_media_path(state_path, material_id)
-    image = None
-    if runtime.is_file():
+    image = None if existing_attachment else None
+    if existing_attachment is None and runtime.is_file():
         candidate = runtime.read_bytes()
         expected = (record.get("media") or {}).get("sha256")
         if hashlib.sha256(candidate).hexdigest() == expected:
@@ -355,21 +427,25 @@ def publish_claimed(state_path, root_dir=".", publisher=None, now=None):
             if not image_error:
                 image = candidate
     media_error = ""
-    if image is None:
+    if existing_attachment is None and image is None:
         media_error, image = _media_error(record, root_dir, fetch_source=True)
     if media_error:
         record["last_error"] = {"kind": "media", "reason": media_error}
         _write_state(state_path, state)
         raise DailyPublishBlocked(media_error)
     client = publisher or VkPublisher()
-    access = client.check_access(require_photo_upload=True)
+    access = client.check_access(require_photo_upload=(existing_attachment is None))
     if not access.ok:
         diagnostic = _vk_diagnostic(access, "photo_access_check")
         record["last_error"] = diagnostic
         _write_state(state_path, state)
         raise DailyQueueError("VK photo access check failed (stage=%s, kind=%s, code=%s, http_status=%s)" % (
             diagnostic["stage"], diagnostic["kind"], diagnostic["code"], diagnostic["http_status"]))
-    result = client.publish(record["vk_text"], photo_bytes=image, dry_run=False)
+    if existing_attachment is None:
+        result = client.publish(record["vk_text"], photo_bytes=image, dry_run=False)
+    else:
+        result = client.publish(record["vk_text"], photo_bytes=None,
+                                existing_attachment=existing_attachment, dry_run=False)
     if result.ok:
         record.update({"status": "published", "vk_post_id": result.post_id,
                        "vk_owner_id": result.owner_id, "published_at": now or _now()})
@@ -387,9 +463,24 @@ def publish_claimed(state_path, root_dir=".", publisher=None, now=None):
         diagnostic["stage"], diagnostic["kind"], diagnostic["code"], diagnostic["http_status"]))
 
 
+def reconcile_claim(state_path, material_id, confirmation):
+    """Explicitly release a durable claim after an operator-side VK check."""
+    if confirmation != "RECONCILE_VK_CLAIM_AFTER_MANUAL_CHECK":
+        raise DailyPublishBlocked("explicit reconciliation confirmation is required")
+    state = _load_state(state_path)
+    record = state["materials"].get(str(material_id))
+    if not record or record.get("status") != "publishing":
+        raise DailyPublishBlocked("material is not in publishing state")
+    record["status"] = "pending"
+    record.pop("claimed_at", None)
+    record["reconciled_at"] = _now()
+    _write_state(state_path, state)
+    return deepcopy(record)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Durable, image-required VK daily queue")
-    parser.add_argument("action", choices=("preview", "sync", "claim", "publish", "access-check"))
+    parser.add_argument("action", choices=("preview", "preview-existing", "existing-photo-check", "sync", "claim", "publish", "access-check", "reconcile-claim"))
     parser.add_argument("--state", required=True)
     parser.add_argument("--root", default=".")
     parser.add_argument("--db", default="data/agro_channel.db")
@@ -397,9 +488,34 @@ def main(argv=None):
                         help="read approved AGRO image URLs without publishing")
     parser.add_argument("--material-id", type=int,
                         help="claim only this next verified material")
+    parser.add_argument("--photo-owner-id", type=int)
+    parser.add_argument("--photo-id", type=int)
+    parser.add_argument("--access-key")
+    parser.add_argument("--confirm")
     args = parser.parse_args(argv)
     try:
-        if args.action == "preview":
+        if args.action == "preview-existing":
+            if args.material_id is None or args.photo_owner_id is None or args.photo_id is None:
+                raise DailyPublishBlocked("material-id, photo-owner-id and photo-id are required")
+            report = preview_existing_material(args.state, args.material_id, args.photo_owner_id,
+                                               args.photo_id, args.access_key, args.root)
+            safe = {key: value for key, value in report.items() if key != "attachment"}
+            safe["attachment_shape"] = "photo{owner_id}_{photo_id}" + ("[_access_key]" if args.access_key else "")
+            print("VK existing photo preview: %s" % json.dumps(safe, sort_keys=True, ensure_ascii=True))
+        elif args.action == "existing-photo-check":
+            if args.photo_owner_id is None or args.photo_id is None:
+                raise DailyPublishBlocked("photo-owner-id and photo-id are required")
+            result = VkPublisher().check_existing_photo(args.photo_owner_id, args.photo_id, args.access_key)
+            diagnostic = _vk_diagnostic(result, "photos.getById")
+            print("VK existing photo diagnostic: %s" % json.dumps(diagnostic, sort_keys=True, ensure_ascii=True))
+            if not result.ok:
+                return 1
+        elif args.action == "reconcile-claim":
+            if args.material_id is None:
+                raise DailyPublishBlocked("material-id is required")
+            reconcile_claim(args.state, args.material_id, args.confirm)
+            print("VK claim reconciled: material_id=%s status=pending" % args.material_id)
+        elif args.action == "preview":
             print("VK daily queue diagnostic: %s" % json.dumps(
                 queue_diagnostics(args.state, args.root, verify_source=args.verify_media),
                 sort_keys=True, ensure_ascii=True))
