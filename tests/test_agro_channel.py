@@ -8,8 +8,8 @@ import re
 
 import pytest
 
-from case_pipeline import (adapters, agro, classifier_agro, config, storage as
-                           storage_mod, telegram)
+from case_pipeline import (adapters, agro, agro_vk_dm, classifier_agro, config,
+                           storage as storage_mod, telegram)
 from case_pipeline import hashtags as hashtags_mod
 
 ART_URL = "https://www.botanichka.ru/article/kogda-sazhat-chesnok-osenyu/"
@@ -515,6 +515,44 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
     assert len(r["hashtags"]) == 3  # стиль канала: не больше 3 хэштегов
     row = st.get(st.add(ART_URL, "x"))
     assert row["url"] == ART_URL  # URL не изменён редактурой/отправкой
+
+
+def test_vk_dm_runs_only_after_successful_agro_channel_publication(st, monkeypatch):
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    monkeypatch.setattr(config, "AGRO_PUBLISH", True, raising=False)
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "t", raising=False)
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    photo = b"\xff\xd8" + b"z" * 20000
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes", lambda *a, **k: photo)
+    monkeypatch.setattr(telegram, "send_photo",
+                        lambda *a, **k: telegram.PublishResult(True, message_id=707))
+    delivered = []
+    monkeypatch.setattr(agro_vk_dm, "deliver_after_agro_publication",
+                        lambda storage, material_id, post_text, photo=None: (
+                            delivered.append((material_id, post_text, photo)), {"status": "sent"})[1])
+
+    result = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
+
+    assert result["status"] == "published"
+    assert result["vk_dm_status"] == "sent"
+    assert len(delivered) == 1 and delivered[0][2] is photo
+    assert delivered[0][1] == st.get(delivered[0][0])["post_text"]
+
+
+def test_vk_dm_does_not_run_when_agro_channel_publication_fails(st, monkeypatch):
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    monkeypatch.setattr(config, "AGRO_PUBLISH", True, raising=False)
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "t", raising=False)
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes", lambda *a, **k: b"\xff\xd8" + b"z" * 20000)
+    monkeypatch.setattr(telegram, "send_photo",
+                        lambda *a, **k: telegram.PublishResult(False, error="500 upstream"))
+    monkeypatch.setattr(agro_vk_dm, "deliver_after_agro_publication",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("DM before channel success")))
+
+    result = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
+
+    assert result["status"] == "review"
 
 
 def test_image_fetch_failure_is_failed_not_published(st, monkeypatch):

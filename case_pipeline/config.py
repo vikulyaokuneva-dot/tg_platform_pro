@@ -20,6 +20,9 @@ Env-переменные (документированы в README_CASE_PIPELINE
   AGRO_PUBLISH_LIMIT        максимум агро-постов за запуск (default 1)
   AGRO_MAX_PER_RUN          максимум свежих URL на агро-источник за запуск (default 3)
   AGRO_MAX_AGE_DAYS         окно свежести агро-материала по дате публикации (default 5)
+  AGRO_VK_DM_ENABLED        "1" — отправлять владельцу готовую VK-версию
+                            только после успешной AGRO-публикации (default 0)
+  AGRO_VK_DM_CHAT_ID        личный chat_id владельца (GitHub Secret)
   VK_ACCESS_TOKEN           токен VK API (только из GitHub Secret/env)
   VK_GROUP_ID               числовой id сообщества VK без знака «-»
   VK_PUBLISH                "1" разрешает реальную публикацию в VK (default 0)
@@ -118,6 +121,10 @@ AGRO_PUBLISH = env("AGRO_PUBLISH", "0") == "1"
 AGRO_PUBLISH_LIMIT = int(env("AGRO_PUBLISH_LIMIT", "1"))
 AGRO_MAX_PER_RUN = int(env("AGRO_MAX_PER_RUN", "3"))
 AGRO_MAX_AGE_DAYS = int(env("AGRO_MAX_AGE_DAYS", "5"))
+# Личная отправка — часть успешной AGRO-публикации, а не отдельный pipeline.
+# По умолчанию выключена; chat id никогда не попадает в логи или отчёты.
+AGRO_VK_DM_ENABLED = env("AGRO_VK_DM_ENABLED", "0") == "1"
+AGRO_VK_DM_CHAT_ID = env("AGRO_VK_DM_CHAT_ID")
 
 # ---------- VK AGRO AUTOPILOT ----------
 # VK не использует Telegram credentials и включается только явным флагом.

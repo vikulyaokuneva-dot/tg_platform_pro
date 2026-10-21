@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS vk_publications (
 );
 CREATE INDEX IF NOT EXISTS idx_vk_publications_status ON vk_publications(status);
 CREATE INDEX IF NOT EXISTS idx_vk_publications_published ON vk_publications(published_at);
+CREATE TABLE IF NOT EXISTS agro_vk_dm_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    material_id INTEGER NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('sending', 'sent', 'failed')),
+    telegram_message_id INTEGER,
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sent_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agro_vk_dm_deliveries_status ON agro_vk_dm_deliveries(status);
 """
 
 # мягкая миграция старых БД: недостающие колонки publication history
@@ -170,6 +181,39 @@ class Storage:
              hashtags, content_type, m.get("company"), m.get("canonical_url"),
              m.get("content_hash")))
         self.db.commit()
+
+    # ---------- AGRO -> owner private VK draft delivery ----------
+    def claim_agro_vk_dm_delivery(self, mid):
+        """Create the one durable pre-send claim for a private VK draft.
+
+        ``material_id`` is the cross-run dedup key.  A failed/partial send is
+        deliberately not retried automatically: an operator must decide to
+        resend, rather than a normal AGRO rerun duplicating a private message.
+        """
+        now = now_iso()
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO agro_vk_dm_deliveries("
+            "material_id,status,created_at,updated_at) VALUES(?, 'sending', ?, ?)",
+            (mid, now, now))
+        self.db.commit()
+        return cur.rowcount == 1
+
+    def finish_agro_vk_dm_delivery(self, mid, status, error="", message_id=None):
+        if status not in {"sent", "failed"}:
+            raise ValueError("AGRO VK DM delivery status must be sent or failed")
+        now = now_iso()
+        self.db.execute(
+            "UPDATE agro_vk_dm_deliveries SET status=?, telegram_message_id=?, error=?, "
+            "updated_at=?, sent_at=? WHERE material_id=? AND status='sending'",
+            (status, message_id, (error or "")[:500], now,
+             now if status == "sent" else None, mid))
+        self.db.commit()
+
+    def agro_vk_dm_delivery(self, mid):
+        row = self.db.execute(
+            "SELECT material_id,status,telegram_message_id,error,created_at,updated_at,sent_at "
+            "FROM agro_vk_dm_deliveries WHERE material_id=?", (mid,)).fetchone()
+        return dict(row) if row else None
 
     # ---------- VK queue (independent from Telegram/material status) ----------
     def enqueue_vk(self, mid, vk_text, source_url, image_url="", image_allowed=False):

@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 
 from . import (adapters, ai as ai_mod, case_model, classifier_agro, config,
-               extraction, hashtags, httpclient, langguard,
+               extraction, agro_vk_dm, hashtags, httpclient, langguard,
                storage as storage_mod, telegram, textclean, utils)
 
 log = logging.getLogger("case.agro")
@@ -765,6 +765,19 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None):
                               case_model.case_id_for(url, text[:2000]),
                               hashtags=hashtags.render(tags), content_type="agro")
             out.update(status="published", telegram_message_id=res.message_id)
+            # Optional owner-only VK draft: runs only after the channel has
+            # confirmed publication. It reuses this exact post and the already
+            # downloaded image bytes; any DM failure is isolated from the
+            # successful Telegram publication and never changes this material.
+            try:
+                dm = agro_vk_dm.deliver_after_agro_publication(
+                    st, mid, post, photo=photo)
+                out["vk_dm_status"] = dm.get("status")
+                log.info("agro VK DM material=%s status=%s", mid, dm.get("status"))
+            except Exception as dm_error:
+                out["vk_dm_status"] = "internal_error"
+                log.exception("agro VK DM isolated failure for material=%s: %s",
+                              mid, type(dm_error).__name__)
         else:
             st.release_claim(mid, "review", "publish failed: %s" % (res.error or ""))
             out.update(status="review", reason="publish failed: %s" % res.error)
