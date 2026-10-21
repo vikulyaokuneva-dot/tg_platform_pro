@@ -23,6 +23,13 @@ Env-переменные (документированы в README_CASE_PIPELINE
   AGRO_VK_DM_ENABLED        "1" — отправлять владельцу готовую VK-версию
                             только после успешной AGRO-публикации (default 0)
   AGRO_VK_DM_CHAT_ID        личный chat_id владельца (GitHub Secret)
+  PETS_BOT_TOKEN            токен бота канала PETS (только env/Secret)
+  PETS_CHAT_ID              chat_id канала PETS (только env/Secret)
+  PETS_DB_PATH              отдельная SQLite-история PETS
+  PETS_PUBLISH              "1" разрешает публикацию только при durable state
+  PETS_SOURCES              csv одобренных источников (по умолчанию пусто)
+  PETS_CONTENT_MODE         evergreen | news (default evergreen)
+  PETS_EDITORIAL_PROFILE    профиль редакционной безопасности (pets_expert)
   VK_ACCESS_TOKEN           токен VK API (только из GitHub Secret/env)
   VK_GROUP_ID               числовой id сообщества VK без знака «-»
   VK_PUBLISH                "1" разрешает реальную публикацию в VK (default 0)
@@ -125,6 +132,24 @@ AGRO_MAX_AGE_DAYS = int(env("AGRO_MAX_AGE_DAYS", "5"))
 # По умолчанию выключена; chat id никогда не попадает в логи или отчёты.
 AGRO_VK_DM_ENABLED = env("AGRO_VK_DM_ENABLED", "0") == "1"
 AGRO_VK_DM_CHAT_ID = env("AGRO_VK_DM_CHAT_ID")
+
+# ---------- PETS CHANNEL (jobs/pets) ----------
+# Новая линия не имеет fallback на AGRO/AI credentials или БД.  Источники
+# пусты, пока владелец не одобрит результаты редакционного и правового аудита.
+PETS_BOT_TOKEN = env("PETS_BOT_TOKEN")
+PETS_CHAT_ID = env("PETS_CHAT_ID")
+PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db"))
+PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
+PETS_PUBLISH_LIMIT = int(env("PETS_PUBLISH_LIMIT", "1"))
+PETS_MAX_PER_RUN = int(env("PETS_MAX_PER_RUN", "3"))
+PETS_SOURCES = [s.strip() for s in env("PETS_SOURCES", "").split(",") if s.strip()]
+PETS_EDITORIAL_PROFILE = env("PETS_EDITORIAL_PROFILE", "pets_expert")
+PETS_CONTENT_MODE = env("PETS_CONTENT_MODE", "evergreen").strip().lower()
+# cache годится для dry-run, но не для гарантий "ровно один раз" в production.
+# Реальную отправку разрешает только явно подтверждённый durable backend.
+PETS_STATE_BACKEND = env("PETS_STATE_BACKEND", "cache").strip().lower()
+PETS_REQUIRE_DURABLE_STATE = env("PETS_REQUIRE_DURABLE_STATE", "1") == "1"
+PETS_AI_ENABLED = env("PETS_AI_ENABLED", "0") == "1"
 
 # ---------- VK AGRO AUTOPILOT ----------
 # VK не использует Telegram credentials и включается только явным флагом.

@@ -77,6 +77,8 @@ def credentials(channel="ai"):
     нет: только env (см. config).-> (token, chat_id)"""
     if channel == "agro":
         return config.AGRO_BOT_TOKEN, config.AGRO_CHAT_ID
+    if channel == "pets":
+        return config.PETS_BOT_TOKEN, config.PETS_CHAT_ID
     return config.BOT_TOKEN, config.CHAT_ID
 
 

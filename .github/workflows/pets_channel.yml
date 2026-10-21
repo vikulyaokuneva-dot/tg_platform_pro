@@ -1,0 +1,66 @@
+name: PETS channel (manual dry-run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      controlled_publish:
+        description: "One owner-approved PETS publication (requires durable state and PETS_PUBLISH=1)"
+        required: true
+        default: false
+        type: boolean
+
+# Intended future schedule: 12:00 Moscow = 09:00 UTC -> "0 9 * * *".
+# It is intentionally not enabled until the owner approves sources, bot, durable
+# state storage and one controlled publication.
+concurrency:
+  group: pets-channel
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Cache is observed only for dry-run continuity. It is not an approved
+      # production source of truth; pets.py refuses real publishing with it.
+      - name: Restore PETS dry-run state
+        id: pets-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/pets_channel.db
+            jobs/pets/storage.json
+          key: pets-state-${{ github.run_id }}
+          restore-keys: pets-state-
+      - run: pip install -r requirements.txt
+      - name: Run PETS in forced dry-run mode
+        run: python -m jobs.pets.run
+        env:
+          # This checkbox is only one of three gates: it also needs the
+          # repository variable PETS_PUBLISH=1 and a durable state backend.
+          DRY_RUN: ${{ inputs.controlled_publish && '0' || '1' }}
+          # A repository variable remains 0 until the owner has completed the
+          # controlled-release checklist. DRY_RUN above is an independent gate.
+          PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
+          PETS_BOT_TOKEN: ${{ secrets.PETS_BOT_TOKEN }}
+          PETS_CHAT_ID: ${{ secrets.PETS_CHAT_ID }}
+          PETS_SOURCES: ${{ vars.PETS_SOURCES }}
+          PETS_PUBLISH_LIMIT: ${{ vars.PETS_PUBLISH_LIMIT }}
+          PETS_MAX_PER_RUN: ${{ vars.PETS_MAX_PER_RUN }}
+          PETS_EDITORIAL_PROFILE: pets_expert
+          PETS_CONTENT_MODE: evergreen
+          PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
+      - name: Save PETS dry-run state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/pets_channel.db
+            jobs/pets/storage.json
+          key: pets-state-${{ github.run_id }}
