@@ -93,3 +93,9 @@ SQLite, но cache может быть вытеснен, поэтому он н�
 `PETS_STATE_REPOSITORY=<owner/repo>`, `PETS_STATE_BRANCH=pets-state`,
 `PETS_STATE_PATH=pets/pets_channel.db`. До отдельного решения всегда оставлять
 `PETS_PUBLISH=0` и не добавлять cron.
+
+`PETS_SOURCES` нужно оставлять пустым, пока нет одобренного автоматического
+источника: значения `0`, `false`, `none`, `null` и `off` трактуются как пустой
+список. `PETS_DEMO_BRIEFS=1` применяется только input workflow
+`include_demo_briefs=true`; он показывает три демонстрационных черновика со
+статусом `demo_ready`, но не включает реальный источник и не делает публикацию.

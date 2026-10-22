@@ -3,6 +3,11 @@ name: PETS channel (manual dry-run)
 on:
   workflow_dispatch:
     inputs:
+      include_demo_briefs:
+        description: "Prepare the three bundled demonstration drafts (never sends Telegram)"
+        required: true
+        default: false
+        type: boolean
       controlled_publish:
         description: "One owner-approved PETS publication (requires durable state and PETS_PUBLISH=1)"
         required: true
@@ -59,6 +64,7 @@ jobs:
           PETS_MAX_PER_RUN: ${{ vars.PETS_MAX_PER_RUN }}
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
+          PETS_DEMO_BRIEFS: ${{ inputs.include_demo_briefs && '1' || '0' }}
           PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
           PETS_STATE_REPOSITORY: ${{ vars.PETS_STATE_REPOSITORY }}
           PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}

@@ -28,7 +28,8 @@ def _image(breed=""):
             "source_url": "https://commons.example.test/file/cat", "license": "CC-BY-4.0",
             "license_url": "https://creativecommons.org/licenses/by/4.0/",
             "attribution": "Jane Doe / CC BY 4.0", "query": "domestic cat",
-            "topic_match": "species", "breed": breed}
+            "topic_match": "species+safe_shelter", "semantic_tags": ("cat", "safe_shelter"),
+            "required_tags": ("cat", "safe_shelter"), "semantic_evidence": "fixture", "breed": breed}
 
 
 @pytest.fixture
@@ -55,6 +56,15 @@ def test_pets_dry_run_prepares_but_never_sends(st, prepared, monkeypatch):
 
 def test_unlicensed_or_missing_image_is_review(st, prepared):
     result = pets.process_url(st, URL, "pdsa", image_resolver=lambda *_: None, fetcher=prepared)
+    assert result["status"] == "review" and result["reason"] == "image_rights"
+
+
+def test_species_only_image_is_reviewed_not_accepted(st, prepared):
+    image = _image()
+    image.pop("semantic_tags")
+    image.pop("required_tags")
+    image.pop("semantic_evidence")
+    result = pets.process_url(st, URL, "pdsa", image_resolver=lambda *_: image, fetcher=prepared)
     assert result["status"] == "review" and result["reason"] == "image_rights"
 
 
@@ -115,6 +125,8 @@ def test_all_ten_sources_are_registry_candidates_not_default_enabled():
     assert config.PETS_SOURCES == []
     assert pets_sources.adapters_for(["pdsa", "merck_vet"]) == {}
     assert pets_sources.policy_for("merck_vet")["mode"] == "fact_check_only"
+    assert config.pets_source_ids("0") == []
+    assert config.pets_source_ids("false, none, pdsa") == ["pdsa"]
 
 
 def test_news_mode_rejects_stale_article(st, prepared, monkeypatch):
@@ -154,12 +166,12 @@ def test_sqlite_state_survives_reopen_and_corruption_is_detected(tmp_path):
 
 def test_original_briefs_are_manual_review_drafts_with_open_images(st):
     results = [pets.process_original_brief(st, brief) for brief in pets_briefs.DEFAULT_BRIEFS]
-    assert [result["status"] for result in results] == ["post_ready"] * 3
+    assert [result["status"] for result in results] == ["demo_ready"] * 3
     for result in results:
         row = st.get(st.add(result["url"], "curated_original"))
         rights = st.db.execute("SELECT license,license_url,author FROM pets_image_rights WHERE material_id=?",
                                (row["id"],)).fetchone()
-        assert row["status"] == "post_ready"
+        assert row["status"] == "demo_ready"
         assert "Проверка фактов:" in row["post_text"]
         assert rights["license"] in {"CC-BY-4.0", "CC-BY-SA-4.0", "CC0-1.0", "Public-Domain"}
         assert rights["license_url"] and rights["author"]
@@ -170,8 +182,15 @@ def test_original_briefs_never_send_even_when_publish_is_requested(st, monkeypat
     monkeypatch.setattr(telegram, "publish_post", lambda *a, **kw: pytest.fail("original drafts must not send"))
     summary = pets.run(dry_run=False, publish=True, st=st, sources=[], adapters={},
                        briefs=pets_briefs.DEFAULT_BRIEFS)
-    assert summary["post_ready"] == 3
+    assert summary["demo_ready"] == 3
     assert summary["published"] == 0
+
+
+def test_existing_demo_rows_are_migrated_out_of_automatic_ready(st):
+    mid = st.add("draft://pets/old-demo", "curated_original")
+    st.update(mid, status="post_ready")
+    assert st.migrate_demo_materials() == 1
+    assert st.get(mid)["status"] == "demo_ready"
 
 
 def test_pets_publication_ledger_omits_chat_id(st):
@@ -187,11 +206,13 @@ def test_pets_job_dry_run_creates_review_drafts_without_sending(tmp_path, monkey
     monkeypatch.setattr(config, "PETS_DB_PATH", str(tmp_path / "state.db"))
     monkeypatch.setattr(config, "PETS_SOURCES", [])
     monkeypatch.setattr(config, "PETS_PUBLISH", False)
-    monkeypatch.setattr(pets_job, "_download_preview_images", lambda st: [])
-    monkeypatch.setattr(pets_job, "_write_preview", lambda st: None)
+    monkeypatch.setattr(config, "PETS_DEMO_BRIEFS", True)
+    monkeypatch.setattr(pets_job, "_download_preview_images", lambda *args, **kwargs: [])
+    monkeypatch.setattr(pets_job, "_write_preview", lambda *args, **kwargs: None)
     ctx = JobContext("pets", str(tmp_path / "job.json"), dry_run=True)
     pets_job.run(ctx)
     assert ctx.storage["last_run"]["checked"] == 3
-    assert ctx.storage["last_run"]["post_ready"] == 3
+    assert ctx.storage["last_run"]["post_ready"] == 0
+    assert ctx.storage["last_run"]["demo_ready"] == 3
     assert ctx.storage["last_run"]["published"] == 0
     assert ctx.storage["last_run"]["dry_run"] is True

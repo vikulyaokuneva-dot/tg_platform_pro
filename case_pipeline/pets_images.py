@@ -80,11 +80,18 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
 def validate_image(image, title=""):
     if not isinstance(image, dict):
         return False, "image rights metadata is missing"
-    required = ("url", "author", "source_url", "license", "license_url", "attribution", "topic_match")
+    required = ("url", "author", "source_url", "license", "license_url", "attribution", "topic_match",
+                "semantic_tags", "semantic_evidence")
     if any(not str(image.get(k, "")).strip() for k in required):
         return False, "image rights metadata is incomplete"
     if image.get("license") not in _OPEN_LICENSES:
         return False, "image license is not approved"
+    semantic_tags = {str(tag).strip().lower() for tag in image.get("semantic_tags", ()) if str(tag).strip()}
+    required_tags = {str(tag).strip().lower() for tag in image.get("required_tags", ()) if str(tag).strip()}
+    if not semantic_tags or not required_tags:
+        return False, "image semantic context is not verified"
+    if not required_tags.issubset(semantic_tags):
+        return False, "image does not match the required visual context"
     expected = _breed_from(title)
     actual = str(image.get("breed", "")).strip()
     if expected and actual != expected:

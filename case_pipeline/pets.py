@@ -60,7 +60,7 @@ def build_post(title, text, url):
     return post[:MAX_POST_CHARS].rstrip()
 
 
-def build_original_post(title, body, fact_sources):
+def build_original_post(title, body, fact_sources, practical_steps=()):
     """Format an owner-reviewed original text without adapting source prose."""
     clean_title = re.sub(r"\s+", " ", (title or "Памятка владельцу")).strip()[:120]
     clean_body = "\n\n".join(
@@ -69,13 +69,18 @@ def build_original_post(title, body, fact_sources):
     sources = [str(item).strip() for item in (fact_sources or ()) if str(item).strip()]
     if not clean_body or not sources:
         return ""
+    steps = [str(step).strip() for step in practical_steps if str(step).strip()]
+    practical = ""
+    if steps:
+        practical = "\n\nЧто можно сделать сегодня:\n" + "\n".join(
+            "• " + step for step in steps[:3])
     links = "\n".join("- " + item for item in sources)
-    return ("🐾 %s\n\n%s\n\nПроверка фактов:\n%s" %
-            (clean_title, clean_body, links))[:MAX_POST_CHARS].rstrip()
+    return ("🐾 %s\n\n%s%s\n\nПроверка фактов:\n%s" %
+            (clean_title, clean_body, practical, links))[:MAX_POST_CHARS].rstrip()
 
 
 def _known_status(status):
-    return status in {"published", "rejected", "review", "post_ready", "publishing"}
+    return status in {"published", "rejected", "review", "post_ready", "demo_ready", "publishing"}
 
 
 def _normalize_image(candidate, ext, resolver):
@@ -226,7 +231,8 @@ def process_original_brief(st, brief):
     required = ("id", "title", "body", "species", "category", "topic_key", "image")
     if not brief_id or any(not brief.get(key) for key in required):
         return dict(out, status="rejected", reason="original_brief_incomplete")
-    post = build_original_post(brief["title"], brief["body"], brief.get("fact_sources"))
+    post = build_original_post(brief["title"], brief["body"], brief.get("fact_sources"),
+                               brief.get("practical_steps", ()))
     if len(post) < 250:
         return dict(out, status="rejected", reason="original_brief_insufficient")
     profile = editorial_profiles.get_profile(config.PETS_EDITORIAL_PROFILE)
@@ -237,6 +243,16 @@ def process_original_brief(st, brief):
         return dict(out, status="review", reason="image_rights:" + image_reason)
     mid = st.add(url, "curated_original")
     row = st.get(mid) or {}
+    # Demonstrations are versioned with the code. Refreshing one may update its
+    # wording/image metadata, but it can never turn it into an automatic post.
+    if row.get("status") == "demo_ready":
+        st.record_image_rights(mid, brief["image"])
+        st.update(mid, content_hash=utils.content_hash(brief["body"]), status="demo_ready",
+                  post_text=post, image_url=brief["image"]["url"],
+                  classification="pets:%s:%s" % (brief["category"], brief["species"]),
+                  reason="pets_expert:demo_manual_review")
+        return dict(out, status="demo_ready", category=brief["category"], species=brief["species"],
+                    refreshed=True)
     if _known_status(row.get("status")):
         return dict(out, reason="already " + str(row.get("status")))
     if st.topic_seen(brief["topic_key"]):
@@ -249,11 +265,11 @@ def process_original_brief(st, brief):
     if not st.reserve_topic(mid, brief["topic_key"], brief["category"], brief["species"]):
         return dict(out, status="rejected", reason="duplicate_topic")
     st.record_image_rights(mid, brief["image"])
-    st.update(mid, content_hash=utils.content_hash(brief["body"]), status="post_ready",
+    st.update(mid, content_hash=utils.content_hash(brief["body"]), status="demo_ready",
               post_text=post, image_url=brief["image"]["url"],
               classification="pets:%s:%s" % (brief["category"], brief["species"]),
               reason="pets_expert:original_manual_review")
-    return dict(out, status="post_ready", category=brief["category"], species=brief["species"])
+    return dict(out, status="demo_ready", category=brief["category"], species=brief["species"])
 
 
 def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
@@ -268,7 +284,7 @@ def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
     summary = {"checked": 0, "post_ready": 0, "published": 0, "rejected": 0,
                "review": 0, "failed": 0, "skipped": 0,
                "dry_run": dry_run or not allow_publish, "sources": list(source_ids),
-               "reason_counts": {}, "ready_material_ids": []}
+               "reason_counts": {}, "ready_material_ids": [], "demo_ready": 0}
     published = 0
     for brief in briefs or ():
         result = process_original_brief(st, brief)

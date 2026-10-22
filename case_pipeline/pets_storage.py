@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS pets_image_rights (
     attribution TEXT NOT NULL,
     search_query TEXT NOT NULL DEFAULT '',
     topic_match TEXT NOT NULL DEFAULT '',
+    semantic_tags TEXT NOT NULL DEFAULT '',
+    semantic_evidence TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL
 );
 """
@@ -36,7 +38,7 @@ class PetsStorage(Storage):
         super().__init__(path)
         self.db.executescript(_SCHEMA)
         cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_image_rights)")}
-        for name in ("license_url", "search_query", "topic_match"):
+        for name in ("license_url", "search_query", "topic_match", "semantic_tags", "semantic_evidence"):
             if name not in cols:
                 self.db.execute("ALTER TABLE pets_image_rights ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
         self.db.commit()
@@ -77,12 +79,21 @@ class PetsStorage(Storage):
 
     def record_image_rights(self, material_id, image):
         self.db.execute(
-            "INSERT OR REPLACE INTO pets_image_rights(material_id,image_url,author,source_url,license,license_url,attribution,search_query,topic_match,verified_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO pets_image_rights(material_id,image_url,author,source_url,license,license_url,attribution,search_query,topic_match,semantic_tags,semantic_evidence,verified_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (material_id, image["url"], image["author"], image["source_url"], image["license"],
              image.get("license_url", ""), image["attribution"], image.get("query", ""),
-             image.get("topic_match", ""), now_iso()))
+             image.get("topic_match", ""), ",".join(image.get("semantic_tags", ())),
+             image.get("semantic_evidence", ""), now_iso()))
         self.db.commit()
+
+    def migrate_demo_materials(self):
+        """Label old seed records so they cannot be mistaken for source pipeline output."""
+        cur = self.db.execute(
+            "UPDATE materials SET status='demo_ready', reason='pets_expert:demo_manual_review', "
+            "updated_at=? WHERE source='curated_original' AND status='post_ready'", (now_iso(),))
+        self.db.commit()
+        return cur.rowcount
 
     def diversity_allows(self, category, species):
         rows = self.db.execute(

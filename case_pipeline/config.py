@@ -148,7 +148,16 @@ PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db")
 PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
 PETS_PUBLISH_LIMIT = int(env("PETS_PUBLISH_LIMIT", "1"))
 PETS_MAX_PER_RUN = int(env("PETS_MAX_PER_RUN", "3"))
-PETS_SOURCES = [s.strip() for s in env("PETS_SOURCES", "").split(",") if s.strip()]
+PETS_SOURCE_DISABLED_VALUES = {"", "0", "false", "none", "null", "off"}
+
+
+def pets_source_ids(value):
+    """Interpret GitHub's common false/empty placeholders as no source list."""
+    return [s.strip() for s in str(value or "").split(",")
+            if s.strip().lower() not in PETS_SOURCE_DISABLED_VALUES]
+
+
+PETS_SOURCES = pets_source_ids(env("PETS_SOURCES", ""))
 PETS_EDITORIAL_PROFILE = env("PETS_EDITORIAL_PROFILE", "pets_expert")
 PETS_CONTENT_MODE = env("PETS_CONTENT_MODE", "evergreen").strip().lower()
 # cache годится для dry-run, но не для гарантий "ровно один раз" в production.
@@ -157,6 +166,7 @@ PETS_STATE_BACKEND = env("PETS_STATE_BACKEND", "cache").strip().lower()
 PETS_REQUIRE_DURABLE_STATE = env("PETS_REQUIRE_DURABLE_STATE", "1") == "1"
 PETS_AI_ENABLED = env("PETS_AI_ENABLED", "0") == "1"
 PETS_IMAGE_PROVIDER = env("PETS_IMAGE_PROVIDER", "wikimedia").strip().lower()
+PETS_DEMO_BRIEFS = env("PETS_DEMO_BRIEFS", "0") == "1"
 # GitHub Contents API keeps PETS state on a dedicated branch. It is versioned
 # and uses an optimistic SHA precondition; the workflow concurrency group
 # serializes normal runs. Disabled until PETS_STATE_BACKEND=github.

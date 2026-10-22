@@ -7,14 +7,15 @@ from case_pipeline import config, httpclient, pets, pets_briefs, pets_durable_st
 from case_pipeline.pets_storage import PetsStorage
 
 
-def _write_preview(st, path="runs/pets_preview.md"):
+def _write_preview(st, path="runs/pets_preview.md", include_demo=False):
     """Owner-only Action artifact: ready drafts never go to CI logs."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    status_clause = "IN ('post_ready','demo_ready')" if include_demo else "='post_ready'"
     rows = st.db.execute(
         "SELECT m.id,m.post_text,m.canonical_url,m.image_url,r.author,r.license,r.license_url,"
         "r.attribution,r.topic_match FROM materials m "
         "LEFT JOIN pets_image_rights r ON r.material_id=m.id "
-        "WHERE m.status='post_ready' ORDER BY m.id DESC LIMIT 10").fetchall()
+        "WHERE m.status %s ORDER BY m.id DESC LIMIT 10" % status_clause).fetchall()
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("# PETS — черновики dry-run\n\n")
         if not rows:
@@ -29,13 +30,14 @@ def _write_preview(st, path="runs/pets_preview.md"):
             fh.write("Проверка соответствия: %s\n\n" % (row["topic_match"] or ""))
 
 
-def _download_preview_images(st, media_dir="runs/pets_media"):
+def _download_preview_images(st, media_dir="runs/pets_media", include_demo=False):
     """Attach only pre-validated Commons assets; never place them in CI logs."""
     Path(media_dir).mkdir(parents=True, exist_ok=True)
+    status_clause = "IN ('post_ready','demo_ready')" if include_demo else "='post_ready'"
     rows = st.db.execute(
         "SELECT m.id,m.image_url FROM materials m "
         "JOIN pets_image_rights r ON r.material_id=m.id "
-        "WHERE m.status='post_ready' ORDER BY m.id DESC LIMIT 10").fetchall()
+        "WHERE m.status %s ORDER BY m.id DESC LIMIT 10" % status_clause).fetchall()
     checks = []
     for row in rows:
         url = row["image_url"] or ""
@@ -72,6 +74,7 @@ def run(ctx):
     if state_error:
         ctx.log("pets durable state unavailable; real publication blocked")
     st = PetsStorage(config.PETS_DB_PATH)
+    migrated_demos = st.migrate_demo_materials()
 
     def checkpoint(phase):
         if backend is None:
@@ -82,7 +85,8 @@ def run(ctx):
                        publish=os.getenv("PETS_PUBLISH", "0") == "1" and not dry,
                        st=st, adapters=pets_sources.adapters_for(config.PETS_SOURCES),
                        checkpoint=checkpoint if backend and not state_error else None,
-                       briefs=pets_briefs.DEFAULT_BRIEFS)
+                       briefs=pets_briefs.DEFAULT_BRIEFS if config.PETS_DEMO_BRIEFS else ())
+    summary["migrated_demo_materials"] = migrated_demos
     if backend and not state_error:
         try:
             checkpoint("dry-run" if dry else "completed")
@@ -95,8 +99,8 @@ def run(ctx):
                    ("checked", "post_ready", "published", "review", "rejected")) + \
              (summary.get("dry_run"),)
     ctx.log("pets summary: checked=%s ready=%s published=%s review=%s rejected=%s dry_run=%s" % values)
-    image_checks = _download_preview_images(st)
-    _write_preview(st)
+    image_checks = _download_preview_images(st, include_demo=config.PETS_DEMO_BRIEFS)
+    _write_preview(st, include_demo=config.PETS_DEMO_BRIEFS)
     summary["artifact_images"] = {str(mid): status for mid, status in image_checks}
     ctx.storage["last_run"] = summary
     ctx.storage["state_restore"] = state
