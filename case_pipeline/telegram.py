@@ -72,13 +72,17 @@ def send_message(token, chat_id, text, dry_run=False, parse_mode=None, retries=2
 
 
 def credentials(channel="ai"):
-    """Токен/чат по имени канала. 'ai' — существующий production-канал
-    (пары env не тронуты), 'agro' — второй канал (jobs/agro). Секретов в коде
-    нет: только env (см. config).-> (token, chat_id)"""
+    """Токен/чат по имени канала.
+
+    ``ai`` и ``pets`` используют один управляющий bot token, но разные
+    chat_id; ``agro`` получает тот же GitHub Secret через свой env-mapping.
+    Изолированным остаётся именно target chat, а не идентичность бота.
+    Секретов в коде нет: только env (см. config). -> (token, chat_id)
+    """
     if channel == "agro":
         return config.AGRO_BOT_TOKEN, config.AGRO_CHAT_ID
     if channel == "pets":
-        return config.PETS_BOT_TOKEN, config.PETS_CHAT_ID
+        return config.BOT_TOKEN, config.PETS_CHAT_ID
     return config.BOT_TOKEN, config.CHAT_ID
 
 

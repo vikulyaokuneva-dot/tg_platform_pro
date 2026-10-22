@@ -23,13 +23,18 @@ Env-переменные (документированы в README_CASE_PIPELINE
   AGRO_VK_DM_ENABLED        "1" — отправлять владельцу готовую VK-версию
                             только после успешной AGRO-публикации (default 0)
   AGRO_VK_DM_CHAT_ID        личный chat_id владельца (GitHub Secret)
-  PETS_BOT_TOKEN            токен бота канала PETS (только env/Secret)
+  PETS использует общий секрет AI_AUTOMATION_BOT_TOKEN; отдельный
+                            PETS_BOT_TOKEN намеренно не поддерживается
   PETS_CHAT_ID              chat_id канала PETS (только env/Secret)
   PETS_DB_PATH              отдельная SQLite-история PETS
   PETS_PUBLISH              "1" разрешает публикацию только при durable state
   PETS_SOURCES              csv одобренных источников (по умолчанию пусто)
   PETS_CONTENT_MODE         evergreen | news (default evergreen)
   PETS_EDITORIAL_PROFILE    профиль редакционной безопасности (pets_expert)
+  PETS_STATE_BACKEND        cache (только dry-run) | github (versioned state)
+  PETS_STATE_REPOSITORY     private GitHub repository for durable PETS state
+  PETS_STATE_BRANCH         isolated state branch (default pets-state)
+  PETS_STATE_PATH           SQLite object path in the state branch
   VK_ACCESS_TOKEN           токен VK API (только из GitHub Secret/env)
   VK_GROUP_ID               числовой id сообщества VK без знака «-»
   VK_PUBLISH                "1" разрешает реальную публикацию в VK (default 0)
@@ -134,9 +139,10 @@ AGRO_VK_DM_ENABLED = env("AGRO_VK_DM_ENABLED", "0") == "1"
 AGRO_VK_DM_CHAT_ID = env("AGRO_VK_DM_CHAT_ID")
 
 # ---------- PETS CHANNEL (jobs/pets) ----------
-# Новая линия не имеет fallback на AGRO/AI credentials или БД.  Источники
-# пусты, пока владелец не одобрит результаты редакционного и правового аудита.
-PETS_BOT_TOKEN = env("PETS_BOT_TOKEN")
+# PETS использует того же управляющего бота, что AI Automation и AGRO
+# (GitHub Secret AI_AUTOMATION_BOT_TOKEN). Канал, БД, источники и история
+# остаются отдельными. Отдельный PETS_BOT_TOKEN намеренно не читается, чтобы
+# не появилось второго бота по ошибке.
 PETS_CHAT_ID = env("PETS_CHAT_ID")
 PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db"))
 PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
@@ -150,6 +156,16 @@ PETS_CONTENT_MODE = env("PETS_CONTENT_MODE", "evergreen").strip().lower()
 PETS_STATE_BACKEND = env("PETS_STATE_BACKEND", "cache").strip().lower()
 PETS_REQUIRE_DURABLE_STATE = env("PETS_REQUIRE_DURABLE_STATE", "1") == "1"
 PETS_AI_ENABLED = env("PETS_AI_ENABLED", "0") == "1"
+PETS_IMAGE_PROVIDER = env("PETS_IMAGE_PROVIDER", "wikimedia").strip().lower()
+# GitHub Contents API keeps PETS state on a dedicated branch. It is versioned
+# and uses an optimistic SHA precondition; the workflow concurrency group
+# serializes normal runs. Disabled until PETS_STATE_BACKEND=github.
+PETS_STATE_REPOSITORY = env("PETS_STATE_REPOSITORY") or env("GITHUB_REPOSITORY")
+PETS_STATE_BRANCH = env("PETS_STATE_BRANCH", "pets-state")
+PETS_STATE_PATH = env("PETS_STATE_PATH", "pets/pets_channel.db")
+PETS_STATE_BASE_BRANCH = env("PETS_STATE_BASE_BRANCH", "main")
+PETS_STATE_GITHUB_TOKEN = env("PETS_STATE_GITHUB_TOKEN") or env("GITHUB_TOKEN")
+PETS_GITHUB_API_URL = env("PETS_GITHUB_API_URL", "https://api.github.com")
 
 # ---------- VK AGRO AUTOPILOT ----------
 # VK не использует Telegram credentials и включается только явным флагом.

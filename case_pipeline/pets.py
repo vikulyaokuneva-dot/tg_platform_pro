@@ -10,7 +10,8 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from . import case_model, config, editorial_profiles, extraction, httpclient
+from . import ai as ai_mod
+from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor
 from . import pets_images, pets_storage, telegram, utils
 
 log = logging.getLogger("case.pets")
@@ -59,6 +60,20 @@ def build_post(title, text, url):
     return post[:MAX_POST_CHARS].rstrip()
 
 
+def build_original_post(title, body, fact_sources):
+    """Format an owner-reviewed original text without adapting source prose."""
+    clean_title = re.sub(r"\s+", " ", (title or "Памятка владельцу")).strip()[:120]
+    clean_body = "\n\n".join(
+        re.sub(r"\s+", " ", part).strip() for part in (body or "").split("\n\n")
+        if part.strip())
+    sources = [str(item).strip() for item in (fact_sources or ()) if str(item).strip()]
+    if not clean_body or not sources:
+        return ""
+    links = "\n".join("- " + item for item in sources)
+    return ("🐾 %s\n\n%s\n\nПроверка фактов:\n%s" %
+            (clean_title, clean_body, links))[:MAX_POST_CHARS].rstrip()
+
+
 def _known_status(status):
     return status in {"published", "rejected", "review", "post_ready", "publishing"}
 
@@ -71,7 +86,7 @@ def _normalize_image(candidate, ext, resolver):
 
 
 def process_url(st, url, source, publish=False, dry_run=True, provider=None,
-                image_resolver=None, fetcher=None):
+                image_resolver=None, fetcher=None, checkpoint=None):
     """Prepare one PETS article; no live request is needed in tests.
 
     ``provider`` is reserved for an explicitly approved translator/editor. Until
@@ -102,12 +117,16 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None,
         st.update(mid, status="rejected", reason="stale news or publication date unavailable")
         out.update(status="rejected", reason="stale_news")
         return out
-    # Current approved editor is off by default; translating a medical source
-    # without an approved factual editor is not a safe fallback.
-    if ext.get("language") != "ru" and not (config.PETS_AI_ENABLED and provider):
-        st.update(mid, status="review", reason="translation requires approved editor")
-        out.update(status="review", reason="translation_requires_editor")
-        return out
+    # Translation/rewrite is opt-in and reuses only the existing GigaChat
+    # provider. Any unavailable or unverifiable edit remains in manual review.
+    if ext.get("language") != "ru":
+        provider = provider if provider is not None else ai_mod.get_provider()
+        edited = pets_editor.edit(title, text, url, provider) if config.PETS_AI_ENABLED else None
+        if not edited:
+            st.update(mid, status="review", reason="translation requires approved editor")
+            out.update(status="review", reason="translation_requires_editor")
+            return out
+        title, text = edited["title"], edited["text"]
     profile = editorial_profiles.get_profile(config.PETS_EDITORIAL_PROFILE)
     reasons = profile.review_reasons(title, text)
     if reasons:
@@ -150,7 +169,7 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None,
     out.update(status="post_ready", category=facts["category"], species=facts["species"])
     if not (publish and not dry_run):
         return out
-    if config.PETS_REQUIRE_DURABLE_STATE and config.PETS_STATE_BACKEND != "durable":
+    if config.PETS_REQUIRE_DURABLE_STATE and config.PETS_STATE_BACKEND != "github":
         st.update(mid, status="review", reason="durable state backend is required before real publishing")
         out.update(status="review", reason="durable_state_required")
         return out
@@ -163,11 +182,29 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None,
     if not st.claim_for_publish(mid):
         out["reason"] = "claim lost"
         return out
+    # Durable checkpoint BEFORE Telegram.  A crash after a response must leave
+    # at least ``publishing`` remotely, never an apparently new material that
+    # a later run could post again.
+    if checkpoint is not None:
+        try:
+            checkpoint("claimed")
+        except Exception as exc:
+            st.release_claim(mid, "review", "durable state checkpoint failed before send")
+            out.update(status="review", reason="durable_state_checkpoint")
+            return out
     result = telegram.publish_post(post, dry_run=False, channel="pets", image=photo)
     if result.ok:
-        st.mark_published(mid, result.message_id, config.PETS_CHAT_ID,
-                          case_model.case_id_for(url, text[:2000]), content_type="pets")
+        st.mark_pets_published(mid, result.message_id,
+                               case_model.case_id_for(url, text[:2000]))
         st.publish_topic(mid)
+        if checkpoint is not None:
+            try:
+                checkpoint("published")
+            except Exception:
+                # Telegram already accepted the post. The remote record still
+                # says ``publishing`` and will be quarantined, never retried.
+                out.update(status="review", reason="durable_state_after_send")
+                return out
         out.update(status="published", telegram_message_id=result.message_id)
         return out
     # A timeout/lost response may still have reached Telegram. Never retry it automatically.
@@ -176,17 +213,76 @@ def process_url(st, url, source, publish=False, dry_run=True, provider=None,
     return out
 
 
+def process_original_brief(st, brief):
+    """Queue an original, fact-checked brief for owner review only.
+
+    This route never fetches, translates, or adapts a third-party article and
+    never sends a message. It exists for material written specifically for PETS.
+    """
+    brief = brief or {}
+    brief_id = str(brief.get("id") or "").strip()
+    url = "draft://pets/" + brief_id
+    out = {"url": url, "source": "curated_original", "status": "skipped", "reason": ""}
+    required = ("id", "title", "body", "species", "category", "topic_key", "image")
+    if not brief_id or any(not brief.get(key) for key in required):
+        return dict(out, status="rejected", reason="original_brief_incomplete")
+    post = build_original_post(brief["title"], brief["body"], brief.get("fact_sources"))
+    if len(post) < 250:
+        return dict(out, status="rejected", reason="original_brief_insufficient")
+    profile = editorial_profiles.get_profile(config.PETS_EDITORIAL_PROFILE)
+    if profile.review_reasons(brief["title"], brief["body"]):
+        return dict(out, status="review", reason="editorial_safety")
+    image_ok, image_reason = pets_images.validate_image(brief["image"], brief["title"])
+    if not image_ok:
+        return dict(out, status="review", reason="image_rights:" + image_reason)
+    mid = st.add(url, "curated_original")
+    row = st.get(mid) or {}
+    if _known_status(row.get("status")):
+        return dict(out, reason="already " + str(row.get("status")))
+    if st.topic_seen(brief["topic_key"]):
+        st.update(mid, status="rejected", reason="duplicate semantic topic")
+        return dict(out, status="rejected", reason="duplicate_topic")
+    allowed, why = st.diversity_allows(brief["category"], brief["species"])
+    if not allowed:
+        st.update(mid, status="review", reason=why)
+        return dict(out, status="review", reason=why)
+    if not st.reserve_topic(mid, brief["topic_key"], brief["category"], brief["species"]):
+        return dict(out, status="rejected", reason="duplicate_topic")
+    st.record_image_rights(mid, brief["image"])
+    st.update(mid, content_hash=utils.content_hash(brief["body"]), status="post_ready",
+              post_text=post, image_url=brief["image"]["url"],
+              classification="pets:%s:%s" % (brief["category"], brief["species"]),
+              reason="pets_expert:original_manual_review")
+    return dict(out, status="post_ready", category=brief["category"], species=brief["species"])
+
+
 def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
-        image_resolver=None, provider=None):
+        image_resolver=None, provider=None, checkpoint=None, briefs=()):
     st = st or pets_storage.PetsStorage(config.PETS_DB_PATH)
     st.quarantine_stale_claims()
     source_ids = sources if sources is not None else config.PETS_SOURCES
     adapters = adapters or {}
+    if image_resolver is None and config.PETS_IMAGE_PROVIDER == "wikimedia":
+        image_resolver = pets_images.resolve_wikimedia_commons
     allow_publish = publish and config.PETS_PUBLISH
     summary = {"checked": 0, "post_ready": 0, "published": 0, "rejected": 0,
                "review": 0, "failed": 0, "skipped": 0,
-               "dry_run": dry_run or not allow_publish, "sources": list(source_ids)}
+               "dry_run": dry_run or not allow_publish, "sources": list(source_ids),
+               "reason_counts": {}, "ready_material_ids": []}
     published = 0
+    for brief in briefs or ():
+        result = process_original_brief(st, brief)
+        summary["checked"] += 1
+        status = result.get("status", "skipped")
+        if status in summary:
+            summary[status] += 1
+        reason = result.get("reason") or ""
+        if reason:
+            summary["reason_counts"][reason] = summary["reason_counts"].get(reason, 0) + 1
+        if status == "post_ready":
+            row = st.seen_url(result["url"]) or {}
+            if row.get("id") is not None:
+                summary["ready_material_ids"].append(row["id"])
     for source in source_ids:
         adapter = adapters.get(source)
         if adapter is None:
@@ -201,11 +297,19 @@ def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
             if allow_publish and published >= config.PETS_PUBLISH_LIMIT:
                 break
             result = process_url(st, url, source, publish=allow_publish, dry_run=dry_run,
-                                 provider=provider, image_resolver=image_resolver)
+                                 provider=provider, image_resolver=image_resolver,
+                                 checkpoint=checkpoint)
             summary["checked"] += 1
             status = result.get("status", "skipped")
             if status in summary:
                 summary[status] += 1
+            reason = result.get("reason") or ""
+            if reason:
+                summary["reason_counts"][reason] = summary["reason_counts"].get(reason, 0) + 1
+            if status == "post_ready":
+                row = st.seen_url(url) or {}
+                if row.get("id") is not None:
+                    summary["ready_material_ids"].append(row["id"])
             if status == "published":
                 published += 1
     return summary

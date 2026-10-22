@@ -17,7 +17,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # PETS only: optional durable backend writes state to the isolated
+  # pets-state branch. Other workflows retain their existing permissions.
+  contents: write
 
 jobs:
   dry-run:
@@ -48,7 +50,9 @@ jobs:
           # A repository variable remains 0 until the owner has completed the
           # controlled-release checklist. DRY_RUN above is an independent gate.
           PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
-          PETS_BOT_TOKEN: ${{ secrets.PETS_BOT_TOKEN }}
+          # One management bot for all platform channels. PETS has its own
+          # target chat and state; it never receives a separate bot token.
+          AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
           PETS_CHAT_ID: ${{ secrets.PETS_CHAT_ID }}
           PETS_SOURCES: ${{ vars.PETS_SOURCES }}
           PETS_PUBLISH_LIMIT: ${{ vars.PETS_PUBLISH_LIMIT }}
@@ -56,6 +60,10 @@ jobs:
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
           PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
+          PETS_STATE_REPOSITORY: ${{ vars.PETS_STATE_REPOSITORY }}
+          PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}
+          PETS_STATE_PATH: ${{ vars.PETS_STATE_PATH }}
+          PETS_STATE_GITHUB_TOKEN: ${{ github.token }}
       - name: Save PETS dry-run state
         if: always()
         uses: actions/cache/save@v4
@@ -64,3 +72,13 @@ jobs:
             data/pets_channel.db
             jobs/pets/storage.json
           key: pets-state-${{ github.run_id }}
+      - name: Upload PETS dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pets-dry-run-${{ github.run_id }}
+          path: |
+            runs/pets_preview.md
+            runs/pets_media
+            jobs/pets/storage.json
+          retention-days: 14

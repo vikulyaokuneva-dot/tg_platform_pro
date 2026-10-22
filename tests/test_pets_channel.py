@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from case_pipeline import config, pets, pets_sources, pets_state, telegram
+from case_pipeline import config, pets, pets_briefs, pets_sources, pets_state, telegram
 from case_pipeline.pets_storage import PetsStorage
 from core.context import JobContext
 from jobs.pets import job as pets_job
@@ -26,7 +26,9 @@ def _ext(language="ru", title="Как заметить стресс у кошк�
 def _image(breed=""):
     return {"url": "https://commons.example.test/cat.jpg", "author": "Jane Doe",
             "source_url": "https://commons.example.test/file/cat", "license": "CC-BY-4.0",
-            "attribution": "Jane Doe / CC BY 4.0", "breed": breed}
+            "license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "attribution": "Jane Doe / CC BY 4.0", "query": "domestic cat",
+            "topic_match": "species", "breed": breed}
 
 
 @pytest.fixture
@@ -99,17 +101,20 @@ def test_telegram_error_is_uncertain_review_not_retry(st, prepared, monkeypatch)
     assert st.get(st.add(URL, "pdsa"))["status"] == "review"
 
 
-def test_pets_uses_own_credentials(monkeypatch):
-    monkeypatch.setattr(config, "PETS_BOT_TOKEN", "pets-token")
+def test_pets_reuses_shared_bot_with_own_chat(monkeypatch):
+    monkeypatch.setattr(config, "BOT_TOKEN", "shared-token")
     monkeypatch.setattr(config, "PETS_CHAT_ID", "-100pets")
-    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "agro-token")
-    assert telegram.credentials("pets") == ("pets-token", "-100pets")
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "shared-token")
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100agro")
+    assert telegram.credentials("pets") == ("shared-token", "-100pets")
+    assert telegram.credentials("agro") == ("shared-token", "-100agro")
 
 
 def test_all_ten_sources_are_registry_candidates_not_default_enabled():
     assert len(pets_sources.SOURCE_CANDIDATES) == 10
     assert config.PETS_SOURCES == []
-    assert set(pets_sources.adapters_for(["pdsa", "merck_vet"])) == {"pdsa", "merck_vet"}
+    assert pets_sources.adapters_for(["pdsa", "merck_vet"]) == {}
+    assert pets_sources.policy_for("merck_vet")["mode"] == "fact_check_only"
 
 
 def test_news_mode_rejects_stale_article(st, prepared, monkeypatch):
@@ -147,11 +152,46 @@ def test_sqlite_state_survives_reopen_and_corruption_is_detected(tmp_path):
     assert pets_state.inspect(str(bad))["status"] == "corrupt"
 
 
-def test_pets_job_empty_dry_run_has_no_side_effects(tmp_path, monkeypatch):
+def test_original_briefs_are_manual_review_drafts_with_open_images(st):
+    results = [pets.process_original_brief(st, brief) for brief in pets_briefs.DEFAULT_BRIEFS]
+    assert [result["status"] for result in results] == ["post_ready"] * 3
+    for result in results:
+        row = st.get(st.add(result["url"], "curated_original"))
+        rights = st.db.execute("SELECT license,license_url,author FROM pets_image_rights WHERE material_id=?",
+                               (row["id"],)).fetchone()
+        assert row["status"] == "post_ready"
+        assert "Проверка фактов:" in row["post_text"]
+        assert rights["license"] in {"CC-BY-4.0", "CC-BY-SA-4.0", "CC0-1.0", "Public-Domain"}
+        assert rights["license_url"] and rights["author"]
+
+
+def test_original_briefs_never_send_even_when_publish_is_requested(st, monkeypatch):
+    monkeypatch.setattr(config, "PETS_PUBLISH", True)
+    monkeypatch.setattr(telegram, "publish_post", lambda *a, **kw: pytest.fail("original drafts must not send"))
+    summary = pets.run(dry_run=False, publish=True, st=st, sources=[], adapters={},
+                       briefs=pets_briefs.DEFAULT_BRIEFS)
+    assert summary["post_ready"] == 3
+    assert summary["published"] == 0
+
+
+def test_pets_publication_ledger_omits_chat_id(st):
+    mid = st.add("draft://pets/ledger-test", "curated_original")
+    st.update(mid, content_hash="safe", status="post_ready")
+    st.mark_pets_published(mid, 42, "pets-ledger-test")
+    row = st.db.execute("SELECT chat_id, content_type FROM publications WHERE material_id=?", (mid,)).fetchone()
+    assert row["chat_id"] is None
+    assert row["content_type"] == "pets"
+
+
+def test_pets_job_dry_run_creates_review_drafts_without_sending(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PETS_DB_PATH", str(tmp_path / "state.db"))
     monkeypatch.setattr(config, "PETS_SOURCES", [])
     monkeypatch.setattr(config, "PETS_PUBLISH", False)
+    monkeypatch.setattr(pets_job, "_download_preview_images", lambda st: [])
+    monkeypatch.setattr(pets_job, "_write_preview", lambda st: None)
     ctx = JobContext("pets", str(tmp_path / "job.json"), dry_run=True)
     pets_job.run(ctx)
-    assert ctx.storage["last_run"]["checked"] == 0
+    assert ctx.storage["last_run"]["checked"] == 3
+    assert ctx.storage["last_run"]["post_ready"] == 3
+    assert ctx.storage["last_run"]["published"] == 0
     assert ctx.storage["last_run"]["dry_run"] is True

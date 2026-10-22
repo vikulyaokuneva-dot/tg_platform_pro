@@ -31,6 +31,7 @@ from case_pipeline import config, telegram
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAILY_YML = os.path.join(ROOT, ".github", "workflows", "daily_jobs.yml")
 CASE_YML = os.path.join(ROOT, ".github", "workflows", "case_pipeline.yml")
+PETS_YML = os.path.join(ROOT, ".github", "workflows", "pets_channel.yml")
 CONFIG_PY = os.path.join(ROOT, "case_pipeline", "config.py")
 
 
@@ -78,6 +79,13 @@ def test_case_pipeline_workflow_env_comes_from_secrets():
                          % (var, var), text, re.M), var
 
 
+def test_pets_workflow_reuses_shared_bot_secret_and_own_chat_secret():
+    text = _read(PETS_YML)
+    assert re.search(r"^\s*AI_AUTOMATION_BOT_TOKEN\s*:\s*\$\{\{\s*secrets\.AI_AUTOMATION_BOT_TOKEN\s*\}\}\s*$", text, re.M)
+    assert re.search(r"^\s*PETS_CHAT_ID\s*:\s*\$\{\{\s*secrets\.PETS_CHAT_ID\s*\}\}\s*$", text, re.M)
+    assert "PETS_BOT_TOKEN" not in text
+
+
 def test_workflows_do_not_hardcode_chat_id():
     """chat_id — только в Secrets/Variables: литерал в workflow = регресс."""
     for path in (DAILY_YML, CASE_YML):
@@ -122,9 +130,11 @@ def test_credentials_route_each_lane_to_its_own_pair(monkeypatch):
     monkeypatch.setattr(config, "CHAT_ID", "-100AI", raising=False)
     monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "AGRO-TOKEN", raising=False)
     monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    monkeypatch.setattr(config, "PETS_CHAT_ID", "-100PETS", raising=False)
     assert telegram.credentials() == ("AI-TOKEN", "-100AI")
     assert telegram.credentials("ai") == ("AI-TOKEN", "-100AI")
     assert telegram.credentials("agro") == ("AGRO-TOKEN", "-100AGRO")
+    assert telegram.credentials("pets") == ("AI-TOKEN", "-100PETS")
 
 
 def test_publish_post_sends_to_lane_pair(monkeypatch):
@@ -134,6 +144,7 @@ def test_publish_post_sends_to_lane_pair(monkeypatch):
     monkeypatch.setattr(config, "CHAT_ID", "-100AI", raising=False)
     monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "AGRO-TOKEN", raising=False)
     monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    monkeypatch.setattr(config, "PETS_CHAT_ID", "-100PETS", raising=False)
     sent = {}
 
     def spy(token, chat_id, text, dry_run=False, parse_mode=None, retries=2):
@@ -146,6 +157,9 @@ def test_publish_post_sends_to_lane_pair(monkeypatch):
 
     assert telegram.publish_post("Заголовок\n\nТекст поста", channel="ai").ok
     assert sent == {"token": "AI-TOKEN", "chat": "-100AI"}, sent
+
+    assert telegram.publish_post("Заголовок\n\nТекст поста", channel="pets").ok
+    assert sent == {"token": "AI-TOKEN", "chat": "-100PETS"}, sent
 
 
 # ---------- 3. отклонённый таргет не маскируется ----------

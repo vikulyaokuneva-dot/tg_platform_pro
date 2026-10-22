@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS pets_image_rights (
     author TEXT NOT NULL,
     source_url TEXT NOT NULL,
     license TEXT NOT NULL,
+    license_url TEXT NOT NULL DEFAULT '',
     attribution TEXT NOT NULL,
+    search_query TEXT NOT NULL DEFAULT '',
+    topic_match TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL
 );
 """
@@ -32,6 +35,10 @@ class PetsStorage(Storage):
     def __init__(self, path):
         super().__init__(path)
         self.db.executescript(_SCHEMA)
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_image_rights)")}
+        for name in ("license_url", "search_query", "topic_match"):
+            if name not in cols:
+                self.db.execute("ALTER TABLE pets_image_rights ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
         self.db.commit()
 
     def topic_seen(self, key):
@@ -50,12 +57,31 @@ class PetsStorage(Storage):
                         (now_iso(), material_id))
         self.db.commit()
 
+    def mark_pets_published(self, material_id, message_id, case_id):
+        """Store a PETS delivery without persisting a recipient chat ID.
+
+        The destination is implied by this isolated lane. The durable SQLite is
+        strictly for deduplication/editorial recovery and must remain free of
+        owner or audience identifiers.
+        """
+        self.update(material_id, status="published", telegram_message_id=message_id)
+        material = self.get(material_id) or {}
+        self.db.execute(
+            "INSERT INTO publications(material_id,case_id,source_url,telegram_message_id,"
+            "chat_id,published_at,ok,hashtags,content_type,company,canonical_url,"
+            "content_hash,status) VALUES(?,?,?,?,?,?,1,?,?,?,?,?,'ok')",
+            (material_id, case_id, material.get("url"), message_id, None, now_iso(),
+             "", "pets", None, material.get("canonical_url"),
+             material.get("content_hash")))
+        self.db.commit()
+
     def record_image_rights(self, material_id, image):
         self.db.execute(
-            "INSERT OR REPLACE INTO pets_image_rights(material_id,image_url,author,source_url,license,attribution,verified_at) "
-            "VALUES(?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO pets_image_rights(material_id,image_url,author,source_url,license,license_url,attribution,search_query,topic_match,verified_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
             (material_id, image["url"], image["author"], image["source_url"], image["license"],
-             image["attribution"], now_iso()))
+             image.get("license_url", ""), image["attribution"], image.get("query", ""),
+             image.get("topic_match", ""), now_iso()))
         self.db.commit()
 
     def diversity_allows(self, category, species):

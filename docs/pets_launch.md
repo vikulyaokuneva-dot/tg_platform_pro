@@ -5,8 +5,11 @@
 - Код линии: `pets`; переменные: `PETS_*`; профиль: `pets_expert`.
 - SQLite: `data/pets_channel.db`, отдельная от AGRO и AI Automation.
 - История публикаций, темы-дубликаты и права на изображения хранятся только в PETS DB.
-- Telegram credentials берутся только из `PETS_BOT_TOKEN` и `PETS_CHAT_ID`; fallback на
-  AGRO или AI Automation отсутствует.
+- Все каналы платформы используют одного управляющего бота: PETS получает его только из
+  GitHub Secret `AI_AUTOMATION_BOT_TOKEN`, как и AGRO. Для PETS отдельным остаётся
+  `PETS_CHAT_ID`; `PETS_BOT_TOKEN` не нужен и не поддерживается.
+- Общий bot token не объединяет каналы: PETS сохраняет собственные SQLite, историю,
+  дедупликацию, источники, редакционный профиль и `PETS_CHAT_ID`.
 - `PETS_PUBLISH=0` по умолчанию. Workflow `.github/workflows/pets_channel.yml` — ручной
   dry-run по умолчанию; единственный controlled input требует одновременно явного флажка,
   `PETS_PUBLISH=1` и durable state. Schedule 12:00 МСК документирован, но не активирован.
@@ -27,22 +30,66 @@
 Существующая AGRO-линия использует `actions/cache` для `data/`. Это помогает восстановить
 SQLite, но cache может быть вытеснен, поэтому он не считается достаточным для гарантии
 отсутствия повторной публикации. PETS откажется от реальной отправки, пока
-`PETS_STATE_BACKEND` не станет `durable`. Не меняйте AGRO ради этого без отдельной задачи.
+`PETS_STATE_BACKEND` не станет `github`. Не меняйте AGRO ради этого без отдельной задачи.
+
+## PETS 2.0: источники и durable state
+
+- Аудит [PETS 2.0](pets_2_source_audit_2026-10-22.md) подтвердил, что PDSA,
+  Cats Protection, VCA и Merck нельзя включать в автоматическую переработку
+  без письменного разрешения. Они остаются reference/fact-check источниками.
+- Реализован backend `PETS_STATE_BACKEND=github`: SQLite хранится как
+  versioned object в отдельной branch `pets-state`, восстановление и запись
+  используют GitHub Contents API и SHA-предусловие. Перед Telegram-сообщением
+  сохраняется `publishing`; конфликт блокирует отправку.
+- PETS workflow — единственный workflow с `contents: write`: он использует только
+  временный `${{ github.token }}` для GitHub Contents API. У остальных workflow
+  права не расширены. Включать backend следует только с `PETS_STATE_BACKEND=github`,
+  `PETS_STATE_BRANCH=pets-state`, `PETS_STATE_PATH=pets/pets_channel.db` и
+  `PETS_PUBLISH=0`; это всё ещё режим ручного dry-run.
+- Ветка `pets-state` должна быть закрытой для прямого редактирования и доступной
+  только репозиторию. SQLite хранит дедупликацию, тексты черновиков, ссылки и
+  атрибуцию фото, но PETS не сохраняет токены, chat ID или другие персональные
+  данные. SHA/CAS-конфликт блокирует реальную отправку, а не перезаписывает состояние.
+- Каждый ручной запуск прикладывает артефакт на 14 дней: черновики, фото Commons,
+  ссылки на факты/лицензии и результат проверок. Артефакт доступен только тем, у кого
+  есть доступ к Actions этого репозитория.
+
+## Будущий личный чат управления — архитектурный задел
+
+Полноценный интерфейс команд и отдельный сервис пока не создаются. Когда владелец решит
+управлять всеми линиями из личного Telegram-чата, используется этот же общий бот и отдельный
+контур управления:
+
+- личный `owner_chat_id` хранится только в Secret, а входящие сообщения принимаются только от
+  явно разрешённого владельца/администраторов;
+- в каждом запросе и callback-data передаются код линии и ID черновика; перед отправкой бот
+  заново сверяет их с разрешённым `*_CHAT_ID`;
+- обработчик выбирает отдельные storage и редакционный профиль линии (`agro`, `pets`, `ai`),
+  но не имеет общего журнала публикаций и не подменяет target chat;
+- команды подготовки, редактирования и публикации добавляются отдельной задачей; публикация
+  остаётся возможной только после явного подтверждения владельца;
+- polling/webhook, новые GitHub Actions и расписания не включаются этой подготовкой.
 
 ## Первый реальный пост — только после подтверждения владельца
 
 1. Утвердить источники и законный способ извлечения/адаптации.
-2. Создать отдельного бота, добавить его администратором канала с правом публикации.
-3. Добавить secrets `PETS_BOT_TOKEN`, `PETS_CHAT_ID`; не записывать значения в Git.
-4. Организовать durable state backend и установить `PETS_STATE_BACKEND=durable`.
+2. Добавить существующего общего управляющего бота администратором PETS-канала с правом публикации.
+3. Добавить только secret `PETS_CHAT_ID`; общий secret `AI_AUTOMATION_BOT_TOKEN` уже должен
+   существовать. Не записывать значения в Git.
+4. Настроить `PETS_STATE_BACKEND=github`, `PETS_STATE_BRANCH=pets-state` и проверить
+   first-run dry-run до любого изменения `PETS_PUBLISH`.
 5. Запустить dry-run, проверить текст, источник, лицензию и атрибуцию фото.
 6. Получить отдельное подтверждение владельца на один контролируемый пост.
 7. Только затем включать `PETS_PUBLISH=1` и отдельным решением добавлять cron `0 9 * * *`.
 
 ## GitHub configuration names
 
-**Secrets:** `PETS_BOT_TOKEN`, `PETS_CHAT_ID`.
+**Secrets:** `AI_AUTOMATION_BOT_TOKEN` (общий, уже используется AGRO/AI Automation),
+`PETS_CHAT_ID` (отдельный для PETS).
 
 **Variables:** `PETS_PUBLISH=0`, `PETS_SOURCES`, `PETS_PUBLISH_LIMIT=1`,
 `PETS_MAX_PER_RUN=3`, `PETS_EDITORIAL_PROFILE=pets_expert`,
-`PETS_CONTENT_MODE=evergreen`, `PETS_STATE_BACKEND=cache` (dry-run only).
+`PETS_CONTENT_MODE=evergreen`, `PETS_STATE_BACKEND=github`,
+`PETS_STATE_REPOSITORY=<owner/repo>`, `PETS_STATE_BRANCH=pets-state`,
+`PETS_STATE_PATH=pets/pets_channel.db`. До отдельного решения всегда оставлять
+`PETS_PUBLISH=0` и не добавлять cron.
