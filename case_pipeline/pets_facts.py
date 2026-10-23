@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 
 
 KNOWN_LICENSES = {
-    "PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_NC_ND", "COPYRIGHT", "UNKNOWN",
+    "PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA", "CC_BY_NC", "CC_BY_NC_SA", "CC_BY_NC_ND", "COPYRIGHT", "UNKNOWN",
 }
-AUTOMATIC_FACT_LICENSES = {"PUBLIC_DOMAIN", "CC0", "CC_BY"}
+AUTOMATIC_FACT_LICENSES = {"PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA"}
 SENSITIVE_TERMS = (
     "дозиров", "лекарств", "препарат", "лечение", "диагноз", "токсин",
     "отрав", "экстрен", "emergency", "dose", "medication", "treatment",
@@ -33,23 +33,44 @@ class Fact:
     published_at: str | None = None
     accessed_at: str | None = None
     license: str = "UNKNOWN"
+    license_source_url: str = ""
+    attribution_requirements: str = ""
     adaptation_allowed: bool = False
     evidence_level: str = "unknown"
+    license_verified_at: str | None = None
 
     def serializable(self):
         value = asdict(self)
         value["accessed_at"] = value["accessed_at"] or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        value["license_verified_at"] = value["license_verified_at"] or value["accessed_at"]
         return value
 
 
 def normalize_license(value):
-    raw = str(value or "UNKNOWN").strip().upper().replace("-", "_").replace(" ", "_")
+    raw = str(value or "UNKNOWN").strip().upper().replace("-", "_").replace(" ", "_").replace(".", "_")
     aliases = {
         "PUBLICDOMAIN": "PUBLIC_DOMAIN", "CC0_1_0": "CC0", "CC_BY_4_0": "CC_BY",
-        "CC_BY_SA_4_0": "CC_BY", "CC_BY_NC_ND_4_0": "CC_BY_NC_ND",
+        "CC_BY_SA_4_0": "CC_BY_SA", "CC_BY_NC_4_0": "CC_BY_NC",
+        "CC_BY_NC_SA_4_0": "CC_BY_NC_SA", "CC_BY_NC_ND_4_0": "CC_BY_NC_ND",
     }
     raw = aliases.get(raw, raw)
     return raw if raw in KNOWN_LICENSES else "UNKNOWN"
+
+
+def license_terms(license_name):
+    """Return permission and obligations separately; never relabel CC BY-SA."""
+    normalized = normalize_license(license_name)
+    terms = {
+        "PUBLIC_DOMAIN": (True, "attribute source when supplied"),
+        "CC0": (True, "attribution is courteous but not required by CC0"),
+        "CC_BY": (True, "credit author, source and licence"),
+        "CC_BY_SA": (True, "credit author, source and licence; share adaptations under the same licence"),
+        "CC_BY_NC": (False, "non-commercial licence; automatic commercial reuse is blocked"),
+        "CC_BY_NC_SA": (False, "non-commercial/share-alike licence; automatic reuse is blocked"),
+        "CC_BY_NC_ND": (False, "no-derivatives licence; automatic adaptation is blocked"),
+    }
+    allowed, obligations = terms.get(normalized, (False, "rights are unknown or incompatible"))
+    return normalized, allowed, obligations
 
 
 def validate_fact(fact):
@@ -63,8 +84,8 @@ def validate_fact(fact):
     parsed = urlparse(fact.source_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return False, "fact_source_url_invalid"
-    license_name = normalize_license(fact.license)
-    if license_name not in AUTOMATIC_FACT_LICENSES or not fact.adaptation_allowed:
+    license_name, allowed, _ = license_terms(fact.license)
+    if license_name not in AUTOMATIC_FACT_LICENSES or not allowed or not fact.adaptation_allowed:
         return False, "source_rights_require_review"
     if not fact.evidence_level.strip():
         return False, "fact_evidence_missing"

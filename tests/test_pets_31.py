@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Offline PETS 3.1 safety and source-contract regression tests."""
+import xml.etree.ElementTree as ET
 from case_pipeline import pets, pets_sources
 from case_pipeline import config
 from case_pipeline.pets_facts import Fact
+from case_pipeline.pets_facts import license_terms, normalize_license
 from case_pipeline.pets_generator import MockPetsGenerator
 from case_pipeline.pets_planner import Topic, choose_topics
+from case_pipeline.pets_candidates import FdaCvmSafetyAdapter, FrontiersVeterinaryPmcAdapter, collect_source_candidates
 from case_pipeline.pets_sources import FdaCvmAdapter
 from case_pipeline.pets_storage import PetsStorage
 from core.context import JobContext
@@ -146,3 +149,67 @@ def test_live_gigachat_without_explicit_cap_is_blocked_before_source_or_ai_calls
     pets_job.run(ctx)
     assert ctx.storage["last_run"]["autonomous"]["reason"] == "gigachat_generation_limit_must_be_1_to_10"
     assert ctx.storage["last_run"]["published"] == 0
+
+
+def test_cc_by_sa_is_preserved_with_share_alike_obligation():
+    assert normalize_license("CC BY-SA 4.0") == "CC_BY_SA"
+    assert license_terms("CC BY-SA 4.0") == (
+        "CC_BY_SA", True, "credit author, source and licence; share adaptations under the same licence")
+
+
+class _Response:
+    def __init__(self, payload=None, content=b"", status=200):
+        self._payload, self.content, self.status_code = payload or {}, content, status
+
+    def json(self):
+        return self._payload
+
+
+class _PmcSession:
+    def get(self, url, params=None, **kwargs):
+        if url.endswith("esearch.fcgi"):
+            return _Response({"esearchresult": {"idlist": ["123"]}})
+        xml = b'''<pmc-articleset><article><front><article-meta>
+        <article-id pub-id-type="pmcid">PMC123</article-id><article-id pub-id-type="doi">10.1/example</article-id>
+        <title-group><article-title>Dog welfare and enrichment</article-title></title-group>
+        <contrib-group><contrib contrib-type="author"><name><surname>Smith</surname></name></contrib></contrib-group>
+        <pub-date><year>2026</year></pub-date>
+        <abstract><p>Dogs showed more exploratory behaviour when enrichment was available in this study.</p></abstract>
+        <permissions><license><license-p>This article is licensed under CC BY-SA 4.0 <ext-link href="https://creativecommons.org/licenses/by-sa/4.0/"/></license-p></license></permissions>
+        </article-meta></front></article></pmc-articleset>'''
+        return _Response(content=xml)
+
+
+def test_frontiers_pmc_connector_collects_traceable_article_level_candidate(tmp_path):
+    adapter = FrontiersVeterinaryPmcAdapter(session=_PmcSession())
+    st = _storage(tmp_path)
+    candidates, report = collect_source_candidates({"frontiers_vet": adapter}, storage=st, limit=10)
+    assert report["frontiers_vet"] == {"status": "ok", "found": 1, "candidate_ready": 1, "review": 0}
+    candidate = candidates[0]
+    assert candidate["doi"] == "10.1/example"
+    assert candidate["license"] == "CC_BY_SA"
+    assert candidate["facts"][0].claim.startswith("Dogs showed")
+    stored = st.source_candidates()[0]
+    assert stored["license"] == "CC_BY_SA"
+    assert "share adaptations" in stored["attribution_requirements"]
+
+
+def test_clinical_pmc_candidate_is_held_for_manual_review():
+    xml = _PmcSession().get("efetch.fcgi").content.replace(
+        b"Dog welfare and enrichment", b"Canine lymphoma treatment case report")
+    article = ET.fromstring(xml).find(".//article")
+    candidate = FrontiersVeterinaryPmcAdapter(session=_PmcSession())._candidate(article)
+    assert candidate["safety_status"] == "review"
+
+
+class _FdaSession:
+    def get(self, url, params=None, **kwargs):
+        return _Response({"results": [{"recall_number": "R-1", "product_description": "Dog food product",
+                                        "reason_for_recall": "Potential contamination", "recall_initiation_date": "20260101"}]})
+
+
+def test_fda_recall_is_collected_as_review_not_owner_recommendation():
+    found = FdaCvmSafetyAdapter(session=_FdaSession()).collect_candidates(limit=10)
+    assert len(found) == 1
+    assert found[0]["safety_status"] == "review"
+    assert found[0]["facts"][0].claim.startswith("FDA enforcement record")

@@ -28,6 +28,11 @@ on:
         required: true
         default: 0
         type: number
+      collect_source_candidates:
+        description: "Collect up to 10 real source candidates; no AI, no Telegram"
+        required: true
+        default: false
+        type: boolean
 
 # Intended future schedule: 12:00 Moscow = 09:00 UTC -> "0 9 * * *".
 # It is intentionally not enabled until the owner approves sources, bot, durable
@@ -92,6 +97,12 @@ jobs:
           PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}
           PETS_STATE_PATH: ${{ vars.PETS_STATE_PATH }}
           PETS_STATE_GITHUB_TOKEN: ${{ github.token }}
+      - name: Collect PETS source candidates (no AI, no Telegram)
+        if: ${{ inputs.collect_source_candidates }}
+        run: python -m jobs.pets.source_candidates
+        env:
+          PETS_PUBLISH: '0'
+          PETS_SOURCE_CANDIDATE_LIMIT: '10'
       - name: Save PETS dry-run state
         if: always()
         uses: actions/cache/save@v4
@@ -111,5 +122,7 @@ jobs:
             runs/pets_diagnostics.json
             runs/pets_sources_report.json
             runs/pets_license_report.json
+            runs/pets_source_candidates.json
+            runs/pets_source_candidates_diagnostics.json
             jobs/pets/storage.json
           retention-days: 14

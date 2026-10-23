@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS pets_facts (
     published_at TEXT,
     accessed_at TEXT NOT NULL,
     license TEXT NOT NULL,
+    license_source_url TEXT NOT NULL DEFAULT '',
+    attribution_requirements TEXT NOT NULL DEFAULT '',
+    license_verified_at TEXT NOT NULL DEFAULT '',
     adaptation_allowed INTEGER NOT NULL,
     evidence_level TEXT NOT NULL,
     UNIQUE(material_id, claim, source_url)
@@ -52,6 +55,23 @@ CREATE TABLE IF NOT EXISTS pets_topic_plans (
     category TEXT NOT NULL,
     species TEXT NOT NULL,
     planned_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pets_source_candidates (
+    source_key TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    species TEXT NOT NULL,
+    doi TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL,
+    authors TEXT NOT NULL DEFAULT '',
+    published_at TEXT,
+    license TEXT NOT NULL,
+    license_source_url TEXT NOT NULL DEFAULT '',
+    attribution_requirements TEXT NOT NULL DEFAULT '',
+    adaptation_allowed INTEGER NOT NULL,
+    facts_json TEXT NOT NULL,
+    safety_status TEXT NOT NULL,
+    checked_at TEXT NOT NULL
 );
 """
 
@@ -64,6 +84,10 @@ class PetsStorage(Storage):
         for name in ("license_url", "search_query", "topic_match", "semantic_tags", "semantic_evidence"):
             if name not in cols:
                 self.db.execute("ALTER TABLE pets_image_rights ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
+        fact_cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_facts)")}
+        for name in ("license_source_url", "attribution_requirements", "license_verified_at"):
+            if name not in fact_cols:
+                self.db.execute("ALTER TABLE pets_facts ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
         self.db.commit()
 
     def topic_seen(self, key):
@@ -92,16 +116,36 @@ class PetsStorage(Storage):
             value = fact.serializable()
             self.db.execute(
                 "INSERT OR IGNORE INTO pets_facts(material_id,claim,source_url,source_name,source_type,author_or_body,"
-                "published_at,accessed_at,license,adaptation_allowed,evidence_level) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "published_at,accessed_at,license,license_source_url,attribution_requirements,license_verified_at,"
+                "adaptation_allowed,evidence_level) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (material_id, value["claim"], value["source_url"], value["source_name"], value["source_type"],
                  value["author_or_body"], value["published_at"], value["accessed_at"], value["license"],
-                 int(bool(value["adaptation_allowed"])), value["evidence_level"]))
+                 value.get("license_source_url", ""), value.get("attribution_requirements", ""),
+                 value.get("license_verified_at", ""), int(bool(value["adaptation_allowed"])), value["evidence_level"]))
         self.db.commit()
 
     def facts_for(self, material_id):
         return [dict(row) for row in self.db.execute(
             "SELECT claim,source_url,source_name,source_type,author_or_body,published_at,accessed_at,license,"
-            "adaptation_allowed,evidence_level FROM pets_facts WHERE material_id=? ORDER BY id", (material_id,))]
+            "license_source_url,attribution_requirements,license_verified_at,adaptation_allowed,evidence_level "
+            "FROM pets_facts WHERE material_id=? ORDER BY id", (material_id,))]
+
+    def save_source_candidate(self, candidate):
+        facts = [fact.serializable() for fact in candidate.get("facts", ())]
+        self.db.execute(
+            "INSERT OR REPLACE INTO pets_source_candidates(source_key,source_id,title,species,doi,source_url,authors,"
+            "published_at,license,license_source_url,attribution_requirements,adaptation_allowed,facts_json,safety_status,checked_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (candidate["source_key"], candidate["source_id"], candidate["title"], candidate["species"],
+             candidate.get("doi", ""), candidate["source_url"], candidate.get("authors", ""),
+             candidate.get("published_at"), candidate["license"], candidate.get("license_source_url", ""),
+             candidate.get("attribution_requirements", ""), int(bool(candidate.get("adaptation_allowed"))),
+             json.dumps(facts, ensure_ascii=False, sort_keys=True), candidate["safety_status"], now_iso()))
+        self.db.commit()
+
+    def source_candidates(self):
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM pets_source_candidates ORDER BY checked_at DESC, source_key")]
 
     def reserve_topic(self, material_id, key, category, species):
         now = now_iso()

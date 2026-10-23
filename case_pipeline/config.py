@@ -145,6 +145,7 @@ AGRO_VK_DM_CHAT_ID = env("AGRO_VK_DM_CHAT_ID")
 # не появилось второго бота по ошибке.
 PETS_CHAT_ID = env("PETS_CHAT_ID")
 PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db"))
+PETS_CANDIDATES_DB_PATH = env("PETS_CANDIDATES_DB_PATH", os.path.join(ROOT, "data", "pets_source_candidates.db"))
 PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
 PETS_PUBLISH_LIMIT = int(env("PETS_PUBLISH_LIMIT", "1"))
 PETS_MAX_PER_RUN = int(env("PETS_MAX_PER_RUN", "3"))
