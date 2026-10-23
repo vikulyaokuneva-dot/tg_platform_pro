@@ -38,7 +38,7 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
     """
     title = (ext or {}).get("title") or ""
     text = (ext or {}).get("text") or ""
-    query = topic_query(title, text)
+    query = str((ext or {}).get("image_query") or topic_query(title, text)).strip()
     params = {"action": "query", "format": "json", "generator": "search",
               "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": limit,
               "prop": "imageinfo|categories", "iiprop": "url|extmetadata", "cllimit": 50}
@@ -65,6 +65,7 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
         "rest": ("sleep", "rest", "bed"), "carrier": ("carrier", "crate"),
         "hygiene": ("hygiene", "wash", "clean"), "enrichment": ("toy", "enrichment", "play"),
         "safe_shelter": ("shelter", "hide", "house", "bed", "box"),
+        "outdoor": ("outdoor", "outside", "garden", "yard", "street", "nature"),
     }
     for page in pages.values():
         info = (page.get("imageinfo") or [{}])[0]
