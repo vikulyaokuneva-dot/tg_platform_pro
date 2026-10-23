@@ -105,11 +105,20 @@ def run(ctx):
                        briefs=pets_briefs.DEFAULT_BRIEFS if config.PETS_DEMO_BRIEFS else ())
     if config.PETS_EXTERNAL_SOURCES:
         if config.PETS_GENERATOR_MODE == "gigachat":
-            generator = GigaChatPetsGenerator(ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED)
+            cap = config.PETS_MAX_GIGACHAT_GENERATIONS
+            if not (1 <= cap <= 10):
+                autonomous = {"enabled": False, "dry_run": True, "published": 0,
+                              "reason": "gigachat_generation_limit_must_be_1_to_10"}
+                summary["autonomous"] = autonomous
+                cap = 0
+            else:
+                generator = GigaChatPetsGenerator(ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED)
+                autonomous = pets.run_autonomous_dry_run(
+                    st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator, limit=cap)
         else:
             generator = MockPetsGenerator()
-        autonomous = pets.run_autonomous_dry_run(
-            st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator)
+            autonomous = pets.run_autonomous_dry_run(
+                st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator)
     else:
         autonomous = {"enabled": False, "dry_run": True, "published": 0,
                       "source_report": {source: {"status": "disabled_pending_owner_opt_in"}

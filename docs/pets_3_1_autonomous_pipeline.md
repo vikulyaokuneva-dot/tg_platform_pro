@@ -49,7 +49,8 @@ Workflow **PETS channel (manual dry-run)** принимает три незав�
 - `use_external_sources` — включает официальные source adapters, но всё ещё
   не включает публикацию;
 - `use_live_gigachat` — разрешает платный GigaChat. Его можно включать только
-  после отдельного согласования владельца.
+  после отдельного согласования владельца. Вместе с ним обязательно указать
+  `gigachat_generation_limit` от 1 до 10; значение `0` блокирует вызовы.
 
 Артефакт 14 дней хранит `pets_preview.md`, `pets_media/`,
 `pets_diagnostics.json`, `pets_sources_report.json` и

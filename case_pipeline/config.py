@@ -173,6 +173,7 @@ PETS_EXTERNAL_SOURCES = env("PETS_EXTERNAL_SOURCES", "0") == "1"
 PETS_OFFICIAL_SOURCES = pets_source_ids(env("PETS_OFFICIAL_SOURCES", "fda_cvm,openfda,cdc_healthy_pets,frontiers_vet"))
 PETS_GENERATOR_MODE = env("PETS_GENERATOR_MODE", "mock").strip().lower()
 PETS_ALLOW_LIVE_AI = env("PETS_ALLOW_LIVE_AI", "0") == "1"
+PETS_MAX_GIGACHAT_GENERATIONS = int(env("PETS_MAX_GIGACHAT_GENERATIONS", "0"))
 # GitHub Contents API keeps PETS state on a dedicated branch. It is versioned
 # and uses an optimistic SHA precondition; the workflow concurrency group
 # serializes normal runs. Disabled until PETS_STATE_BACKEND=github.

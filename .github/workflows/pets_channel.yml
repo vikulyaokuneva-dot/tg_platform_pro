@@ -23,6 +23,11 @@ on:
         required: true
         default: false
         type: boolean
+      gigachat_generation_limit:
+        description: "Hard cap for paid GigaChat requests (1–10; 0 blocks the calls)"
+        required: true
+        default: 0
+        type: number
 
 # Intended future schedule: 12:00 Moscow = 09:00 UTC -> "0 9 * * *".
 # It is intentionally not enabled until the owner approves sources, bot, durable
@@ -78,6 +83,7 @@ jobs:
           PETS_EXTERNAL_SOURCES: ${{ inputs.use_external_sources && '1' || '0' }}
           PETS_GENERATOR_MODE: ${{ inputs.use_live_gigachat && 'gigachat' || 'mock' }}
           PETS_ALLOW_LIVE_AI: ${{ inputs.use_live_gigachat && '1' || '0' }}
+          PETS_MAX_GIGACHAT_GENERATIONS: ${{ inputs.gigachat_generation_limit }}
           # The secret is only usable when the opt-in checkbox above is set;
           # the job never prints it or writes it to an artifact.
           GIGACHAT_API_KEY: ${{ inputs.use_live_gigachat && secrets.GIGACHAT_API_KEY || '' }}

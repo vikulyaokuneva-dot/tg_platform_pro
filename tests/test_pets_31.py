@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Offline PETS 3.1 safety and source-contract regression tests."""
-from case_pipeline import pets
+from case_pipeline import pets, pets_sources
+from case_pipeline import config
 from case_pipeline.pets_facts import Fact
 from case_pipeline.pets_generator import MockPetsGenerator
 from case_pipeline.pets_planner import Topic, choose_topics
 from case_pipeline.pets_sources import FdaCvmAdapter
 from case_pipeline.pets_storage import PetsStorage
+from core.context import JobContext
+from jobs.pets import job as pets_job
 
 
 def _fact(url="https://www.fda.gov/animal-veterinary/example", license="PUBLIC_DOMAIN", claim="Официальное предупреждение помогает владельцу проверить безопасность корма."):
@@ -129,3 +132,17 @@ def test_planner_is_history_aware_and_alternates_species(tmp_path):
     assert len(topics) == 6
     assert all(a.species != b.species for a, b in zip(topics, topics[1:]))
     assert len({topic.key for topic in topics}) == len(topics)
+
+
+def test_live_gigachat_without_explicit_cap_is_blocked_before_source_or_ai_calls(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PETS_DB_PATH", str(tmp_path / "pets.db"))
+    monkeypatch.setattr(config, "RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setattr(config, "PETS_EXTERNAL_SOURCES", True)
+    monkeypatch.setattr(config, "PETS_GENERATOR_MODE", "gigachat")
+    monkeypatch.setattr(config, "PETS_MAX_GIGACHAT_GENERATIONS", 0)
+    monkeypatch.setattr(config, "PETS_PUBLISH", False)
+    monkeypatch.setattr(pets_sources, "official_adapters_for", lambda *_: pytest.fail("sources must not start"))
+    ctx = JobContext("pets", str(tmp_path / "storage.json"), dry_run=True)
+    pets_job.run(ctx)
+    assert ctx.storage["last_run"]["autonomous"]["reason"] == "gigachat_generation_limit_must_be_1_to_10"
+    assert ctx.storage["last_run"]["published"] == 0
