@@ -19,7 +19,7 @@ from .pets_facts import Fact, is_sensitive, license_terms
 NCBI_EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 PMC_ARTICLE_URL = "https://pmc.ncbi.nlm.nih.gov/articles/%s/"
 FDA_FOOD_ENFORCEMENT = "https://api.fda.gov/food/enforcement.json"
-USER_AGENT = "TelegramPlatformPETS/3.1.2 (editorial candidate dry-run)"
+USER_AGENT = "TelegramPlatformPETS/3.1.3 (editorial candidate dry-run; contact configured by operator)"
 
 
 @dataclass(frozen=True)
@@ -31,9 +31,21 @@ class TopicSpec:
     pmc_query: str
 
 
+def _field_or(terms):
+    return " OR ".join('"%s"[Title/Abstract]' % term for term in terms)
+
+
 def _pets_query(species, terms):
-    animal = "(cat[Title] OR feline[Title] OR kitten[Title])" if species == "cat" else "(dog[Title] OR canine[Title] OR puppy[Title])"
-    return "%s AND (%s)" % (animal, " OR ".join("%s[Title]" % term for term in terms))
+    """Search title/abstract without assuming all useful words are in a title.
+
+    The query deliberately requires one domestic-context group but only one
+    topic term.  The stricter full-text validation happens after retrieval.
+    """
+    animal = _field_or(("cat", "feline", "kitten")) if species == "cat" else _field_or(("dog", "canine", "puppy"))
+    domestic = _field_or(("cat owner", "dog owner", "indoor cat", "pet cat", "household cat",
+                          "companion dog", "pet dog", "household dog", "human-animal interaction",
+                          "owner education", "pet welfare", "home environment"))
+    return "(%s) AND (%s) AND (%s)" % (animal, domestic, _field_or(terms))
 
 
 TOPIC_CATALOG = (
@@ -98,6 +110,27 @@ RESULT_NOISE_TERMS = (
     "participants", "responses were retained", "demographics", "table 1", "table 2",
     "countries", "women", "men", "years old", "suburban", "frequency",
 )
+DOMESTIC_CONTEXT_TERMS = (
+    "cat owner", "dog owner", "pet owner", "owners", "household", "home", "indoor", "companion",
+    "pet cat", "pet dog", "owned cat", "owned dog", "human-animal interaction", "family dog", "family cat",
+)
+EVIDENCE_PATTERNS = {
+    "behavior": ("behavior", "behaviour", "interaction", "stress", "temperament", "separation"),
+    "enrichment": ("enrichment", "play", "toy", "activity", "engagement"),
+    "care": ("adaptation", "new home", "rehoming", "habituation", "ageing", "aging", "senior"),
+    "training": ("training", "learning", "owner education", "reinforcement", "instruction"),
+    "nutrition": ("feeding", "food", "diet", "eating", "preference"),
+    "activity": ("walking", "exercise", "activity", "active", "leisure"),
+    "welfare": ("welfare", "wellbeing", "well-being", "quality of life", "stress"),
+}
+MEASURED_RESULT_TERMS = (
+    "observed", "measured", "recorded", "reported", "showed", "found", "associated", "difference",
+    "increased", "decreased", "higher", "lower", "significant", "score", "time", "frequency", "%",
+)
+DERIVATIVE_DISCUSSION_MARKERS = (
+    "therefore", "broader evidence", "widely regarded", "should incentivize", "we recommend",
+    "we suggest", "guidelines recommend", "this test originally", "literature points", "considerable number",
+)
 
 
 def _text(node):
@@ -109,10 +142,13 @@ def _sentences(value):
 
 
 def _species(value):
-    value = (value or "").lower()
-    cat = bool(re.search(r"\b(cat|cats|feline|kitten)\b", value)) and not bool(
+    original = value or ""
+    value = original.lower()
+    cat_matches = list(re.finditer(r"\b(cat|cats|feline|kitten)\b", original, re.I))
+    # ``CAT`` is frequently an unrelated test/scale acronym in biomedical XML.
+    cat = any(match.group(0) != "CAT" for match in cat_matches) and not bool(
         re.search(r"\bcat[-_]|\b[a-z]{2,}[-_]cat\b", value))
-    dog = bool(re.search(r"\b(dog|dogs|canine|puppy)\b", value))
+    dog = bool(re.search(r"\b(dog|dogs|canine|puppy)\b", original, re.I))
     return "both" if cat and dog else "cat" if cat else "dog" if dog else "general"
 
 
@@ -148,6 +184,49 @@ def _medical_text(title, facts):
     return next((term for term in MEDICAL_TERMS if term in text), "")
 
 
+def _domestic_context(value):
+    lowered = (value or "").lower()
+    return any(term in lowered for term in DOMESTIC_CONTEXT_TERMS)
+
+
+def _study_metadata(article, title=""):
+    """Keep minimal study context so facts cannot masquerade as universal advice."""
+    body = _text(article.find(".//body"))
+    lowered = (str(title) + " " + body).lower()
+    study_type = next((name for name, markers in (
+        ("cross-sectional", ("cross-sectional", "cross sectional")),
+        ("survey", ("survey", "questionnaire")),
+        ("observational", ("observational", "observed")),
+        ("controlled study", ("controlled", "randomized", "randomised")),
+    ) if any(marker in lowered for marker in markers)), "unspecified")
+    sample = re.findall(r"\b(?:n\s*=\s*\d+|\d+\s+(?:cats|dogs|owners|households|participants))\b", body, re.I)
+    population_limited = bool(re.search(r"\b(?:in|among)\s+women\b", str(title).lower())) or any(marker in lowered for marker in (
+        "women only", "female owners only", "veterinary students", "staff-owned dogs", "shelter population",
+    ))
+    return {"study_type": study_type, "sample_signals": sample[:3],
+            "sample_described": bool(sample), "population_limited": population_limited,
+            "limitations_present": "limitation" in lowered}
+
+
+def _reason_category(candidate):
+    title = candidate.get("title", "")
+    facts = tuple(candidate.get("facts", ()))
+    if not candidate.get("adaptation_allowed"):
+        return "license"
+    if _medical_text(title, facts):
+        return "medical"
+    excluded = _title_is_excluded(title)
+    if excluded:
+        return "false_keyword_match" if excluded in {"molecular", "gene", "protein", "cellular", "viral", "algorithm", "network"} else "irrelevant_audience"
+    if not candidate.get("domestic_context"):
+        return "irrelevant_audience"
+    if len(facts) < 3:
+        return "insufficient_facts"
+    if not candidate.get("study", {}).get("sample_described") or candidate.get("study", {}).get("population_limited"):
+        return "unsuitable_sample"
+    return "editorial_review"
+
+
 def _section_facts(article, *, title, species, source_url, source_name, source_type, authors,
                    published_at, license_name, license_url, obligations, adaptation_allowed, category):
     """Extract short, attributed observations from appropriate full-text sections."""
@@ -169,14 +248,23 @@ def _section_facts(article, *, title, species, source_url, source_name, source_t
                 continue
             if len(selected) >= 5:
                 continue
-            topic_terms = CATEGORY_TITLE_TERMS.get(category, ())
+            topic_terms = EVIDENCE_PATTERNS.get(category, ())
             has_topic_signal = any(term in key for term in topic_terms)
+            has_measurement = any(term in key for term in MEASURED_RESULT_TERMS) or bool(re.search(r"\b\d+(?:\.\d+)?\b", key))
+            derivative_discussion = kind in {"discussion", "conclusion"} and any(
+                marker in key for marker in DERIVATIVE_DISCUSSION_MARKERS)
+            cited_discussion = kind in {"discussion", "conclusion"} and bool(
+                re.search(r"\[\d+(?:[,-]\d+)*\]", sentence))
+            sample_description = key.startswith("this study documented") and not any(
+                marker in key for marker in ("associated", "difference", "increased", "decreased", "significant"))
             is_noise = any(term in key for term in RESULT_NOISE_TERMS)
             # A Result sentence which contains neither the selected theme nor
             # the animal subject is usually sample/table metadata, not an
             # owner-relevant finding.  Do not promote it to a factual brief.
             has_animal_signal = bool(re.search(r"\b(cat|cats|feline|kitten|dog|dogs|canine|puppy)\b", key))
-            if (is_noise and not has_topic_signal) or (kind == "result" and not (has_topic_signal or has_animal_signal)):
+            # A factual brief needs a category-specific observation/result;
+            # random prose mentioning an animal does not qualify as evidence.
+            if (is_noise and not has_topic_signal) or derivative_discussion or cited_discussion or sample_description or not has_topic_signal or not has_measurement:
                 continue
             selected.append(Fact(topic=title, species=species, claim=sentence, source_url=source_url,
                                  source_name=source_name, source_type=source_type,
@@ -200,20 +288,21 @@ def editorial_assessment(candidate):
     medical = _medical_text(title, facts)
     useful_categories = {"behavior", "enrichment", "care", "training", "nutrition", "activity", "welfare"}
 
-    title_matches_category = _title_matches_category(title, candidate.get("category"))
-    if not excluded and title_matches_category and candidate.get("category") in useful_categories:
+    evidence_matched = len(facts) >= 3
+    domestic_context = bool(candidate.get("domestic_context"))
+    if not excluded and domestic_context and candidate.get("category") in useful_categories:
         score += 2
     else:
-        reasons.append("owner_relevance: excluded=%s; title_matches_category=%s" %
-                       (excluded or "none", title_matches_category))
-    if candidate.get("topic_key") and candidate.get("species") in {"cat", "dog", "both"} and title_matches_category:
+        reasons.append("owner_relevance: excluded=%s; domestic_context=%s" %
+                       (excluded or "none", domestic_context))
+    if candidate.get("topic_key") and candidate.get("species") in {"cat", "dog", "both"} and domestic_context:
         score += 2
     else:
-        reasons.append("channel_fit: animal or topic is not explicit")
-    if len(facts) >= 3:
+        reasons.append("channel_fit: domestic animal context is not confirmed")
+    if evidence_matched:
         score += 2
     else:
-        reasons.append("facts: fewer than three full-text facts")
+        reasons.append("facts: fewer than three evidence-pattern facts")
     if any(fact.fact_kind in {"study_result", "study_conclusion", "study_discussion"} for fact in facts):
         score += 2
     else:
@@ -226,22 +315,27 @@ def editorial_assessment(candidate):
         score += 2
     else:
         reasons.append("safety: medical_or_sensitive=%s" % (medical or "sensitive"))
-    if candidate.get("species") in {"cat", "dog", "both"} and not excluded and title_matches_category:
+    image_search_feasible = candidate.get("species") in {"cat", "dog", "both"} and domestic_context and not excluded
+    if image_search_feasible:
         score += 2
     else:
-        reasons.append("image: an unambiguous, relevant photo may not be selectable")
+        reasons.append("image: a relevant photo search is not feasible")
+    if candidate.get("study", {}).get("population_limited"):
+        reasons.append("sample: population is too narrow for a general owner-facing brief")
 
     ready = score >= 12 and not reasons and candidate.get("technical_status") == "source_usable"
     return {
         "score": score,
         "max_score": 14,
         "criteria": {
-            "owner_usefulness": not bool(excluded), "channel_fit": bool(candidate.get("topic_key")),
-            "specific_facts": len(facts) >= 3, "evidence": any(f.fact_kind != "unknown" for f in facts),
+            "owner_usefulness": not bool(excluded) and domestic_context, "channel_fit": bool(candidate.get("topic_key")) and domestic_context,
+            "specific_facts": evidence_matched, "evidence": any(f.fact_kind != "unknown" for f in facts),
             "plain_language": bool(facts), "medical_safety": not bool(medical),
-            "image_feasible": candidate.get("species") in {"cat", "dog", "both"},
+            "image_search_feasible": image_search_feasible,
+            "image_verified": False,
         },
         "reasons": reasons,
+        "reason_category": _reason_category(candidate),
         "decision": "editorially_ready" if ready else "needs_editorial_review",
     }
 
@@ -253,11 +347,16 @@ class PmcOpenAccessAdapter:
     source_type = "primary_research"
     journal_query = ""
 
-    def __init__(self, session=requests, email="pets-platform@example.invalid", tool="pets_platform"):
+    def __init__(self, session=requests, email=None, tool="tg_platform_pets", max_topic_specs=8):
         self.session, self.email, self.tool = session, email, tool
+        self.max_topic_specs = max(1, min(int(max_topic_specs), len(TOPIC_CATALOG)))
 
     def _get(self, endpoint, **params):
-        params.update({"tool": self.tool, "email": self.email})
+        # NCBI accepts a tool identifier without an invented contact address.
+        # An operator may set NCBI_CONTACT_EMAIL for a future production lane.
+        params.update({"tool": self.tool})
+        if self.email:
+            params["email"] = self.email
         response = self.session.get(NCBI_EUTILS + endpoint, params=params,
                                     headers={"User-Agent": USER_AGENT}, timeout=30)
         if response.status_code != 200:
@@ -284,7 +383,8 @@ class PmcOpenAccessAdapter:
         doi = _text(article.find(".//article-id[@pub-id-type='doi']"))
         if not title or not pmcid:
             return None
-        species = _species(title)
+        abstract = _text(article.find(".//abstract"))
+        species = _species(" ".join((title, abstract)))
         if spec is None:
             spec = next((item for item in TOPIC_CATALOG
                          if item.species in {species, "both"}), TOPIC_CATALOG[0])
@@ -313,23 +413,31 @@ class PmcOpenAccessAdapter:
                                             license_name=license_name, license_url=license_url,
                                             obligations=obligations, adaptation_allowed=adaptation_allowed,
                                             category=spec.category)
+        study = _study_metadata(article, title)
+        # Do not infer household relevance from a reference list deep in an
+        # article.  It must be explicit in the title or abstract.
+        domestic_context = _domestic_context(" ".join((title, abstract)))
         candidate = {
             "source_key": "pmc:" + pmcid, "source_id": self.source_id, "title": title,
-            "species": species, "doi": doi, "source_url": source_url, "authors": ", ".join(authors),
+            "species": species, "doi": doi, "pmcid": pmcid, "source_url": source_url, "authors": ", ".join(authors),
             "published_at": year, "license": license_name, "license_source_url": license_url or source_url,
             "attribution_requirements": obligations, "adaptation_allowed": adaptation_allowed,
             "technical_status": technical_status, "topic_key": spec.key, "category": spec.category,
-            "facts": facts, "limitations": limitations,
+            "facts": facts, "limitations": limitations, "study": study, "domestic_context": domestic_context,
+            "image_search_feasible": False, "image_verified": False,
             "safety_status": "review" if (not adaptation_allowed or _medical_text(title, facts)) else "candidate_ready",
         }
         candidate["editorial"] = editorial_assessment(candidate)
         candidate["editorial_status"] = candidate["editorial"]["decision"]
+        candidate["image_search_feasible"] = candidate["editorial"]["criteria"]["image_search_feasible"]
         return candidate
 
     def collect_candidates(self, limit=10):
         candidates, seen = [], set()
         # Rotate cat/dog catalogue entries; caps make the network test bounded.
-        for spec in TOPIC_CATALOG:
+        # A bounded catalogue preserves E-utilities rate limits and makes a
+        # manual dry-run predictable.
+        for spec in TOPIC_CATALOG[:self.max_topic_specs]:
             if len(candidates) >= limit:
                 break
             for article in self._articles(self.search_ids(spec, limit=2)):
@@ -391,26 +499,48 @@ class FdaCvmSafetyAdapter:
         return result
 
 
-def _candidate_identity(candidate):
-    return candidate.get("doi") or candidate.get("source_key")
+def _normalise_doi(value):
+    value = (value or "").strip().lower()
+    value = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", value)
+    return value.rstrip(" .;,")
+
+
+def _candidate_identities(candidate):
+    """DOI and PMCID are separate identity keys so source formatting cannot duplicate a study."""
+    keys = set()
+    doi = _normalise_doi(candidate.get("doi"))
+    pmcid = (candidate.get("pmcid") or "").upper().replace(" ", "")
+    if doi:
+        keys.add("doi:" + doi)
+    if pmcid:
+        keys.add("pmcid:" + pmcid)
+    if not keys:
+        keys.add("source:" + str(candidate.get("source_key") or ""))
+    return keys
 
 
 def collect_source_candidates(adapters, storage=None, limit=10):
     """Collect independently, deduplicate DOI/PMCID across sources, persist reasons."""
-    report, accepted, seen, rejected = {}, [], set(), 0
+    report, accepted, seen, rejected, history_skipped = {}, [], set(), 0, 0
     for source_id, adapter in (adapters or {}).items():
         try:
             found = list(adapter.collect_candidates(limit=max(limit * 2, 10)))
             unique = []
             for candidate in found:
-                identity = _candidate_identity(candidate)
-                if identity in seen:
+                identities = _candidate_identities(candidate)
+                if identities & seen:
                     rejected += 1
                     continue
-                seen.add(identity)
+                if storage is not None and storage.source_candidate_rejected(identities):
+                    history_skipped += 1
+                    continue
+                seen.update(identities)
                 unique.append(candidate)
                 if storage is not None:
                     storage.save_source_candidate(candidate)
+                    if candidate.get("editorial_status") != "editorially_ready":
+                        storage.record_source_candidate_rejection(
+                            identities, candidate.get("editorial", {}).get("reason_category", "editorial_review"))
             report[source_id] = {
                 "status": "ok", "found": len(found), "unique": len(unique),
                 "editorially_ready": sum(c.get("editorial_status") == "editorially_ready" for c in unique),
@@ -421,4 +551,5 @@ def collect_source_candidates(adapters, storage=None, limit=10):
             report[source_id] = {"status": "error", "error": type(exc).__name__}
     ready = [item for item in accepted if item.get("editorial_status") == "editorially_ready"]
     review = [item for item in accepted if item.get("editorial_status") != "editorially_ready"]
-    return (ready + review)[:limit], report, {"deduplicated": rejected, "total_unique": len(accepted)}
+    return (ready + review)[:limit], report, {"deduplicated": rejected, "history_skipped": history_skipped,
+                                               "total_unique": len(accepted)}

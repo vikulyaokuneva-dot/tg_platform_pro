@@ -189,7 +189,7 @@ def test_frontiers_pmc_connector_collects_traceable_article_level_candidate(tmp_
     candidates, report, collection = collect_source_candidates({"frontiers_vet": adapter}, storage=st, limit=10)
     assert report["frontiers_vet"]["status"] == "ok"
     assert report["frontiers_vet"]["found"] == 1
-    assert collection == {"deduplicated": 0, "total_unique": 1}
+    assert collection == {"deduplicated": 0, "history_skipped": 0, "total_unique": 1}
     candidate = candidates[0]
     assert candidate["doi"] == "10.1/example"
     assert candidate["license"] == "CC_BY_SA"

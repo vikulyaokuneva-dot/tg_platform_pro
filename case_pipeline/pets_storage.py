@@ -77,8 +77,18 @@ CREATE TABLE IF NOT EXISTS pets_source_candidates (
     editorial_status TEXT NOT NULL DEFAULT '',
     topic_key TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
+    pmcid TEXT NOT NULL DEFAULT '',
+    study_json TEXT NOT NULL DEFAULT '{}',
+    image_search_feasible INTEGER NOT NULL DEFAULT 0,
+    image_verified INTEGER NOT NULL DEFAULT 0,
     editorial_json TEXT NOT NULL DEFAULT '',
     limitations_json TEXT NOT NULL DEFAULT '[]',
+    checked_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pets_source_candidate_history (
+    identity_key TEXT PRIMARY KEY,
+    decision TEXT NOT NULL,
+    reason_category TEXT NOT NULL,
     checked_at TEXT NOT NULL
 );
 """
@@ -99,7 +109,9 @@ class PetsStorage(Storage):
                 self.db.execute("ALTER TABLE pets_facts ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
         candidate_cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_source_candidates)")}
         for name, default in (("technical_status", "''"), ("editorial_status", "''"),
-                              ("topic_key", "''"), ("category", "''"),
+                              ("topic_key", "''"), ("category", "''"), ("pmcid", "''"),
+                              ("study_json", "'{}'"), ("image_search_feasible", "0"),
+                              ("image_verified", "0"),
                               ("editorial_json", "''"), ("limitations_json", "'[]'")):
             if name not in candidate_cols:
                 self.db.execute("ALTER TABLE pets_source_candidates ADD COLUMN %s TEXT NOT NULL DEFAULT %s" %
@@ -152,18 +164,41 @@ class PetsStorage(Storage):
         self.db.execute(
             "INSERT OR REPLACE INTO pets_source_candidates(source_key,source_id,title,species,doi,source_url,authors,"
             "published_at,license,license_source_url,attribution_requirements,adaptation_allowed,facts_json,safety_status,"
-            "technical_status,editorial_status,topic_key,category,editorial_json,limitations_json,checked_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "technical_status,editorial_status,topic_key,category,pmcid,study_json,image_search_feasible,image_verified,"
+            "editorial_json,limitations_json,checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (candidate["source_key"], candidate["source_id"], candidate["title"], candidate["species"],
              candidate.get("doi", ""), candidate["source_url"], candidate.get("authors", ""),
              candidate.get("published_at"), candidate["license"], candidate.get("license_source_url", ""),
              candidate.get("attribution_requirements", ""), int(bool(candidate.get("adaptation_allowed"))),
              json.dumps(facts, ensure_ascii=False, sort_keys=True), candidate["safety_status"],
              candidate.get("technical_status", ""), candidate.get("editorial_status", ""),
-             candidate.get("topic_key", ""), candidate.get("category", ""),
+             candidate.get("topic_key", ""), candidate.get("category", ""), candidate.get("pmcid", ""),
+             json.dumps(candidate.get("study", {}), ensure_ascii=False, sort_keys=True),
+             int(bool(candidate.get("image_search_feasible"))), int(bool(candidate.get("image_verified"))),
              json.dumps(candidate.get("editorial", {}), ensure_ascii=False, sort_keys=True),
              json.dumps(candidate.get("limitations", ()), ensure_ascii=False), now_iso()))
         self.db.commit()
+
+    def source_candidate_rejected(self, identities):
+        values = tuple(sorted(identities or ()))
+        if not values:
+            return False
+        marks = ",".join("?" for _ in values)
+        return bool(self.db.execute(
+            "SELECT 1 FROM pets_source_candidate_history WHERE decision='needs_editorial_review' AND identity_key IN (%s)" % marks,
+            values).fetchone())
+
+    def record_source_candidate_rejection(self, identities, reason_category):
+        for identity in sorted(identities or ()):
+            self.db.execute(
+                "INSERT OR REPLACE INTO pets_source_candidate_history(identity_key,decision,reason_category,checked_at) VALUES(?,?,?,?)",
+                (identity, "needs_editorial_review", reason_category, now_iso()))
+        self.db.commit()
+
+    def source_rejection_statistics(self):
+        return {row["reason_category"]: row["count"] for row in self.db.execute(
+            "SELECT reason_category,COUNT(*) AS count FROM pets_source_candidate_history "
+            "WHERE decision='needs_editorial_review' GROUP BY reason_category ORDER BY reason_category")}
 
     def source_candidates(self):
         return [dict(row) for row in self.db.execute(
