@@ -176,15 +176,20 @@ class _PmcSession:
         <pub-date><year>2026</year></pub-date>
         <abstract><p>Dogs showed more exploratory behaviour when enrichment was available in this study.</p></abstract>
         <permissions><license><license-p>This article is licensed under CC BY-SA 4.0 <ext-link href="https://creativecommons.org/licenses/by-sa/4.0/"/></license-p></license></permissions>
-        </article-meta></front></article></pmc-articleset>'''
+        </article-meta></front><body>
+        <sec><title>Results</title><p>Dogs showed more exploratory behaviour when enrichment was available in this study.</p></sec>
+        <sec><title>Discussion</title><p>The study findings are limited to the observed animals and should not become a universal recommendation.</p></sec>
+        </body></article></pmc-articleset>'''
         return _Response(content=xml)
 
 
 def test_frontiers_pmc_connector_collects_traceable_article_level_candidate(tmp_path):
     adapter = FrontiersVeterinaryPmcAdapter(session=_PmcSession())
     st = _storage(tmp_path)
-    candidates, report = collect_source_candidates({"frontiers_vet": adapter}, storage=st, limit=10)
-    assert report["frontiers_vet"] == {"status": "ok", "found": 1, "candidate_ready": 1, "review": 0}
+    candidates, report, collection = collect_source_candidates({"frontiers_vet": adapter}, storage=st, limit=10)
+    assert report["frontiers_vet"]["status"] == "ok"
+    assert report["frontiers_vet"]["found"] == 1
+    assert collection == {"deduplicated": 0, "total_unique": 1}
     candidate = candidates[0]
     assert candidate["doi"] == "10.1/example"
     assert candidate["license"] == "CC_BY_SA"

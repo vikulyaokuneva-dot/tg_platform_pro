@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS pets_facts (
     license_verified_at TEXT NOT NULL DEFAULT '',
     adaptation_allowed INTEGER NOT NULL,
     evidence_level TEXT NOT NULL,
+    source_section TEXT NOT NULL DEFAULT '',
+    fact_kind TEXT NOT NULL DEFAULT 'unknown',
     UNIQUE(material_id, claim, source_url)
 );
 CREATE TABLE IF NOT EXISTS pets_topic_plans (
@@ -71,6 +73,12 @@ CREATE TABLE IF NOT EXISTS pets_source_candidates (
     adaptation_allowed INTEGER NOT NULL,
     facts_json TEXT NOT NULL,
     safety_status TEXT NOT NULL,
+    technical_status TEXT NOT NULL DEFAULT '',
+    editorial_status TEXT NOT NULL DEFAULT '',
+    topic_key TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    editorial_json TEXT NOT NULL DEFAULT '',
+    limitations_json TEXT NOT NULL DEFAULT '[]',
     checked_at TEXT NOT NULL
 );
 """
@@ -85,9 +93,17 @@ class PetsStorage(Storage):
             if name not in cols:
                 self.db.execute("ALTER TABLE pets_image_rights ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
         fact_cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_facts)")}
-        for name in ("license_source_url", "attribution_requirements", "license_verified_at"):
+        for name in ("license_source_url", "attribution_requirements", "license_verified_at",
+                     "source_section", "fact_kind"):
             if name not in fact_cols:
                 self.db.execute("ALTER TABLE pets_facts ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % name)
+        candidate_cols = {r["name"] for r in self.db.execute("PRAGMA table_info(pets_source_candidates)")}
+        for name, default in (("technical_status", "''"), ("editorial_status", "''"),
+                              ("topic_key", "''"), ("category", "''"),
+                              ("editorial_json", "''"), ("limitations_json", "'[]'")):
+            if name not in candidate_cols:
+                self.db.execute("ALTER TABLE pets_source_candidates ADD COLUMN %s TEXT NOT NULL DEFAULT %s" %
+                                (name, default))
         self.db.commit()
 
     def topic_seen(self, key):
@@ -117,30 +133,36 @@ class PetsStorage(Storage):
             self.db.execute(
                 "INSERT OR IGNORE INTO pets_facts(material_id,claim,source_url,source_name,source_type,author_or_body,"
                 "published_at,accessed_at,license,license_source_url,attribution_requirements,license_verified_at,"
-                "adaptation_allowed,evidence_level) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "adaptation_allowed,evidence_level,source_section,fact_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (material_id, value["claim"], value["source_url"], value["source_name"], value["source_type"],
                  value["author_or_body"], value["published_at"], value["accessed_at"], value["license"],
                  value.get("license_source_url", ""), value.get("attribution_requirements", ""),
-                 value.get("license_verified_at", ""), int(bool(value["adaptation_allowed"])), value["evidence_level"]))
+                 value.get("license_verified_at", ""), int(bool(value["adaptation_allowed"])), value["evidence_level"],
+                 value.get("source_section", ""), value.get("fact_kind", "unknown")))
         self.db.commit()
 
     def facts_for(self, material_id):
         return [dict(row) for row in self.db.execute(
             "SELECT claim,source_url,source_name,source_type,author_or_body,published_at,accessed_at,license,"
-            "license_source_url,attribution_requirements,license_verified_at,adaptation_allowed,evidence_level "
+            "license_source_url,attribution_requirements,license_verified_at,adaptation_allowed,evidence_level,source_section,fact_kind "
             "FROM pets_facts WHERE material_id=? ORDER BY id", (material_id,))]
 
     def save_source_candidate(self, candidate):
         facts = [fact.serializable() for fact in candidate.get("facts", ())]
         self.db.execute(
             "INSERT OR REPLACE INTO pets_source_candidates(source_key,source_id,title,species,doi,source_url,authors,"
-            "published_at,license,license_source_url,attribution_requirements,adaptation_allowed,facts_json,safety_status,checked_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "published_at,license,license_source_url,attribution_requirements,adaptation_allowed,facts_json,safety_status,"
+            "technical_status,editorial_status,topic_key,category,editorial_json,limitations_json,checked_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (candidate["source_key"], candidate["source_id"], candidate["title"], candidate["species"],
              candidate.get("doi", ""), candidate["source_url"], candidate.get("authors", ""),
              candidate.get("published_at"), candidate["license"], candidate.get("license_source_url", ""),
              candidate.get("attribution_requirements", ""), int(bool(candidate.get("adaptation_allowed"))),
-             json.dumps(facts, ensure_ascii=False, sort_keys=True), candidate["safety_status"], now_iso()))
+             json.dumps(facts, ensure_ascii=False, sort_keys=True), candidate["safety_status"],
+             candidate.get("technical_status", ""), candidate.get("editorial_status", ""),
+             candidate.get("topic_key", ""), candidate.get("category", ""),
+             json.dumps(candidate.get("editorial", {}), ensure_ascii=False, sort_keys=True),
+             json.dumps(candidate.get("limitations", ()), ensure_ascii=False), now_iso()))
         self.db.commit()
 
     def source_candidates(self):

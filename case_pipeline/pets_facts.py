@@ -38,6 +38,8 @@ class Fact:
     adaptation_allowed: bool = False
     evidence_level: str = "unknown"
     license_verified_at: str | None = None
+    source_section: str = ""
+    fact_kind: str = "unknown"
 
     def serializable(self):
         value = asdict(self)
