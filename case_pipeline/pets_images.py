@@ -41,7 +41,7 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
     query = topic_query(title, text)
     params = {"action": "query", "format": "json", "generator": "search",
               "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": limit,
-              "prop": "imageinfo", "iiprop": "url|extmetadata"}
+              "prop": "imageinfo|categories", "iiprop": "url|extmetadata", "cllimit": 50}
     try:
         response = session.get(COMMONS_API, params=params, headers=COMMONS_HEADERS, timeout=25)
         if response.status_code != 200:
@@ -50,6 +50,22 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
     except Exception:
         return None
     expected_breed = _breed_from(title + " " + text)
+    expected_tags = tuple((ext or {}).get("visual_tags") or ())
+    if not expected_tags:
+        # Without a visual contract only species can be demonstrated, which is
+        # insufficient for PETS 3.1.  Leave the material in review instead.
+        return None
+    aliases = {
+        "cat": ("cat", "kitten", "feline"), "dog": ("dog", "puppy", "canine"),
+        "owner": ("owner", "handler", "person", "woman", "man"),
+        "training": ("training", "train", "reward", "obedience"),
+        "home": ("home", "indoor", "house", "room", "domestic"),
+        "food": ("food", "feeding", "bowl", "meal"),
+        "grooming": ("groom", "brush", "combing"), "walk": ("walk", "leash", "outdoor"),
+        "rest": ("sleep", "rest", "bed"), "carrier": ("carrier", "crate"),
+        "hygiene": ("hygiene", "wash", "clean"), "enrichment": ("toy", "enrichment", "play"),
+        "safe_shelter": ("shelter", "hide", "house", "bed", "box"),
+    }
     for page in pages.values():
         info = (page.get("imageinfo") or [{}])[0]
         meta = info.get("extmetadata") or {}
@@ -63,12 +79,19 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
         url = info.get("url") or ""
         source_url = info.get("descriptionurl") or ""
         page_title = str(page.get("title") or "").lower()
+        description = _plain((meta.get("ImageDescription") or {}).get("value"))
+        categories = " ".join(str(item.get("title") or "") for item in page.get("categories", []))
+        evidence = (page_title + " " + description + " " + categories).lower()
         if expected_breed and expected_breed.replace("_", " ") not in page_title:
+            continue
+        tags = {tag for tag in expected_tags if any(word in evidence for word in aliases.get(tag, (tag,)))}
+        if set(expected_tags) - tags:
             continue
         result = {"url": url, "author": author, "source_url": source_url,
                   "license": licence, "license_url": licence_url,
                   "attribution": attribution, "query": query,
-                  "topic_match": "breed" if expected_breed else "species"}
+                  "topic_match": "+".join(expected_tags), "semantic_tags": tuple(sorted(tags)),
+                  "required_tags": expected_tags, "semantic_evidence": evidence[:1000]}
         if expected_breed:
             result["breed"] = expected_breed
         ok, _ = validate_image(result, title)

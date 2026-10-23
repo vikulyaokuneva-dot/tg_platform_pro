@@ -13,6 +13,9 @@ from datetime import datetime, timedelta, timezone
 from . import ai as ai_mod
 from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor
 from . import pets_images, pets_storage, telegram, utils
+from .pets_facts import validate_fact_set, validate_generated_text
+from .pets_generator import MockPetsGenerator
+from .pets_planner import Topic, choose_topics
 
 log = logging.getLogger("case.pets")
 MIN_BODY_CHARS = 350
@@ -270,6 +273,102 @@ def process_original_brief(st, brief):
               classification="pets:%s:%s" % (brief["category"], brief["species"]),
               reason="pets_expert:original_manual_review")
     return dict(out, status="demo_ready", category=brief["category"], species=brief["species"])
+
+
+def process_fact_material(st, topic, facts, source_id, generator=None, image_resolver=None):
+    """Prepare one external-source draft, with no Telegram side effect.
+
+    A mock generator is deliberately returned as ``review``: test content must
+    never be mistaken for a new publishable material.  A real GigaChat result
+    remains subject to the same fact, rights, duplicate and image gates.
+    """
+    out = {"source": source_id, "topic": topic.key, "status": "review", "reason": ""}
+    facts = list(facts or ())
+    ok, reason = validate_fact_set(facts)
+    if not ok:
+        return dict(out, reason=reason)
+    canonical_url = facts[0].source_url
+    mid = st.add(canonical_url, source_id)
+    row = st.get(mid) or {}
+    if _known_status(row.get("status")):
+        return dict(out, status="skipped", reason="already " + str(row.get("status")))
+    if st.topic_seen(topic.key) or st.similar_topic_seen(topic.key):
+        st.update(mid, status="rejected", reason="duplicate semantic topic")
+        return dict(out, status="rejected", reason="duplicate_topic")
+    allowed, diversity_reason = st.diversity_allows(topic.category, topic.species)
+    if not allowed:
+        st.update(mid, status="review", reason=diversity_reason)
+        return dict(out, reason=diversity_reason)
+    generator = generator or MockPetsGenerator()
+    generated = generator.generate(topic, facts)
+    if not generated:
+        st.update(mid, status="review", reason="ai_generation_failed")
+        return dict(out, reason="ai_generation_failed")
+    if generated.get("mode") == "mock":
+        st.record_facts(mid, facts)
+        st.update(mid, status="review", post_text=generated.get("text", ""),
+                  classification="pets:mock:%s:%s" % (topic.category, topic.species),
+                  reason="mock_generation_requires_real_ai_opt_in")
+        return dict(out, reason="mock_generation_requires_real_ai_opt_in")
+    text = generated.get("text", "")
+    if not 700 <= len(text) <= 1200:
+        st.update(mid, status="review", reason="generated_text_length_invalid")
+        return dict(out, reason="generated_text_length_invalid")
+    generated_ok, generated_reason = validate_generated_text(text, facts)
+    if not generated_ok:
+        st.update(mid, status="review", reason=generated_reason)
+        return dict(out, reason=generated_reason)
+    image_resolver = image_resolver or (pets_images.resolve_wikimedia_commons if config.PETS_IMAGE_PROVIDER == "wikimedia" else None)
+    image = _normalize_image(canonical_url, {"title": generated.get("title", topic.title), "text": text,
+                                              "visual_tags": topic.visual_tags}, image_resolver)
+    if isinstance(image, dict):
+        # The material defines the visual contract; a resolver may provide
+        # evidence tags, but it must not choose its own weaker requirements.
+        image = dict(image)
+        image["required_tags"] = tuple(topic.visual_tags)
+    image_ok, image_reason = pets_images.validate_image(image, generated.get("title", topic.title))
+    if not image_ok:
+        st.record_facts(mid, facts)
+        st.update(mid, status="review", reason="image_review:" + image_reason)
+        return dict(out, reason="image_review:" + image_reason)
+    if not st.reserve_topic(mid, topic.key, topic.category, topic.species):
+        st.update(mid, status="rejected", reason="duplicate semantic topic")
+        return dict(out, status="rejected", reason="duplicate_topic")
+    st.plan_topic(topic)
+    st.record_facts(mid, facts)
+    st.record_image_rights(mid, image)
+    st.update(mid, status="post_ready", post_text=text, image_url=image["url"],
+              classification="pets:%s:%s" % (topic.category, topic.species),
+              reason="pets_expert:external_facts")
+    return dict(out, status="post_ready", material_id=mid, category=topic.category, species=topic.species)
+
+
+def run_autonomous_dry_run(st, adapters, generator=None, image_resolver=None, limit=10):
+    """Offline-friendly PETS 3.1 orchestrator; it can never send Telegram."""
+    summary = {"planned": 0, "checked": 0, "post_ready": 0, "review": 0, "rejected": 0,
+               "skipped": 0, "published": 0, "dry_run": True, "source_errors": {},
+               "source_report": {}, "generator_mode": getattr(generator or MockPetsGenerator(), "mode", "unknown")}
+    topics = choose_topics(st, limit=limit)
+    summary["planned"] = len(topics)
+    for source_id, adapter in (adapters or {}).items():
+        try:
+            gathered = list(adapter.collect())
+            summary["source_report"][source_id] = {"status": "ok", "facts": len(gathered)}
+        except Exception as exc:
+            summary["source_errors"][source_id] = type(exc).__name__
+            summary["source_report"][source_id] = {"status": "error", "error": type(exc).__name__}
+            continue
+        for facts in gathered:
+            if not topics:
+                break
+            topic = topics.pop(0)
+            result = process_fact_material(st, topic, facts, source_id, generator=generator,
+                                           image_resolver=image_resolver)
+            summary["checked"] += 1
+            status = result.get("status", "review")
+            if status in summary:
+                summary[status] += 1
+    return summary
 
 
 def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Isolated PETS job. Publishing is disabled unless all explicit gates pass."""
 import os
+import json
 from pathlib import Path
 
-from case_pipeline import config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state
+from case_pipeline import ai, config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state
+from case_pipeline.pets_generator import GigaChatPetsGenerator, MockPetsGenerator
 from case_pipeline.pets_storage import PetsStorage
 
 
@@ -28,6 +30,21 @@ def _write_preview(st, path="runs/pets_preview.md", include_demo=False):
             fh.write("Лицензия: %s — %s\n" % (row["license"] or "", row["license_url"] or ""))
             fh.write("Атрибуция: %s\n" % (row["attribution"] or row["author"] or ""))
             fh.write("Проверка соответствия: %s\n\n" % (row["topic_match"] or ""))
+
+
+def _write_json(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(value, fh, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _license_report(st):
+    rows = st.db.execute(
+        "SELECT m.id,m.status,r.image_url,r.license,r.license_url,r.author FROM materials m "
+        "LEFT JOIN pets_image_rights r ON r.material_id=m.id ORDER BY m.id DESC LIMIT 50").fetchall()
+    return [{"material_id": row["id"], "status": row["status"], "image_url": row["image_url"],
+             "license": row["license"], "license_url": row["license_url"], "author": row["author"]}
+            for row in rows]
 
 
 def _download_preview_images(st, media_dir="runs/pets_media", include_demo=False):
@@ -86,6 +103,18 @@ def run(ctx):
                        st=st, adapters=pets_sources.adapters_for(config.PETS_SOURCES),
                        checkpoint=checkpoint if backend and not state_error else None,
                        briefs=pets_briefs.DEFAULT_BRIEFS if config.PETS_DEMO_BRIEFS else ())
+    if config.PETS_EXTERNAL_SOURCES:
+        if config.PETS_GENERATOR_MODE == "gigachat":
+            generator = GigaChatPetsGenerator(ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED)
+        else:
+            generator = MockPetsGenerator()
+        autonomous = pets.run_autonomous_dry_run(
+            st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator)
+    else:
+        autonomous = {"enabled": False, "dry_run": True, "published": 0,
+                      "source_report": {source: {"status": "disabled_pending_owner_opt_in"}
+                                        for source in config.PETS_OFFICIAL_SOURCES}}
+    summary["autonomous"] = autonomous
     summary["migrated_demo_materials"] = migrated_demos
     if backend and not state_error:
         try:
@@ -99,9 +128,19 @@ def run(ctx):
                    ("checked", "post_ready", "published", "review", "rejected")) + \
              (summary.get("dry_run"),)
     ctx.log("pets summary: checked=%s ready=%s published=%s review=%s rejected=%s dry_run=%s" % values)
-    image_checks = _download_preview_images(st, include_demo=config.PETS_DEMO_BRIEFS)
-    _write_preview(st, include_demo=config.PETS_DEMO_BRIEFS)
+    preview_path = os.path.join(config.RUNS_DIR, "pets_preview.md")
+    media_path = os.path.join(config.RUNS_DIR, "pets_media")
+    diagnostics_path = os.path.join(config.RUNS_DIR, "pets_diagnostics.json")
+    sources_path = os.path.join(config.RUNS_DIR, "pets_sources_report.json")
+    licenses_path = os.path.join(config.RUNS_DIR, "pets_license_report.json")
+    image_checks = _download_preview_images(st, media_dir=media_path, include_demo=config.PETS_DEMO_BRIEFS)
+    _write_preview(st, path=preview_path, include_demo=config.PETS_DEMO_BRIEFS)
     summary["artifact_images"] = {str(mid): status for mid, status in image_checks}
+    _write_json(diagnostics_path, {"summary": summary, "state_restore": state,
+                                   "demo_enabled": config.PETS_DEMO_BRIEFS,
+                                   "external_sources_enabled": config.PETS_EXTERNAL_SOURCES})
+    _write_json(sources_path, autonomous.get("source_report", {}))
+    _write_json(licenses_path, _license_report(st))
     ctx.storage["last_run"] = summary
     ctx.storage["state_restore"] = state
     ctx.save()

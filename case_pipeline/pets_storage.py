@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """PETS-only metadata layered over the shared SQLite Storage schema."""
 from datetime import datetime, timedelta, timezone
+import re
+import json
 
 from .storage import Storage
 from .utils import now_iso
@@ -30,6 +32,27 @@ CREATE TABLE IF NOT EXISTS pets_image_rights (
     semantic_evidence TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pets_facts (
+    id INTEGER PRIMARY KEY,
+    material_id INTEGER NOT NULL,
+    claim TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    author_or_body TEXT NOT NULL,
+    published_at TEXT,
+    accessed_at TEXT NOT NULL,
+    license TEXT NOT NULL,
+    adaptation_allowed INTEGER NOT NULL,
+    evidence_level TEXT NOT NULL,
+    UNIQUE(material_id, claim, source_url)
+);
+CREATE TABLE IF NOT EXISTS pets_topic_plans (
+    topic_key TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    species TEXT NOT NULL,
+    planned_at TEXT NOT NULL
+);
 """
 
 
@@ -45,6 +68,40 @@ class PetsStorage(Storage):
 
     def topic_seen(self, key):
         return self.db.execute("SELECT material_id,status FROM pets_topic_history WHERE topic_key=?", (key,)).fetchone()
+
+    def similar_topic_seen(self, key):
+        """A small transparent semantic guard: token overlap, never an AI guess."""
+        tokens = {x for x in re.split(r"[^a-zа-яё0-9]+", str(key).lower()) if len(x) > 2}
+        if not tokens:
+            return None
+        rows = self.db.execute("SELECT topic_key,material_id FROM pets_topic_history").fetchall()
+        for row in rows:
+            other = {x for x in re.split(r"[^a-zа-яё0-9]+", row["topic_key"].lower()) if len(x) > 2}
+            if other and len(tokens & other) / max(len(tokens), len(other)) >= .75:
+                return row
+        return None
+
+    def plan_topic(self, topic):
+        self.db.execute(
+            "INSERT OR IGNORE INTO pets_topic_plans(topic_key,category,species,planned_at) VALUES(?,?,?,?)",
+            (topic.key, topic.category, topic.species, now_iso()))
+        self.db.commit()
+
+    def record_facts(self, material_id, facts):
+        for fact in facts:
+            value = fact.serializable()
+            self.db.execute(
+                "INSERT OR IGNORE INTO pets_facts(material_id,claim,source_url,source_name,source_type,author_or_body,"
+                "published_at,accessed_at,license,adaptation_allowed,evidence_level) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (material_id, value["claim"], value["source_url"], value["source_name"], value["source_type"],
+                 value["author_or_body"], value["published_at"], value["accessed_at"], value["license"],
+                 int(bool(value["adaptation_allowed"])), value["evidence_level"]))
+        self.db.commit()
+
+    def facts_for(self, material_id):
+        return [dict(row) for row in self.db.execute(
+            "SELECT claim,source_url,source_name,source_type,author_or_body,published_at,accessed_at,license,"
+            "adaptation_allowed,evidence_level FROM pets_facts WHERE material_id=? ORDER BY id", (material_id,))]
 
     def reserve_topic(self, material_id, key, category, species):
         now = now_iso()

@@ -13,6 +13,16 @@ on:
         required: true
         default: false
         type: boolean
+      use_external_sources:
+        description: "Use official PETS source adapters (still dry-run; requires owner opt-in)"
+        required: true
+        default: false
+        type: boolean
+      use_live_gigachat:
+        description: "Use paid GigaChat only after explicit owner approval (never publishes Telegram)"
+        required: true
+        default: false
+        type: boolean
 
 # Intended future schedule: 12:00 Moscow = 09:00 UTC -> "0 9 * * *".
 # It is intentionally not enabled until the owner approves sources, bot, durable
@@ -65,6 +75,12 @@ jobs:
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
           PETS_DEMO_BRIEFS: ${{ inputs.include_demo_briefs && '1' || '0' }}
+          PETS_EXTERNAL_SOURCES: ${{ inputs.use_external_sources && '1' || '0' }}
+          PETS_GENERATOR_MODE: ${{ inputs.use_live_gigachat && 'gigachat' || 'mock' }}
+          PETS_ALLOW_LIVE_AI: ${{ inputs.use_live_gigachat && '1' || '0' }}
+          # The secret is only usable when the opt-in checkbox above is set;
+          # the job never prints it or writes it to an artifact.
+          GIGACHAT_API_KEY: ${{ inputs.use_live_gigachat && secrets.GIGACHAT_API_KEY || '' }}
           PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
           PETS_STATE_REPOSITORY: ${{ vars.PETS_STATE_REPOSITORY }}
           PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}
@@ -86,5 +102,8 @@ jobs:
           path: |
             runs/pets_preview.md
             runs/pets_media
+            runs/pets_diagnostics.json
+            runs/pets_sources_report.json
+            runs/pets_license_report.json
             jobs/pets/storage.json
           retention-days: 14
