@@ -46,7 +46,7 @@ DEFAULT_BRIEFS = (
 # Production fallback queue. These are original Russian evergreen posts, not
 # rewrites. Their supporting links are for fact checking only. The image
 # records were reviewed independently in the same way as the older demos.
-EVERGREEN_BRIEFS = DEFAULT_BRIEFS + (
+EVERGREEN_BRIEFS = (
     {
         "id": "cat-carrier-home-routine", "title": "Переноска дома: пусть она станет знакомым местом",
         "species": "cat", "category": "adaptation", "topic_key": "cat carrier familiar home place",

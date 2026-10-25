@@ -236,6 +236,13 @@ def test_original_briefs_never_send_even_when_publish_is_requested(st, monkeypat
     assert summary["published"] == 0
 
 
+def test_evergreen_queue_excludes_all_demo_briefs():
+    demo_ids = {brief["id"] for brief in pets_briefs.DEFAULT_BRIEFS}
+    evergreen_ids = {brief["id"] for brief in pets_briefs.EVERGREEN_BRIEFS}
+    assert evergreen_ids
+    assert demo_ids.isdisjoint(evergreen_ids)
+
+
 def test_existing_demo_rows_are_migrated_out_of_automatic_ready(st):
     mid = st.add("draft://pets/old-demo", "curated_original")
     st.update(mid, status="post_ready")
