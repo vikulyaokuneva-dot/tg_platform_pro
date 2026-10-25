@@ -38,6 +38,11 @@ on:
         required: true
         default: false
         type: boolean
+      create_universal_preview:
+        description: "Create PETS 3.3 previews from current editorial factual briefs; never sends Telegram or calls GigaChat"
+        required: true
+        default: false
+        type: boolean
 
 # Intended future schedule: 12:00 Moscow = 09:00 UTC -> "0 9 * * *".
 # It is intentionally not enabled until the owner approves sources, bot, durable
@@ -103,7 +108,7 @@ jobs:
           PETS_STATE_PATH: ${{ vars.PETS_STATE_PATH }}
           PETS_STATE_GITHUB_TOKEN: ${{ github.token }}
       - name: Collect PETS source candidates (no AI, no Telegram)
-        if: ${{ inputs.collect_source_candidates }}
+        if: ${{ inputs.collect_source_candidates || inputs.create_universal_preview }}
         run: python -m jobs.pets.source_candidates
         env:
           PETS_PUBLISH: '0'
@@ -115,6 +120,15 @@ jobs:
           PETS_PUBLISH: '0'
           PETS_32_USE_LIVE_GIGACHAT: '0'
           PETS_32_OWNER_APPROVED: '0'
+      - name: Create PETS 3.3 universal previews (no AI, no Telegram)
+        if: ${{ inputs.create_universal_preview }}
+        run: python -m jobs.pets.universal_preview
+        env:
+          PETS_PUBLISH: '0'
+          PETS_FACTUAL_BRIEFS_PATH: runs/pets_source_candidates.json
+          PETS_33_USE_LIVE_GIGACHAT: '0'
+          PETS_33_OWNER_APPROVED: '0'
+          PETS_33_MAX_GIGACHAT_CALLS: '0'
       - name: Save PETS dry-run state
         if: always()
         uses: actions/cache/save@v4
@@ -141,5 +155,6 @@ jobs:
             runs/pets_post_preview/pets_post_validation.json
             runs/pets_post_preview/pets_post_diagnostics.json
             runs/pets_post_preview/pets_post_photo.jpg
+            runs/pets_universal_preview
             jobs/pets/storage.json
           retention-days: 14

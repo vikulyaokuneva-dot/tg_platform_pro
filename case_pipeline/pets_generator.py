@@ -13,8 +13,10 @@ def factual_brief_prompt(brief):
     def claim_of(item):
         return item.get("claim", "") if isinstance(item, dict) else getattr(item, "claim", "")
     evidence = "\n".join("- %s" % _clean(claim_of(item)) for item in facts)
+    audience = {"cat": "кошек", "dog": "собак", "both": "кошек и собак"}.get(
+        str(brief.get("species") or "").lower(), "домашних питомцев")
     return (
-        "Создай оригинальный русскоязычный Telegram-пост для владельцев кошек. "
+        "Создай оригинальный русскоязычный Telegram-пост для владельцев %(audience)s. "
         "Не переводи и не копируй статью. Используй только перечисленные факты. "
         "Запрещены неподтверждённые цифры, причинные выводы, медицинские рекомендации, "
         "диагнозы, лечение и обещания результата. Обязательно явно укажи, что выводы "
@@ -26,7 +28,7 @@ def factual_brief_prompt(brief):
         "Атрибуция: %(attribution)s\n\n"
         "Проверенные факты:\n%(facts)s\n\n"
         "Верни заголовок, пустую строку и 2–4 коротких абзаца. В конце добавь DOI и ссылку на источник."
-        % {"topic": brief.get("topic", ""), "doi": brief.get("doi", ""),
+        % {"audience": audience, "topic": brief.get("topic", ""), "doi": brief.get("doi", ""),
            "source_url": brief.get("source_url", ""),
            "limitations": "; ".join(brief.get("limitations") or ()),
            "allowed": "; ".join(brief.get("allowed_conclusions") or ()),

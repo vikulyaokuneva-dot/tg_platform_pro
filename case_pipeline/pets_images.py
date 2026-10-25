@@ -41,7 +41,7 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
     query = str((ext or {}).get("image_query") or topic_query(title, text)).strip()
     params = {"action": "query", "format": "json", "generator": "search",
               "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": limit,
-              "prop": "imageinfo|categories", "iiprop": "url|extmetadata", "cllimit": 50}
+              "prop": "imageinfo|categories", "iiprop": "url|extmetadata", "iiurlwidth": 1600, "cllimit": 50}
     try:
         response = session.get(COMMONS_API, params=params, headers=COMMONS_HEADERS, timeout=25)
         if response.status_code != 200:
@@ -77,7 +77,11 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
         author = _plain((meta.get("Artist") or {}).get("value"))
         attribution = _plain((meta.get("Attribution") or {}).get("value")) or author
         licence_url = _plain((meta.get("LicenseUrl") or {}).get("value"))
-        url = info.get("url") or ""
+        # A bounded Commons thumbnail keeps preview artifacts below the image
+        # contract limit; rights and attribution still come from the original
+        # file page returned in ``descriptionurl``.
+        original_url = info.get("url") or ""
+        url = info.get("thumburl") or original_url
         source_url = info.get("descriptionurl") or ""
         page_title = str(page.get("title") or "").lower()
         description = _plain((meta.get("ImageDescription") or {}).get("value"))
@@ -92,7 +96,8 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
                   "license": licence, "license_url": licence_url,
                   "attribution": attribution, "query": query,
                   "topic_match": "+".join(expected_tags), "semantic_tags": tuple(sorted(tags)),
-                  "required_tags": expected_tags, "semantic_evidence": evidence[:1000]}
+                  "required_tags": expected_tags, "semantic_evidence": evidence[:1000],
+                  "original_url": original_url}
         if expected_breed:
             result["breed"] = expected_breed
         ok, _ = validate_image(result, title)
