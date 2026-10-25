@@ -54,6 +54,15 @@ source URL и очень похожий текст блокируют preview. �
 Для preview запрашивается ограниченная thumbnail-версия; данные о правах всегда
 связаны с исходной страницей файла.
 
+PETS 3.3.1 различает два независимых состояния: проверенная ссылка и локально
+прикреплённый файл. Загрузка сначала пробует thumbnail, затем исходный файл.
+Для каждой попытки в JSON сохраняются очищенный URL без query-параметров,
+HTTP-статус, безопасные response headers (`Content-Type`, `Content-Length`,
+`ETag`, `Last-Modified`, `Cache-Control`), MIME и реальный размер байтов.
+Ответы не-`image/*`, меньше 15 KiB или больше 10 MiB отклоняются. Если ни одна
+версия не подходит, фиксируется `image_download_failed`; ссылка не подменяется
+случайной фотографией и preview остаётся `review`.
+
 В `runs/pets_universal_preview/` сохраняются:
 
 - `pets_universal_preview.json` и `pets_universal_preview_diagnostics.json`;

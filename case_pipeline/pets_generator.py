@@ -85,12 +85,13 @@ class GigaChatPetsGenerator:
         if not self.enabled or not self.provider or not getattr(self.provider, "available", False):
             return None
         try:
-            text = _clean(self.provider.complete([{"role": "user", "content": factual_brief_prompt(brief)}]))
+            raw_text = str(self.provider.complete([{"role": "user", "content": factual_brief_prompt(brief)}]) or "")
         except Exception:
             return None
-        if not 700 <= len(text) <= 1600:
+        text = raw_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not 700 <= len(_clean(text)) <= 1600:
             return None
         title, _, body = text.partition("\n")
         if not title.strip() or not body.strip():
             return None
-        return {"title": title.strip()[:140], "text": text, "mode": self.mode}
+        return {"title": title.strip()[:140], "text": "%s\n%s" % (title.strip(), body.strip()), "mode": self.mode}

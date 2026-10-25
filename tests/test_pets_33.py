@@ -4,7 +4,7 @@ import json
 import sqlite3
 
 from case_pipeline import pets_universal_preview as preview
-from case_pipeline.pets_generator import factual_brief_prompt
+from case_pipeline.pets_generator import GigaChatPetsGenerator, factual_brief_prompt
 
 
 def _candidate(doi="10.1000/pets.preview"):
@@ -110,24 +110,92 @@ def test_explicit_mocked_generation_can_become_manual_approval_ready(tmp_path):
     assert manifest["posts"][0]["status"] == "ready_for_manual_approval"
 
 
-def test_photo_download_falls_back_to_original_commons_file(tmp_path, monkeypatch):
+def test_photo_download_falls_back_to_original_commons_file(tmp_path):
     candidate = _candidate()
     candidate["title"] = "Outdoor exploration of domestic cats"
     artifact = _artifact(tmp_path / "briefs.json", [candidate])
     history = _history_db(tmp_path / "history.db")
     image = dict(_image(), original_url="https://upload.wikimedia.org/example/cat-original.jpg")
     calls = []
-    def fetch(url):
-        calls.append(url)
-        if "original" not in url:
-            raise RuntimeError("thumbnail blocked")
-        return b"x" * 20000
-    monkeypatch.setattr(preview.httpclient, "fetch_bytes", fetch)
+    def downloader(value):
+        calls.append(value)
+        return b"x" * 20000, {"status": "attached", "url": image["original_url"], "version": "original",
+                                "mime_type": "image/jpeg", "bytes": 20000, "attempts": []}
     manifest = preview.build_previews(artifact, tmp_path / "out", history_db_path=history,
-                                      image_resolver=lambda *_: image, download_images=True)
+                                      image_resolver=lambda *_: image, image_downloader=downloader, download_images=True)
     payload = json.loads((tmp_path / "out" / manifest["posts"][0]["directory"] / "pets_post_preview.json").read_text(encoding="utf-8"))
-    assert len(calls) == 2 and payload["image_download"]["status"] == "attached"
+    assert len(calls) == 1 and payload["image_download"]["status"] == "attached"
     assert (tmp_path / "out" / manifest["posts"][0]["directory"] / payload["image_download"]["file"]).exists()
+
+
+def test_commons_403_is_saved_as_non_secret_download_diagnostics():
+    class Response:
+        status_code = 403
+        content = b"blocked"
+        headers = {"Content-Type": "text/html", "Content-Length": "7", "Set-Cookie": "must-not-appear"}
+    class Session:
+        def get(self, url, **kwargs):
+            return Response()
+    image = dict(_image(), url="https://thumb.wikimedia.org/photo.jpg?temporary=secret",
+                 original_url="https://upload.wikimedia.org/photo.jpg?temporary=secret")
+    data, diagnostic = preview.pets_images.download_preview_image(image, session=Session())
+    assert data is None and diagnostic["status"] == "image_download_failed"
+    assert [item["http_status"] for item in diagnostic["attempts"]] == [403, 403]
+    assert all(item["bytes"] == 7 for item in diagnostic["attempts"])
+    assert all("temporary" not in item["url"] for item in diagnostic["attempts"])
+    assert "set-cookie" not in diagnostic["attempts"][0]["headers"]
+
+
+def test_failed_image_download_keeps_verified_link_but_blocks_ready_status(tmp_path):
+    candidate = _candidate()
+    candidate["title"] = "Outdoor exploration of domestic cats"
+    artifact = _artifact(tmp_path / "briefs.json", [candidate])
+    history = _history_db(tmp_path / "history.db")
+    class Generator:
+        def generate_factual_brief(self, brief):
+            return {"text": "Наблюдения за кошкой\n\nЭто результат конкретного исследования. %s" % brief["source_url"]}
+    def failed(_image):
+        return None, {"status": "image_download_failed", "reason": "no_accessible_image_version", "attempts": []}
+    manifest = preview.build_previews(artifact, tmp_path / "out", history_db_path=history,
+                                      use_live_gigachat=True, owner_approved=True, generator=Generator(),
+                                      image_resolver=lambda *_: _image(), image_downloader=failed, download_images=True)
+    payload = json.loads((tmp_path / "out" / manifest["posts"][0]["directory"] / "pets_post_preview.json").read_text(encoding="utf-8"))
+    assert payload["image"] and not payload["validation"]["image_local_file"]
+    assert payload["status"] == "review"
+    assert "image:image_download_failed" in payload["review_reasons"]
+
+
+def test_mock_ai_failure_never_promotes_post_to_ready(tmp_path):
+    artifact = _artifact(tmp_path / "briefs.json", [_candidate()])
+    history = _history_db(tmp_path / "history.db")
+    class Generator:
+        def generate_factual_brief(self, brief):
+            return None
+    manifest = preview.build_previews(artifact, tmp_path / "out", history_db_path=history,
+                                      use_live_gigachat=True, owner_approved=True, generator=Generator(),
+                                      image_resolver=lambda *_: _image())
+    assert manifest["posts"][0]["status"] == "review"
+
+
+def test_mock_gigachat_receives_selected_factual_brief_and_returns_checked_preview(tmp_path):
+    candidate = _candidate()
+    candidate["title"] = "Outdoor exploration of domestic cats"
+    artifact = _artifact(tmp_path / "briefs.json", [candidate])
+    history = _history_db(tmp_path / "history.db")
+    class Provider:
+        available = True
+        received = []
+        def complete(self, messages):
+            self.received.extend(messages)
+            return "Заголовок\n\n" + ("Исследование описывает конкретную группу, а не универсальное правило. https://example.org/articles/pets.preview ") * 9
+    provider = Provider()
+    generator = GigaChatPetsGenerator(provider, enabled=True)
+    manifest = preview.build_previews(artifact, tmp_path / "out", history_db_path=history,
+                                      use_live_gigachat=True, owner_approved=True, generator=generator,
+                                      image_resolver=lambda *_: _image())
+    assert manifest["gigachat_calls"] == 1
+    assert manifest["posts"][0]["status"] == "ready_for_manual_approval"
+    assert "10.1000/pets.preview" in provider.received[0]["content"]
 
 
 def test_generation_prompt_uses_the_selected_brief_species_not_a_cat_default(tmp_path):

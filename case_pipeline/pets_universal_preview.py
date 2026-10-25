@@ -14,7 +14,7 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import httpclient, pets_images
+from . import pets_images
 from .pets_facts import Fact, validate_fact_set, validate_generated_text
 from .pets_generator import GigaChatPetsGenerator, factual_brief_prompt
 
@@ -222,6 +222,8 @@ def _markdown(payload):
                   "Автор: %s  " % image["author"], "Лицензия: [%s](%s)  " %
                   (image["license"], image["license_url"]), "Атрибуция: %s  " % image["attribution"],
                   "Страница файла: %s" % image["source_url"], ""]
+        if payload["image_download"].get("status") != "attached":
+            lines += ["Локальный файл не прикреплён; ссылка на изображение не считается вложением.", ""]
     else:
         lines += ["Подходящая фотография не подтверждена; материал остаётся на review.", ""]
     lines += ["## Telegram-предпросмотр", "", "Режим: `%s`; caption: %s символов." %
@@ -236,7 +238,7 @@ def _markdown(payload):
 
 def build_previews(candidates_path, output_dir, *, history_db_path=None, max_previews=3,
                    use_live_gigachat=False, owner_approved=False, max_gigachat_calls=1,
-                   generator=None, image_resolver=None, download_images=False):
+                   generator=None, image_resolver=None, image_downloader=None, download_images=False):
     """Create up to three isolated preview artifacts from real factual briefs."""
     if not 0 <= int(max_gigachat_calls) <= 3:
         raise ValueError("max_gigachat_calls must be in 0..3")
@@ -267,6 +269,17 @@ def build_previews(candidates_path, output_dir, *, history_db_path=None, max_pre
         image_ok, image_reason = pets_images.validate_image(image, title)
         text_ok, text_reason = validate_generated_text("%s\n%s" % (title, body), brief["facts"]) if origin == "gigachat" else (False, "offline_outline_requires_editorial_text")
         duplicate, duplicate_reason = duplicate_check(brief, "%s\n%s" % (title, body), history)
+        post_dir = out / ("%02d_%s" % (index, re.sub(r"[^a-z0-9]+", "-", brief["doi"].lower()).strip("-")))
+        post_dir.mkdir(parents=True, exist_ok=True)
+        image_download = {"status": "not_requested"}
+        if image_ok and download_images:
+            bytes_value, image_download = (image_downloader or pets_images.download_preview_image)(image)
+            if bytes_value:
+                selected_url = image_download.get("url") or image.get("url")
+                suffix = Path(urlparse(selected_url).path).suffix or ".jpg"
+                target = post_dir / ("photo" + suffix)
+                target.write_bytes(bytes_value)
+                image, image_download = dict(image, local_file=target.name), dict(image_download, file=target.name)
         review_reasons = []
         if not facts_ok:
             review_reasons.append("factual_brief:%s" % facts_reason)
@@ -274,32 +287,18 @@ def build_previews(candidates_path, output_dir, *, history_db_path=None, max_pre
             review_reasons.append("text:%s" % text_reason)
         if not image_ok:
             review_reasons.append("image:%s" % image_reason)
+        if download_images and image_download.get("status") != "attached":
+            review_reasons.append("image:%s" % image_download.get("status"))
         if duplicate:
             review_reasons.append("duplicate:%s" % duplicate_reason)
         if history.get("status") != "read_only":
             review_reasons.append("history:%s" % duplicate_reason)
         status = "ready_for_manual_approval" if not review_reasons else "review"
-        post_dir = out / ("%02d_%s" % (index, re.sub(r"[^a-z0-9]+", "-", brief["doi"].lower()).strip("-")))
-        post_dir.mkdir(parents=True, exist_ok=True)
-        image_download = {"status": "not_requested"}
-        if image_ok and download_images:
-            failures = []
-            download_urls = tuple(dict.fromkeys(url for url in (image.get("url"), image.get("original_url")) if url))
-            for download_url in download_urls:
-                try:
-                    suffix = Path(urlparse(download_url).path).suffix or ".jpg"
-                    target = post_dir / ("photo" + suffix)
-                    target.write_bytes(httpclient.fetch_bytes(download_url))
-                    image, image_download = dict(image, local_file=target.name), {
-                        "status": "attached", "file": target.name, "download_url": download_url}
-                    break
-                except Exception as exc:
-                    failures.append("%s:%s" % (type(exc).__name__, str(exc)[:180]))
-            else:
-                image_download = {"status": "not_attached", "reasons": failures}
         validation = {"factual_brief_ok": facts_ok, "factual_brief_reason": facts_reason,
                       "text_ok": text_ok, "text_reason": text_reason, "image_ok": image_ok,
-                      "image_reason": image_reason, "duplicate": duplicate, "duplicate_reason": duplicate_reason,
+                      "image_reason": image_reason, "image_download_status": image_download.get("status"),
+                      "image_local_file": bool(image and image.get("local_file")),
+                      "duplicate": duplicate, "duplicate_reason": duplicate_reason,
                       "manual_review_required": True, "history_mode": history.get("status")}
         payload = {"status": status, "title": title.strip(), "body": body.strip(),
                    "factual_brief": _serializable_brief(brief), "text_origin": origin,

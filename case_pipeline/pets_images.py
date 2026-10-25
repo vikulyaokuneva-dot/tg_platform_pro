@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Fail-closed rights contract and Wikimedia Commons resolver for PETS."""
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -10,6 +11,9 @@ from .editorial_profiles import _breed_from
 _OPEN_LICENSES = {"CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "Public-Domain"}
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 COMMONS_HEADERS = {"User-Agent": "TelegramPlatformPETS/1.0 (owner-managed educational drafts)"}
+IMAGE_MIN_BYTES = 15 * 1024
+IMAGE_MAX_BYTES = 10 * 1024 * 1024
+_DIAGNOSTIC_HEADERS = ("content-type", "content-length", "etag", "last-modified", "cache-control")
 
 
 def topic_query(title, text=""):
@@ -126,3 +130,59 @@ def validate_image(image, title=""):
     if expected and actual != expected:
         return False, "breed image cannot be verified"
     return True, ""
+
+
+def _safe_url(url):
+    """Keep origin/path for diagnostics, never query parameters or credentials."""
+    try:
+        parts = urlsplit(str(url or ""))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    except ValueError:
+        return ""
+
+
+def _safe_headers(headers):
+    lowered = {str(key).lower(): str(value) for key, value in (headers or {}).items()}
+    return {key: lowered[key] for key in _DIAGNOSTIC_HEADERS if key in lowered}
+
+
+def download_preview_image(image, session=requests, timeout=25):
+    """Download a verified Commons image with full non-secret diagnostics.
+
+    A licence-valid URL is deliberately not treated as a local attachment.  The
+    returned bytes are separate from the diagnostic result so callers control
+    filesystem writes. Every unsuitable response is fail-closed.
+    """
+    if not isinstance(image, dict):
+        return None, {"status": "image_download_failed", "reason": "image_metadata_missing", "attempts": []}
+    alternatives = (("thumbnail", image.get("url")), ("original", image.get("original_url")))
+    attempts, seen = [], set()
+    for version, raw_url in alternatives:
+        url = str(raw_url or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        attempt = {"version": version, "url": _safe_url(url)}
+        try:
+            response = session.get(url, headers=COMMONS_HEADERS, timeout=timeout, allow_redirects=True)
+            data = response.content or b""
+            content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            attempt.update({"http_status": int(response.status_code), "headers": _safe_headers(response.headers),
+                            "mime_type": content_type, "bytes": len(data)})
+            if response.status_code != 200:
+                attempt["reason"] = "http_status_%s" % response.status_code
+            elif not content_type.startswith("image/"):
+                attempt["reason"] = "mime_not_image"
+            elif len(data) < IMAGE_MIN_BYTES:
+                attempt["reason"] = "file_too_small"
+            elif len(data) > IMAGE_MAX_BYTES:
+                attempt["reason"] = "file_too_large"
+            else:
+                attempt["reason"] = "accepted"
+                attempts.append(attempt)
+                return data, {"status": "attached", "version": version, "url": _safe_url(url),
+                              "mime_type": content_type, "bytes": len(data), "attempts": attempts}
+        except Exception as exc:
+            attempt.update({"request_error": type(exc).__name__, "reason": "request_failed"})
+        attempts.append(attempt)
+    return None, {"status": "image_download_failed", "reason": "no_accessible_image_version", "attempts": attempts}
