@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import ai as ai_mod
 from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor
-from . import pets_images, pets_storage, telegram, utils
+from . import pets_briefs, pets_images, pets_storage, telegram, utils
 from .pets_facts import validate_fact_set, validate_generated_text
 from .pets_generator import MockPetsGenerator
 from .pets_planner import Topic, choose_topics
@@ -277,6 +277,10 @@ def process_original_brief(st, brief):
 
 def process_evergreen_brief(st, brief, *, publish=False, dry_run=True, checkpoint=None):
     """Prepare or publish one vetted fallback item, never a demo row."""
+    approved_ids = {item["id"] for item in pets_briefs.EVERGREEN_BRIEFS}
+    if str((brief or {}).get("id") or "") not in approved_ids:
+        return {"source": "curated_original", "status": "rejected",
+                "reason": "evergreen_not_allowlisted"}
     prepared = process_original_brief(st, brief)
     url = prepared.get("url", "")
     if prepared.get("status") not in {"demo_ready", "skipped"}:

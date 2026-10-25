@@ -104,7 +104,9 @@ def run(ctx):
     if state_error:
         ctx.log("pets durable state unavailable; real publication blocked")
     st = PetsStorage(config.PETS_DB_PATH)
-    migrated_demos = st.migrate_demo_materials()
+    allowed_evergreen_urls = tuple("draft://pets/%s" % brief["id"]
+                                   for brief in pets_briefs.EVERGREEN_BRIEFS)
+    migrated_demos = st.migrate_demo_materials(allowed_evergreen_urls)
 
     def checkpoint(phase):
         if backend is None:
@@ -138,7 +140,7 @@ def run(ctx):
                       "source_report": {source: {"status": "disabled_pending_owner_opt_in"}
                                         for source in config.PETS_OFFICIAL_SOURCES}}
     summary["autonomous"] = autonomous
-    summary["migrated_demo_materials"] = migrated_demos
+    summary["migrated_unapproved_curated_materials"] = migrated_demos
     if backend and not state_error:
         try:
             checkpoint("dry-run" if dry else "completed")

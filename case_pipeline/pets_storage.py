@@ -245,11 +245,22 @@ class PetsStorage(Storage):
              image.get("semantic_evidence", ""), now_iso()))
         self.db.commit()
 
-    def migrate_demo_materials(self):
-        """Label old seed records so they cannot be mistaken for source pipeline output."""
-        cur = self.db.execute(
-            "UPDATE materials SET status='demo_ready', reason='pets_expert:demo_manual_review', "
-            "updated_at=? WHERE source='curated_original' AND status='post_ready'", (now_iso(),))
+    def migrate_demo_materials(self, allowed_evergreen_urls=()):
+        """Quarantine old curated drafts outside the explicit automatic allowlist.
+
+        A historical ``curated_original`` row is never sufficient authority for
+        automatic delivery. Published history is intentionally preserved.
+        """
+        allowed = tuple(str(url) for url in (allowed_evergreen_urls or ()) if url)
+        query = (
+            "UPDATE materials SET status='demo_ready', reason='pets_expert:not_in_evergreen_allowlist', "
+            "updated_at=? WHERE source='curated_original' AND status='post_ready'"
+        )
+        params = [now_iso()]
+        if allowed:
+            query += " AND url NOT IN (%s)" % ",".join("?" for _ in allowed)
+            params.extend(allowed)
+        cur = self.db.execute(query, tuple(params))
         self.db.commit()
         return cur.rowcount
 

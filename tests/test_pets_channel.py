@@ -243,6 +243,29 @@ def test_evergreen_queue_excludes_all_demo_briefs():
     assert demo_ids.isdisjoint(evergreen_ids)
 
 
+def test_existing_state_quarantines_only_curated_rows_outside_evergreen_allowlist(st):
+    demo_url = "draft://pets/" + pets_briefs.DEFAULT_BRIEFS[1]["id"]
+    allowed_url = "draft://pets/" + pets_briefs.EVERGREEN_BRIEFS[0]["id"]
+    published_url = "draft://pets/" + pets_briefs.DEFAULT_BRIEFS[0]["id"]
+    demo_id = st.add(demo_url, "curated_original")
+    allowed_id = st.add(allowed_url, "curated_original")
+    published_id = st.add(published_url, "curated_original")
+    st.update(demo_id, status="post_ready")
+    st.update(allowed_id, status="post_ready")
+    st.update(published_id, status="published")
+    assert st.migrate_demo_materials((allowed_url,)) == 1
+    assert st.get(demo_id)["status"] == "demo_ready"
+    assert st.get(allowed_id)["status"] == "post_ready"
+    assert st.get(published_id)["status"] == "published"
+
+
+def test_demo_brief_is_rejected_by_automatic_evergreen_path(st, monkeypatch):
+    monkeypatch.setattr(telegram, "publish_post", lambda *a, **kw: pytest.fail("demo must not send"))
+    result = pets.process_evergreen_brief(st, pets_briefs.DEFAULT_BRIEFS[0], publish=True, dry_run=False)
+    assert result == {"source": "curated_original", "status": "rejected",
+                      "reason": "evergreen_not_allowlisted"}
+
+
 def test_existing_demo_rows_are_migrated_out_of_automatic_ready(st):
     mid = st.add("draft://pets/old-demo", "curated_original")
     st.update(mid, status="post_ready")
