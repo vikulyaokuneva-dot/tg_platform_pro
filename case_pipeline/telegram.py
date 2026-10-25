@@ -342,3 +342,49 @@ def get_me(dry_run=False, channel="ai"):
         return {"error": "HTTP %s: %s" % (r.status_code, str(data.get("description", ""))[:120])}
     except Exception as e:
         return {"error": "%s" % type(e).__name__}
+
+
+def pets_channel_preflight():
+    """Verify PETS credentials and posting rights without sending a message.
+
+    The returned diagnostic deliberately omits the bot token and chat id.  It
+    is safe to place in a private Actions artifact, but not in public logs.
+    """
+    token, chat_id = credentials("pets")
+    result = {"ok": False, "credentials_configured": bool(token and chat_id)}
+    if not token or not chat_id:
+        result["reason"] = "pets_credentials_missing"
+        return result
+
+    def call(method, params=None):
+        try:
+            response = requests.get(API % (token, method), params=params or {}, timeout=20)
+            data = response.json() if response.content else {}
+        except Exception as exc:
+            return None, "transport_%s" % type(exc).__name__
+        if not data.get("ok"):
+            return None, "telegram_%s" % response.status_code
+        return data.get("result") or {}, None
+
+    bot, error = call("getMe")
+    if error:
+        result["reason"] = error
+        return result
+    chat, error = call("getChat", {"chat_id": chat_id})
+    if error:
+        result["reason"] = error
+        return result
+    membership, error = call("getChatMember", {"chat_id": chat_id, "user_id": bot.get("id")})
+    if error:
+        result["reason"] = error
+        return result
+    status = membership.get("status")
+    result.update({"bot_username": bot.get("username"), "chat_type": chat.get("type"),
+                   "membership": status})
+    if chat.get("type") != "channel":
+        result["reason"] = "pets_target_is_not_channel"
+    elif status not in {"administrator", "creator"}:
+        result["reason"] = "pets_bot_not_channel_administrator"
+    else:
+        result["ok"] = True
+    return result

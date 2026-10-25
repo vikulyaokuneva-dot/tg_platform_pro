@@ -1,8 +1,21 @@
-name: PETS channel (manual dry-run)
+name: PETS channel
 
 on:
+  schedule:
+    # 12:00 Moscow (UTC+3). GitHub evaluates schedules in UTC.
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
+      preflight_only:
+        description: "Verify PETS bot/channel rights and durable state without preparing or sending a post"
+        required: true
+        default: false
+        type: boolean
+      prepare_evergreen_queue:
+        description: "Prepare the approved evergreen queue; controlled publish sends at most one item"
+        required: true
+        default: false
+        type: boolean
       include_demo_briefs:
         description: "Prepare the three bundled demonstration drafts (never sends Telegram)"
         required: true
@@ -76,12 +89,12 @@ jobs:
           key: pets-state-${{ github.run_id }}
           restore-keys: pets-state-
       - run: pip install -r requirements.txt
-      - name: Run PETS in forced dry-run mode
+      - name: Run PETS safely
         run: python -m jobs.pets.run
         env:
           # This checkbox is only one of three gates: it also needs the
           # repository variable PETS_PUBLISH=1 and a durable state backend.
-          DRY_RUN: ${{ inputs.controlled_publish && '0' || '1' }}
+          DRY_RUN: ${{ (github.event_name == 'schedule' || inputs.controlled_publish) && '0' || '1' }}
           # A repository variable remains 0 until the owner has completed the
           # controlled-release checklist. DRY_RUN above is an independent gate.
           PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
@@ -95,6 +108,9 @@ jobs:
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
           PETS_DEMO_BRIEFS: ${{ inputs.include_demo_briefs && '1' || '0' }}
+          PETS_EVERGREEN_QUEUE: ${{ github.event_name == 'schedule' && '1' || (inputs.prepare_evergreen_queue && '1' || '0') }}
+          PETS_PREFLIGHT_ONLY: ${{ inputs.preflight_only && '1' || '0' }}
+          PETS_TELEGRAM_PREFLIGHT: ${{ (github.event_name == 'schedule' || inputs.controlled_publish || inputs.preflight_only) && '1' || '0' }}
           PETS_EXTERNAL_SOURCES: ${{ inputs.use_external_sources && '1' || '0' }}
           PETS_GENERATOR_MODE: ${{ inputs.use_live_gigachat && 'gigachat' || 'mock' }}
           PETS_ALLOW_LIVE_AI: ${{ inputs.use_live_gigachat && '1' || '0' }}

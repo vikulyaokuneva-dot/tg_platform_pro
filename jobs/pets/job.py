@@ -4,7 +4,7 @@ import os
 import json
 from pathlib import Path
 
-from case_pipeline import ai, config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state
+from case_pipeline import ai, config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state, telegram
 from case_pipeline.pets_generator import GigaChatPetsGenerator, MockPetsGenerator
 from case_pipeline.pets_storage import PetsStorage
 
@@ -80,6 +80,19 @@ def run(ctx):
             restored = backend.restore(config.PETS_DB_PATH)
         except pets_durable_state.DurableStateError as exc:
             state_error = str(exc)
+    preflight = None
+    if config.PETS_TELEGRAM_PREFLIGHT or config.PETS_PREFLIGHT_ONLY:
+        preflight = telegram.pets_channel_preflight()
+        if not preflight.get("ok"):
+            state_error = state_error or "telegram preflight failed: %s" % preflight.get("reason", "unknown")
+    if config.PETS_PREFLIGHT_ONLY:
+        ctx.log("pets preflight completed (ok=%s)" % bool(preflight and preflight.get("ok")))
+        _write_json(os.path.join(config.RUNS_DIR, "pets_diagnostics.json"),
+                    {"preflight": preflight, "state_restore": restored, "state_error": state_error})
+        ctx.storage["pets_preflight"] = preflight
+        ctx.storage["state_restore"] = restored
+        ctx.save()
+        return
     # A requested real run fail-closes to dry-run when durable state cannot be
     # restored. No Telegram request occurs in that state.
     dry = ctx.dry_run or not config.PETS_PUBLISH or bool(state_error) or \
@@ -146,7 +159,7 @@ def run(ctx):
     image_checks = _download_preview_images(st, media_dir=media_path, include_demo=config.PETS_DEMO_BRIEFS)
     _write_preview(st, path=preview_path, include_demo=config.PETS_DEMO_BRIEFS)
     summary["artifact_images"] = {str(mid): status for mid, status in image_checks}
-    _write_json(diagnostics_path, {"summary": summary, "state_restore": state,
+    _write_json(diagnostics_path, {"summary": summary, "state_restore": state, "preflight": preflight,
                                    "demo_enabled": config.PETS_DEMO_BRIEFS,
                                    "external_sources_enabled": config.PETS_EXTERNAL_SOURCES})
     _write_json(sources_path, autonomous.get("source_report", {}))

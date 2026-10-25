@@ -301,18 +301,32 @@ def process_evergreen_brief(st, brief, *, publish=False, dry_run=True, checkpoin
     try:
         if checkpoint:
             checkpoint("claimed")
-        sent = telegram.publish_post(row.get("post_text") or "", dry_run=False, channel="pets", image=photo)
-        if not sent.ok:
-            st.release_claim(row["id"], "review", "telegram_delivery_uncertain")
-            return dict(prepared, status="review", reason="telegram_delivery_uncertain")
-        st.mark_pets_published(row["id"], sent.message_id, case_model.case_id_for(url, row.get("post_text", "")[:2000]))
-        st.publish_topic(row["id"])
+    except Exception:
+        st.release_claim(row["id"], "review", "durable_state_checkpoint_failed_before_send")
+        return dict(prepared, status="review", reason="durable_state_checkpoint_failed_before_send")
+    try:
+        sent = telegram.publish_post(row.get("post_text") or "", dry_run=False,
+                                      channel="pets", image=photo)
+    except Exception:
+        st.release_claim(row["id"], "review", "telegram_delivery_uncertain")
+        return dict(prepared, status="review", reason="telegram_delivery_uncertain")
+    if not sent.ok:
+        st.release_claim(row["id"], "review", "telegram_delivery_uncertain")
+        return dict(prepared, status="review", reason="telegram_delivery_uncertain")
+
+    # The message now exists remotely.  Never release this claim back into an
+    # automatic queue: a post-send persistence failure must block retries,
+    # not create a duplicate publication.
+    st.mark_pets_published(row["id"], sent.message_id,
+                           case_model.case_id_for(url, row.get("post_text", "")[:2000]))
+    st.publish_topic(row["id"])
+    try:
         if checkpoint:
             checkpoint("published")
-        return dict(prepared, status="published", telegram_message_id=sent.message_id)
     except Exception:
-        st.release_claim(row["id"], "review", "durable_state_checkpoint_failed")
-        return dict(prepared, status="review", reason="durable_state_checkpoint_failed")
+        return dict(prepared, status="published", telegram_message_id=sent.message_id,
+                    durable_state="checkpoint_failed_after_send")
+    return dict(prepared, status="published", telegram_message_id=sent.message_id)
 
 
 def process_fact_material(st, topic, facts, source_id, generator=None, image_resolver=None):

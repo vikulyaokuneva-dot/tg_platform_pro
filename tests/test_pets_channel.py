@@ -120,6 +120,56 @@ def test_pets_reuses_shared_bot_with_own_chat(monkeypatch):
     assert telegram.credentials("agro") == ("shared-token", "-100agro")
 
 
+def test_pets_preflight_requires_an_administrator_without_exposing_credentials(monkeypatch):
+    monkeypatch.setattr(config, "BOT_TOKEN", "shared-token")
+    monkeypatch.setattr(config, "PETS_CHAT_ID", "-100pets")
+
+    class Response:
+        content = b"{}"
+        status_code = 200
+        def __init__(self, payload):
+            self.payload = payload
+        def json(self):
+            return self.payload
+
+    responses = iter((
+        {"ok": True, "result": {"id": 77, "username": "manager_bot"}},
+        {"ok": True, "result": {"type": "channel"}},
+        {"ok": True, "result": {"status": "administrator"}},
+    ))
+    monkeypatch.setattr(telegram.requests, "get", lambda *args, **kwargs: Response(next(responses)))
+    result = telegram.pets_channel_preflight()
+    assert result == {"ok": True, "credentials_configured": True,
+                      "bot_username": "manager_bot", "chat_type": "channel",
+                      "membership": "administrator"}
+    assert "shared-token" not in repr(result)
+    assert "-100pets" not in repr(result)
+
+
+def test_evergreen_publish_records_one_delivery_and_never_retries_after_checkpoint_failure(st, monkeypatch):
+    brief = pets_briefs.EVERGREEN_BRIEFS[0]
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", True)
+    monkeypatch.setattr(config, "PETS_STATE_BACKEND", "github")
+    monkeypatch.setattr(config, "PETS_PUBLISH", True)
+    monkeypatch.setattr(pets.httpclient, "fetch_bytes", lambda _url: b"image")
+    sent = []
+    monkeypatch.setattr(telegram, "publish_post", lambda *args, **kwargs: sent.append(1) or telegram.PublishResult(True, message_id=501))
+    phases = []
+    def checkpoint(phase):
+        phases.append(phase)
+        if phase == "published":
+            raise RuntimeError("state unavailable after send")
+    first = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False, checkpoint=checkpoint)
+    assert first["status"] == "published"
+    assert first["telegram_message_id"] == 501
+    assert first["durable_state"] == "checkpoint_failed_after_send"
+    assert sent == [1]
+    assert st.seen_url("draft://pets/" + brief["id"])["status"] == "published"
+    second = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False, checkpoint=checkpoint)
+    assert second["status"] == "skipped"
+    assert sent == [1]
+
+
 def test_all_ten_sources_are_registry_candidates_not_default_enabled():
     assert len(pets_sources.SOURCE_CANDIDATES) == 10
     assert config.PETS_SOURCES == []
