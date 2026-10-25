@@ -275,6 +275,46 @@ def process_original_brief(st, brief):
     return dict(out, status="demo_ready", category=brief["category"], species=brief["species"])
 
 
+def process_evergreen_brief(st, brief, *, publish=False, dry_run=True, checkpoint=None):
+    """Prepare or publish one vetted fallback item, never a demo row."""
+    prepared = process_original_brief(st, brief)
+    url = prepared.get("url", "")
+    if prepared.get("status") not in {"demo_ready", "skipped"}:
+        return prepared
+    row = st.seen_url(url) or {}
+    if row.get("status") == "published":
+        return dict(prepared, status="skipped", reason="already published")
+    if row.get("status") == "demo_ready":
+        st.update(row["id"], status="post_ready", reason="pets_evergreen:verified_original")
+        row = st.get(row["id"]) or row
+    if not (publish and not dry_run):
+        return dict(prepared, status="post_ready", material_id=row.get("id"))
+    if config.PETS_REQUIRE_DURABLE_STATE and config.PETS_STATE_BACKEND != "github":
+        return dict(prepared, status="review", reason="durable_state_required")
+    try:
+        photo = httpclient.fetch_bytes(row.get("image_url") or "")
+    except Exception:
+        st.update(row["id"], status="review", reason="image_download_failed")
+        return dict(prepared, status="review", reason="image_download_failed")
+    if not st.claim_for_publish(row["id"]):
+        return dict(prepared, status="review", reason="publish_claim_lost")
+    try:
+        if checkpoint:
+            checkpoint("claimed")
+        sent = telegram.publish_post(row.get("post_text") or "", dry_run=False, channel="pets", image=photo)
+        if not sent.ok:
+            st.release_claim(row["id"], "review", "telegram_delivery_uncertain")
+            return dict(prepared, status="review", reason="telegram_delivery_uncertain")
+        st.mark_pets_published(row["id"], sent.message_id, case_model.case_id_for(url, row.get("post_text", "")[:2000]))
+        st.publish_topic(row["id"])
+        if checkpoint:
+            checkpoint("published")
+        return dict(prepared, status="published", telegram_message_id=sent.message_id)
+    except Exception:
+        st.release_claim(row["id"], "review", "durable_state_checkpoint_failed")
+        return dict(prepared, status="review", reason="durable_state_checkpoint_failed")
+
+
 def process_fact_material(st, topic, facts, source_id, generator=None, image_resolver=None):
     """Prepare one external-source draft, with no Telegram side effect.
 
@@ -372,7 +412,7 @@ def run_autonomous_dry_run(st, adapters, generator=None, image_resolver=None, li
 
 
 def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
-        image_resolver=None, provider=None, checkpoint=None, briefs=()):
+        image_resolver=None, provider=None, checkpoint=None, briefs=(), evergreen_briefs=()):
     st = st or pets_storage.PetsStorage(config.PETS_DB_PATH)
     st.quarantine_stale_claims()
     source_ids = sources if sources is not None else config.PETS_SOURCES
@@ -385,6 +425,15 @@ def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
                "dry_run": dry_run or not allow_publish, "sources": list(source_ids),
                "reason_counts": {}, "ready_material_ids": [], "demo_ready": 0}
     published = 0
+    for brief in evergreen_briefs or ():
+        result = process_evergreen_brief(st, brief, publish=allow_publish and published < config.PETS_PUBLISH_LIMIT,
+                                         dry_run=dry_run, checkpoint=checkpoint)
+        summary["checked"] += 1
+        status = result.get("status", "skipped")
+        if status in summary:
+            summary[status] += 1
+        if status == "published":
+            published += 1
     for brief in briefs or ():
         result = process_original_brief(st, brief)
         summary["checked"] += 1

@@ -168,6 +168,9 @@ PETS_REQUIRE_DURABLE_STATE = env("PETS_REQUIRE_DURABLE_STATE", "1") == "1"
 PETS_AI_ENABLED = env("PETS_AI_ENABLED", "0") == "1"
 PETS_IMAGE_PROVIDER = env("PETS_IMAGE_PROVIDER", "wikimedia").strip().lower()
 PETS_DEMO_BRIEFS = env("PETS_DEMO_BRIEFS", "0") == "1"
+# Curated original Russian evergreen queue.  It has no dependency on a paid
+# model and is the only PETS content path permitted to publish automatically.
+PETS_EVERGREEN_QUEUE = env("PETS_EVERGREEN_QUEUE", "0") == "1"
 # PETS 3.1 external sources and paid/editorial AI are independent, explicit
 # gates.  They are disabled in every default local and GitHub Actions run.
 PETS_EXTERNAL_SOURCES = env("PETS_EXTERNAL_SOURCES", "0") == "1"

@@ -42,3 +42,41 @@ DEFAULT_BRIEFS = (
         "image": {"url": "https://upload.wikimedia.org/wikipedia/commons/7/73/CatInBox.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original", "author": "EeviLyN", "source_url": "https://commons.wikimedia.org/wiki/File:CatInBox.jpg", "license": "CC-BY-SA-4.0", "license_url": "https://creativecommons.org/licenses/by-sa/4.0", "attribution": "EeviLyN / CC BY-SA 4.0", "query": "kitten domestic safe corner", "topic_match": "species+kitten+domestic_shelter", "semantic_tags": ("cat", "kitten", "domestic_shelter", "box"), "required_tags": ("cat", "kitten", "domestic_shelter"), "semantic_evidence": "Commons caption: a ~6-month-old kitten inside a wooden box; own-work file by its owner, reviewed 2026-10-22."},
     },
 )
+
+# Production fallback queue. These are original Russian evergreen posts, not
+# rewrites. Their supporting links are for fact checking only. The image
+# records were reviewed independently in the same way as the older demos.
+EVERGREEN_BRIEFS = DEFAULT_BRIEFS + (
+    {
+        "id": "cat-carrier-home-routine", "title": "Переноска дома: пусть она станет знакомым местом",
+        "species": "cat", "category": "adaptation", "topic_key": "cat carrier familiar home place",
+        "body": "Переноска не обязана появляться только перед поездкой. Если она стоит дома открытой, с мягкой подстилкой и без попыток сразу закрыть дверцу, кошка может знакомиться с ней в своём темпе.\n\nНе нужно заманивать питомца силой или вытаскивать из переноски ради тренировки. Спокойное присутствие предмета в обычной домашней среде помогает сделать будущую поездку менее неожиданной.",
+        "fact_sources": ("https://www.merckvetmanual.com/cat-owners/behavior-of-cats/behavior-problems-of-cats",),
+        "practical_steps": ("Поставьте переноску в тихом месте с открытой дверцей.", "Добавьте знакомую подстилку.", "Оставьте кошке право самой войти и выйти."),
+        "image": DEFAULT_BRIEFS[2]["image"],
+    },
+    {
+        "id": "dog-short-training-routine", "title": "Короткая тренировка: как закончить на хорошем моменте",
+        "species": "dog", "category": "training", "topic_key": "dog short reward training routine",
+        "body": "Домашнее занятие проще сделать понятным, если выбрать один навык и не торопиться добавлять новые условия. Отметьте нужное действие сразу, а затем сделайте паузу — собаке легче связать свой выбор с поощрением.\n\nЗаканчивать стоит до того, как внимание рассеялось. Так следующий подход не превращается в обязанность: знакомая команда остаётся ясной, а совместная работа — спокойной.",
+        "fact_sources": ("https://www.merckvetmanual.com/dog-owners/behavior-of-dogs/behavior-modification-in-dogs",),
+        "practical_steps": ("Выберите одну знакомую команду.", "Поощрите нужное действие без задержки.", "Сделайте паузу, пока собаке ещё интересно."),
+        "image": DEFAULT_BRIEFS[1]["image"],
+    },
+    {
+        "id": "cat-safe-window-routine", "title": "Окно и кошка: спокойный домашний чек-лист",
+        "species": "cat", "category": "safety", "topic_key": "cat safe window home checklist",
+        "body": "Кошкам интересно наблюдать за улицей, поэтому место у окна часто становится частью домашнего маршрута. Полезно заранее проверить, устойчиво ли стоит лежанка и нет ли рядом предметов, которые легко уронить во время прыжка.\n\nЕсли открываете окно, не полагайтесь на привычку питомца. Лучше заранее выбрать безопасный способ проветривания и не оставлять доступ к открытому окну без контроля.",
+        "fact_sources": ("https://www.merckvetmanual.com/cat-owners/selecting-and-providing-a-home-for-a-cat/providing-a-home-for-a-cat",),
+        "practical_steps": ("Проверьте устойчивость лежанки у окна.", "Уберите хрупкие предметы с маршрута прыжка.", "Выберите безопасный режим проветривания."),
+        "image": DEFAULT_BRIEFS[0]["image"],
+    },
+    {
+        "id": "dog-rest-after-walk", "title": "После прогулки: дайте собаке спокойно переключиться на отдых",
+        "species": "dog", "category": "activity", "topic_key": "dog rest routine after walk",
+        "body": "После улицы собаке может понадобиться несколько спокойных минут, прежде чем она переключится на домашние дела. Вода, привычное место для отдыха и отсутствие новых команд сразу у двери помогают сделать возвращение понятным.\n\nНаблюдайте за обычным ритмом конкретной собаки: одной хочется полежать, другой — сначала спокойно походить по комнате. Универсального сценария нет, зато предсказуемая последовательность действий понятна большинству питомцев.",
+        "fact_sources": ("https://www.merckvetmanual.com/dog-owners/behavior-of-dogs/overview-of-behavior-of-dogs",),
+        "practical_steps": ("Поставьте свежую воду.", "Не начинайте новую тренировку прямо у двери.", "Дайте собаке выбрать привычное место для отдыха."),
+        "image": DEFAULT_BRIEFS[1]["image"],
+    },
+)

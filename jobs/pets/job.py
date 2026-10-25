@@ -102,7 +102,8 @@ def run(ctx):
                        publish=os.getenv("PETS_PUBLISH", "0") == "1" and not dry,
                        st=st, adapters=pets_sources.adapters_for(config.PETS_SOURCES),
                        checkpoint=checkpoint if backend and not state_error else None,
-                       briefs=pets_briefs.DEFAULT_BRIEFS if config.PETS_DEMO_BRIEFS else ())
+                       briefs=pets_briefs.DEFAULT_BRIEFS if config.PETS_DEMO_BRIEFS else (),
+                       evergreen_briefs=pets_briefs.EVERGREEN_BRIEFS if config.PETS_EVERGREEN_QUEUE else ())
     if config.PETS_EXTERNAL_SOURCES:
         if config.PETS_GENERATOR_MODE == "gigachat":
             cap = config.PETS_MAX_GIGACHAT_GENERATIONS
