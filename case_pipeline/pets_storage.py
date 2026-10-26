@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS pets_source_candidate_history (
     reason_category TEXT NOT NULL,
     checked_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pets_publication_queue (
+    material_id INTEGER NOT NULL UNIQUE,
+    queue_status TEXT NOT NULL CHECK(queue_status IN ('ready', 'claimed', 'published', 'review', 'rejected')),
+    origin TEXT NOT NULL,
+    queued_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -263,6 +271,42 @@ class PetsStorage(Storage):
         cur = self.db.execute(query, tuple(params))
         self.db.commit()
         return cur.rowcount
+
+    def enqueue_verified_material(self, material_id, origin="verified_factual"):
+        """Make a fully checked factual draft eligible for the PETS queue.
+
+        This is an explicit, database-backed production gate.  It is never
+        inferred from a fixture or from the legacy curated/demo source.
+        """
+        row = self.get(material_id) or {}
+        if row.get("status") != "post_ready" or row.get("source") == "curated_original":
+            return False
+        now = now_iso()
+        self.db.execute(
+            "INSERT OR IGNORE INTO pets_publication_queue(material_id,queue_status,origin,queued_at,updated_at,reason) "
+            "VALUES(?, 'ready', ?, ?, ?, '')", (material_id, origin, now, now))
+        self.db.commit()
+        return bool(self.db.execute(
+            "SELECT 1 FROM pets_publication_queue WHERE material_id=? AND queue_status='ready'", (material_id,)).fetchone())
+
+    def queued_materials(self, limit=10):
+        return [dict(row) for row in self.db.execute(
+            "SELECT m.*,q.queue_status,q.origin,q.queued_at,q.reason AS queue_reason "
+            "FROM pets_publication_queue q JOIN materials m ON m.id=q.material_id "
+            "WHERE q.queue_status='ready' AND m.status='post_ready' AND m.source!='curated_original' "
+            "ORDER BY q.queued_at,m.id LIMIT ?", (int(limit),))]
+
+    def queued_count(self):
+        return int(self.db.execute(
+            "SELECT COUNT(*) AS count FROM pets_publication_queue q JOIN materials m ON m.id=q.material_id "
+            "WHERE q.queue_status='ready' AND m.status='post_ready' AND m.source!='curated_original'").fetchone()["count"])
+
+    def queue_mark(self, material_id, status, reason=""):
+        if status not in {"ready", "claimed", "published", "review", "rejected"}:
+            raise ValueError("invalid PETS queue status")
+        self.db.execute("UPDATE pets_publication_queue SET queue_status=?,reason=?,updated_at=? WHERE material_id=?",
+                        (status, reason, now_iso(), material_id))
+        self.db.commit()
 
     def diversity_allows(self, category, species):
         rows = self.db.execute(

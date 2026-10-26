@@ -499,6 +499,22 @@ class FdaCvmSafetyAdapter:
         return result
 
 
+AUTOMATIC_CANDIDATE_ADAPTERS = {
+    "pmc_oa": PmcOpenAccessAdapter,
+    "frontiers_vet": FrontiersVeterinaryPmcAdapter,
+    # FDA is collected for a visible safety/review lane only.  Its candidate
+    # carries ``editorial_status=needs_editorial_review`` and can never fill
+    # the automatic queue.
+    "fda_cvm": FdaCvmSafetyAdapter,
+}
+
+
+def candidate_adapters_for(source_ids):
+    """Return only explicitly supported evidence connectors (fail closed)."""
+    return {source_id: AUTOMATIC_CANDIDATE_ADAPTERS[source_id]()
+            for source_id in (source_ids or ()) if source_id in AUTOMATIC_CANDIDATE_ADAPTERS}
+
+
 def _normalise_doi(value):
     value = (value or "").strip().lower()
     value = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", value)

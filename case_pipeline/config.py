@@ -177,6 +177,14 @@ PETS_TELEGRAM_PREFLIGHT = env("PETS_TELEGRAM_PREFLIGHT", "0") == "1"
 # gates.  They are disabled in every default local and GitHub Actions run.
 PETS_EXTERNAL_SOURCES = env("PETS_EXTERNAL_SOURCES", "0") == "1"
 PETS_OFFICIAL_SOURCES = pets_source_ids(env("PETS_OFFICIAL_SOURCES", "fda_cvm,openfda,cdc_healthy_pets,frontiers_vet"))
+# Only these evidence-source identifiers may feed the factual candidate queue.
+# Their adapters retain their own licence/editorial gates; unknown ids fail closed.
+PETS_CANDIDATE_SOURCES = pets_source_ids(env("PETS_CANDIDATE_SOURCES", "pmc_oa,frontiers_vet,fda_cvm"))
+PETS_QUEUE_TARGET = int(env("PETS_QUEUE_TARGET", "7"))
+PETS_QUEUE_REPLENISH_BELOW = int(env("PETS_QUEUE_REPLENISH_BELOW", "5"))
+# A source-only run must not mutate durable production state.  Moving a
+# verified draft into the real publication queue needs separate owner opt-in.
+PETS_ALLOW_PRODUCTION_QUEUE = env("PETS_ALLOW_PRODUCTION_QUEUE", "0") == "1"
 PETS_GENERATOR_MODE = env("PETS_GENERATOR_MODE", "mock").strip().lower()
 PETS_ALLOW_LIVE_AI = env("PETS_ALLOW_LIVE_AI", "0") == "1"
 PETS_MAX_GIGACHAT_GENERATIONS = int(env("PETS_MAX_GIGACHAT_GENERATIONS", "0"))

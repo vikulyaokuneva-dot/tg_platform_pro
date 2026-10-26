@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from case_pipeline import ai, config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state, telegram
+from case_pipeline.pets_candidates import candidate_adapters_for, collect_source_candidates
 from case_pipeline.pets_generator import GigaChatPetsGenerator, MockPetsGenerator
 from case_pipeline.pets_storage import PetsStorage
 
@@ -129,12 +130,36 @@ def run(ctx):
                 cap = 0
             else:
                 generator = GigaChatPetsGenerator(ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED)
-                autonomous = pets.run_autonomous_dry_run(
-                    st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator, limit=cap)
+                candidate_limit = cap
+                adapters = candidate_adapters_for(config.PETS_CANDIDATE_SOURCES)
+                candidate_store = st if config.PETS_ALLOW_PRODUCTION_QUEUE else PetsStorage(config.PETS_CANDIDATES_DB_PATH)
+                candidates, source_report, collection = collect_source_candidates(adapters, storage=candidate_store,
+                                                                                   limit=max(candidate_limit * 2, 10))
+                if config.PETS_ALLOW_PRODUCTION_QUEUE:
+                    autonomous = pets.replenish_verified_queue(
+                        st, candidates, generator=generator, target_ready=config.PETS_QUEUE_TARGET,
+                        replenish_below=config.PETS_QUEUE_REPLENISH_BELOW)
+                else:
+                    autonomous = {"queue_before": st.queued_count(), "queue_after": st.queued_count(),
+                                  "checked": 0, "post_ready": 0, "review": 0, "rejected": 0, "skipped": 0,
+                                  "blocked": "production_queue_opt_in_required"}
+                autonomous.update(source_report=source_report, collection=collection,
+                                  generator_mode="gigachat", enabled=True, dry_run=dry, published=0)
         else:
             generator = MockPetsGenerator()
-            autonomous = pets.run_autonomous_dry_run(
-                st, pets_sources.official_adapters_for(config.PETS_OFFICIAL_SOURCES), generator=generator)
+            adapters = candidate_adapters_for(config.PETS_CANDIDATE_SOURCES)
+            candidate_store = st if config.PETS_ALLOW_PRODUCTION_QUEUE else PetsStorage(config.PETS_CANDIDATES_DB_PATH)
+            candidates, source_report, collection = collect_source_candidates(adapters, storage=candidate_store, limit=10)
+            if config.PETS_ALLOW_PRODUCTION_QUEUE:
+                autonomous = pets.replenish_verified_queue(
+                    st, candidates, generator=generator, target_ready=config.PETS_QUEUE_TARGET,
+                    replenish_below=config.PETS_QUEUE_REPLENISH_BELOW)
+            else:
+                autonomous = {"queue_before": st.queued_count(), "queue_after": st.queued_count(),
+                              "checked": 0, "post_ready": 0, "review": 0, "rejected": 0, "skipped": 0,
+                              "blocked": "production_queue_opt_in_required"}
+            autonomous.update(source_report=source_report, collection=collection,
+                              generator_mode="mock", enabled=True, dry_run=True, published=0)
     else:
         autonomous = {"enabled": False, "dry_run": True, "published": 0,
                       "source_report": {source: {"status": "disabled_pending_owner_opt_in"}

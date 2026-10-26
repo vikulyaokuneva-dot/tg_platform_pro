@@ -398,7 +398,57 @@ def process_fact_material(st, topic, facts, source_id, generator=None, image_res
     st.update(mid, status="post_ready", post_text=text, image_url=image["url"],
               classification="pets:%s:%s" % (topic.category, topic.species),
               reason="pets_expert:external_facts")
+    st.enqueue_verified_material(mid)
     return dict(out, status="post_ready", material_id=mid, category=topic.category, species=topic.species)
+
+
+def topic_from_candidate(candidate):
+    """Build a topic only from the candidate's audited editorial metadata."""
+    species = candidate.get("species")
+    if species not in {"cat", "dog"}:
+        return None
+    category = str(candidate.get("category") or "facts").strip() or "facts"
+    key = str(candidate.get("topic_key") or candidate.get("source_key") or "").strip()
+    title = str(candidate.get("title") or "Проверенный факт для владельцев").strip()
+    if not key:
+        return None
+    return Topic(key, title, category, species, (species, "home", "owner"))
+
+
+def replenish_verified_queue(st, candidates, generator=None, image_resolver=None,
+                             target_ready=7, replenish_below=5):
+    """Turn editorially-ready factual briefs into queued drafts.
+
+    It has no Telegram side effect.  Real production still needs the separate
+    publisher gate, durable state and PETS_PUBLISH=1.  Mock text remains
+    ``review`` and can never enter the queue.
+    """
+    before = st.queued_count()
+    result = {"queue_before": before, "queue_after": before, "target_ready": target_ready,
+              "replenish_below": replenish_below, "checked": 0, "post_ready": 0,
+              "review": 0, "rejected": 0, "skipped": 0, "blocked": ""}
+    if before >= replenish_below:
+        result["blocked"] = "queue_above_replenish_threshold"
+        return result
+    for candidate in candidates or ():
+        if st.queued_count() >= target_ready:
+            break
+        result["checked"] += 1
+        if candidate.get("editorial_status") != "editorially_ready":
+            result["review"] += 1
+            continue
+        topic = topic_from_candidate(candidate)
+        if topic is None:
+            result["review"] += 1
+            continue
+        item = process_fact_material(st, topic, candidate.get("facts", ()), candidate.get("source_id", ""),
+                                     generator=generator, image_resolver=image_resolver)
+        status = item.get("status", "review")
+        result[status if status in result else "review"] += 1
+    result["queue_after"] = st.queued_count()
+    if result["queue_after"] < target_ready and not result["blocked"]:
+        result["blocked"] = "insufficient_verified_factual_briefs"
+    return result
 
 
 def run_autonomous_dry_run(st, adapters, generator=None, image_resolver=None, limit=10):
