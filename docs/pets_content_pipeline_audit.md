@@ -26,7 +26,7 @@ cron и GigaChat не запускались. Production SQLite `pets-state` н�
 | AI-генерация | да | нет | GigaChat только с отдельным opt-in и лимитом; mock всегда `review` |
 | Проверка текста/фото | да | нет | неподтверждённое число, рискованный совет или неподходящее фото → review |
 | Очередь | да, PETS 4.2 | нет | новая SQLite-таблица `pets_publication_queue`, только verified factual drafts |
-| Публикация | да, старый evergreen путь | один исторический demo-пост №39 | новая factual очередь пока намеренно не подключена к отправке без отдельного запуска |
+| Публикация | да, evergreen и factual queue | один исторический demo-пост №39 | factual queue выбирается из SQLite, без Python-ID; нужна вся цепочка opt-in/durable gate |
 
 ## Найденный разрыв и исправление
 
@@ -49,6 +49,9 @@ opt-in source-only запуск пишет только во временную 
 
 Новый factual material не требует добавлять идентификатор в Python allowlist.
 Но он всё равно не публикуется до независимого durable-state/Telegram gate.
+При разрешённой публикации `process_queued_material()` берёт только запись
+`queue_status=ready`, запрашивает durable checkpoint до отправки и переводит
+неопределённую доставку в `review`, а не повторяет её.
 
 ## Пополнение очереди
 

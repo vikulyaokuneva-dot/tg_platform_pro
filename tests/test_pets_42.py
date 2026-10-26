@@ -92,3 +92,27 @@ def test_source_only_job_does_not_mutate_production_queue_without_opt_in(tmp_pat
     pets_job.run(ctx)
     assert ctx.storage["last_run"]["autonomous"]["blocked"] == "production_queue_opt_in_required"
     assert PetsStorage(config.PETS_DB_PATH).queued_count() == 0
+
+
+def test_queued_factual_post_needs_no_python_allowlist_and_stays_off_in_dry_run(tmp_path):
+    st = PetsStorage(str(tmp_path / "pets42.db"))
+    pets.replenish_verified_queue(
+        st, [_candidate()], generator=_RealFixtureGenerator(), image_resolver=lambda *_: _image(tags=("cat", "home", "owner")),
+        target_ready=1, replenish_below=1)
+    row = st.queued_materials()[0]
+    result = pets.process_queued_material(st, row, publish=False, dry_run=True)
+    assert result["status"] == "post_ready"
+    assert st.queued_count() == 1
+
+
+def test_queued_telegram_error_moves_item_to_review_without_retry(tmp_path, monkeypatch):
+    st = PetsStorage(str(tmp_path / "pets42.db"))
+    pets.replenish_verified_queue(
+        st, [_candidate()], generator=_RealFixtureGenerator(), image_resolver=lambda *_: _image(tags=("cat", "home", "owner")),
+        target_ready=1, replenish_below=1)
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", False)
+    monkeypatch.setattr(pets.httpclient, "fetch_bytes", lambda _: b"photo")
+    monkeypatch.setattr(pets.telegram, "publish_post", lambda *args, **kwargs: type("Result", (), {"ok": False})())
+    result = pets.process_queued_material(st, st.queued_materials()[0], publish=True, dry_run=False)
+    assert result["reason"] == "telegram_delivery_uncertain"
+    assert st.queued_count() == 0

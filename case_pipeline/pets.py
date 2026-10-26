@@ -451,6 +451,60 @@ def replenish_verified_queue(st, candidates, generator=None, image_resolver=None
     return result
 
 
+def process_queued_material(st, row, *, publish=False, dry_run=True, checkpoint=None):
+    """Deliver one database-approved factual draft without a Python id allowlist.
+
+    ``pets_publication_queue`` is the authority.  Demo/curated rows never
+    appear in it, and all durable-state and exactly-once protections remain
+    identical to the established evergreen sender.
+    """
+    mid = row.get("id")
+    out = {"source": row.get("source"), "material_id": mid, "status": "post_ready", "reason": ""}
+    if not mid or row.get("queue_status") != "ready" or row.get("source") == "curated_original":
+        return dict(out, status="rejected", reason="queue_entry_not_publishable")
+    if not (publish and not dry_run):
+        return out
+    if config.PETS_REQUIRE_DURABLE_STATE and config.PETS_STATE_BACKEND != "github":
+        st.queue_mark(mid, "review", "durable_state_required")
+        return dict(out, status="review", reason="durable_state_required")
+    try:
+        photo = httpclient.fetch_bytes(row.get("image_url") or "")
+    except Exception:
+        st.queue_mark(mid, "review", "image_download_failed")
+        return dict(out, status="review", reason="image_download_failed")
+    if not st.claim_for_publish(mid):
+        st.queue_mark(mid, "review", "publish_claim_lost")
+        return dict(out, status="review", reason="publish_claim_lost")
+    st.queue_mark(mid, "claimed")
+    try:
+        if checkpoint:
+            checkpoint("claimed")
+    except Exception:
+        st.release_claim(mid, "review", "durable_state_checkpoint_failed_before_send")
+        st.queue_mark(mid, "review", "durable_state_checkpoint_failed_before_send")
+        return dict(out, status="review", reason="durable_state_checkpoint_failed_before_send")
+    try:
+        sent = telegram.publish_post(row.get("post_text") or "", dry_run=False,
+                                      channel="pets", image=photo)
+    except Exception:
+        sent = None
+    if not sent or not sent.ok:
+        st.release_claim(mid, "review", "telegram_delivery_uncertain")
+        st.queue_mark(mid, "review", "telegram_delivery_uncertain")
+        return dict(out, status="review", reason="telegram_delivery_uncertain")
+    st.mark_pets_published(mid, sent.message_id,
+                           case_model.case_id_for(row.get("url") or "", row.get("post_text", "")[:2000]))
+    st.publish_topic(mid)
+    st.queue_mark(mid, "published")
+    try:
+        if checkpoint:
+            checkpoint("published")
+    except Exception:
+        return dict(out, status="published", telegram_message_id=sent.message_id,
+                    durable_state="checkpoint_failed_after_send")
+    return dict(out, status="published", telegram_message_id=sent.message_id)
+
+
 def run_autonomous_dry_run(st, adapters, generator=None, image_resolver=None, limit=10):
     """Offline-friendly PETS 3.1 orchestrator; it can never send Telegram."""
     summary = {"planned": 0, "checked": 0, "post_ready": 0, "review": 0, "rejected": 0,
@@ -495,6 +549,21 @@ def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
     published = 0
     for brief in evergreen_briefs or ():
         result = process_evergreen_brief(st, brief, publish=allow_publish and published < config.PETS_PUBLISH_LIMIT,
+                                         dry_run=dry_run, checkpoint=checkpoint)
+        summary["checked"] += 1
+        status = result.get("status", "skipped")
+        if status in summary:
+            summary[status] += 1
+        if status == "published":
+            published += 1
+    # Factual drafts use a SQLite production gate, not a hard-coded Python
+    # allowlist.  They are considered only when all normal publication flags
+    # were explicitly enabled by the owner.
+    for row in st.queued_materials(limit=max(config.PETS_PUBLISH_LIMIT - published, 0)):
+        if published >= config.PETS_PUBLISH_LIMIT:
+            break
+        result = process_queued_material(st, row,
+                                         publish=allow_publish and published < config.PETS_PUBLISH_LIMIT,
                                          dry_run=dry_run, checkpoint=checkpoint)
         summary["checked"] += 1
         status = result.get("status", "skipped")
