@@ -36,6 +36,11 @@ on:
         required: true
         default: false
         type: boolean
+      allow_production_queue:
+        description: "Move fully verified AI drafts into durable PETS queue; requires separate owner approval and never sends Telegram"
+        required: true
+        default: false
+        type: boolean
       gigachat_generation_limit:
         description: "Hard cap for paid GigaChat requests (1–10; 0 blocks the calls)"
         required: true
@@ -114,6 +119,7 @@ jobs:
           PETS_EXTERNAL_SOURCES: ${{ inputs.use_external_sources && '1' || '0' }}
           PETS_GENERATOR_MODE: ${{ inputs.use_live_gigachat && 'gigachat' || 'mock' }}
           PETS_ALLOW_LIVE_AI: ${{ inputs.use_live_gigachat && '1' || '0' }}
+          PETS_ALLOW_PRODUCTION_QUEUE: ${{ inputs.allow_production_queue && '1' || '0' }}
           PETS_MAX_GIGACHAT_GENERATIONS: ${{ inputs.gigachat_generation_limit }}
           # The secret is only usable when the opt-in checkbox above is set;
           # the job never prints it or writes it to an artifact.

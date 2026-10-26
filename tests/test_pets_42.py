@@ -8,6 +8,8 @@ from case_pipeline.pets_generator import MockPetsGenerator
 from case_pipeline.pets_storage import PetsStorage
 from core.context import JobContext
 from jobs.pets import job as pets_job
+from jobs.pets import source_candidates
+from case_pipeline import pets_briefs
 from tests.test_pets_31 import _RealFixtureGenerator, _image
 
 
@@ -78,6 +80,11 @@ def test_unknown_or_forbidden_source_has_no_candidate_adapter():
     assert candidate_adapters_for(("purina", "cats_protection", "unknown")) == {}
 
 
+def test_source_only_collector_can_be_limited_to_pmc_and_frontiers():
+    adapters = source_candidates.adapters_for(("pmc_oa", "frontiers_vet", "purina"))
+    assert set(adapters) == {"pmc_oa", "frontiers_vet"}
+
+
 def test_source_only_job_does_not_mutate_production_queue_without_opt_in(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PETS_DB_PATH", str(tmp_path / "production.db"))
     monkeypatch.setattr(config, "PETS_CANDIDATES_DB_PATH", str(tmp_path / "candidates.db"))
@@ -116,3 +123,19 @@ def test_queued_telegram_error_moves_item_to_review_without_retry(tmp_path, monk
     result = pets.process_queued_material(st, st.queued_materials()[0], publish=True, dry_run=False)
     assert result["reason"] == "telegram_delivery_uncertain"
     assert st.queued_count() == 0
+
+
+def test_evergreen_and_factual_queue_are_isolated_without_duplicates(tmp_path):
+    st = PetsStorage(str(tmp_path / "pets42.db"))
+    for brief in pets_briefs.EVERGREEN_BRIEFS:
+        result = pets.process_evergreen_brief(st, brief, publish=False, dry_run=True)
+        assert result["status"] == "post_ready"
+    factual = _candidate("https://pmc.ncbi.nlm.nih.gov/articles/PMC4242/", "cat-enrichment-4242")
+    pets.replenish_verified_queue(
+        st, [factual], generator=_RealFixtureGenerator(), image_resolver=lambda *_: _image(tags=("cat", "home", "owner")),
+        target_ready=1, replenish_below=1)
+    evergreen_urls = {"draft://pets/" + item["id"] for item in pets_briefs.EVERGREEN_BRIEFS}
+    queued = st.queued_materials()
+    assert len(queued) == 1
+    assert queued[0]["url"] not in evergreen_urls
+    assert queued[0]["source"] == "pmc_oa"

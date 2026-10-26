@@ -18,6 +18,21 @@ SOURCE_ROLES = {
     "cat_friendly_homes": {"role": "fact_check_or_manual_review", "rule": "do not automatically copy or adapt protected guidance"},
 }
 
+CANDIDATE_ADAPTERS = {
+    "frontiers_vet": FrontiersVeterinaryPmcAdapter,
+    "pmc_oa": PmcOpenAccessAdapter,
+    "fda_cvm": FdaCvmSafetyAdapter,
+}
+
+
+def source_ids(value):
+    return tuple(item.strip() for item in str(value or "").split(",") if item.strip())
+
+
+def adapters_for(source_names):
+    """Only explicit candidate adapters are instantiated; unknown names skip."""
+    return {name: CANDIDATE_ADAPTERS[name]() for name in source_names if name in CANDIDATE_ADAPTERS}
+
 
 def _serializable(candidate):
     result = dict(candidate)
@@ -25,15 +40,13 @@ def _serializable(candidate):
     return result
 
 
-def run(limit=10, output_dir=None, db_path=None):
+def run(limit=10, output_dir=None, db_path=None, source_names=None):
     output_dir = output_dir or config.RUNS_DIR
     db_path = db_path or config.PETS_CANDIDATES_DB_PATH
     st = PetsStorage(db_path)
-    adapters = {
-        "frontiers_vet": FrontiersVeterinaryPmcAdapter(),
-        "pmc_oa": PmcOpenAccessAdapter(),
-        "fda_cvm": FdaCvmSafetyAdapter(),
-    }
+    source_names = source_names or source_ids(os.getenv(
+        "PETS_SOURCE_CANDIDATE_SOURCES", "frontiers_vet,pmc_oa,fda_cvm"))
+    adapters = adapters_for(source_names)
     candidates, report, collection = collect_source_candidates(adapters, storage=st, limit=limit)
     ready = [item for item in candidates if item.get("editorial_status") == "editorially_ready"]
     review = [item for item in candidates if item.get("editorial_status") != "editorially_ready"]
