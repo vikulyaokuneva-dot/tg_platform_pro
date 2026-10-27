@@ -99,6 +99,11 @@ CREATE TABLE IF NOT EXISTS pets_publication_queue (
     updated_at TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS pets_ai_usage (
+    moscow_date TEXT PRIMARY KEY,
+    gigachat_calls INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -270,6 +275,29 @@ class PetsStorage(Storage):
             "SELECT COUNT(*) AS count FROM publications "
             "WHERE content_type='pets' AND ok=1 AND published_at>=?", (cutoff,)
         ).fetchone()["count"])
+
+    def reserve_gigachat_generation(self, now=None):
+        """Atomically reserve PETS' sole paid generation for the Moscow day.
+
+        The reservation is made before the provider request and committed to the
+        durable database.  A failed or ambiguous provider response therefore
+        cannot trigger paid automatic retries later the same day.
+        """
+        moscow = timezone(timedelta(hours=3))
+        current = now or datetime.now(timezone.utc)
+        current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current
+        day = current.astimezone(moscow).date().isoformat()
+        self.db.execute(
+            "INSERT OR IGNORE INTO pets_ai_usage(moscow_date,gigachat_calls,updated_at) VALUES(?,?,?)",
+            (day, 0, now_iso()),
+        )
+        cur = self.db.execute(
+            "UPDATE pets_ai_usage SET gigachat_calls=gigachat_calls+1,updated_at=? "
+            "WHERE moscow_date=? AND gigachat_calls<1",
+            (now_iso(), day),
+        )
+        self.db.commit()
+        return cur.rowcount == 1
 
     def migrate_demo_materials(self, allowed_evergreen_urls=()):
         """Quarantine old curated drafts outside the explicit automatic allowlist.

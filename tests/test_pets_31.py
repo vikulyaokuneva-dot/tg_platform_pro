@@ -147,8 +147,18 @@ def test_live_gigachat_without_explicit_cap_is_blocked_before_source_or_ai_calls
     monkeypatch.setattr(pets_sources, "official_adapters_for", lambda *_: pytest.fail("sources must not start"))
     ctx = JobContext("pets", str(tmp_path / "storage.json"), dry_run=True)
     pets_job.run(ctx)
-    assert ctx.storage["last_run"]["autonomous"]["reason"] == "gigachat_generation_limit_must_be_1_to_10"
+    assert ctx.storage["last_run"]["autonomous"]["reason"] == "gigachat_generation_limit_must_be_1"
     assert ctx.storage["last_run"]["published"] == 0
+
+
+def test_gigachat_daily_reservation_is_one_per_moscow_day(tmp_path):
+    from datetime import datetime, timezone
+    st = _storage(tmp_path)
+    now = datetime(2026, 10, 27, 8, 0, tzinfo=timezone.utc)  # 11:00 Moscow
+    assert st.reserve_gigachat_generation(now) is True
+    assert st.reserve_gigachat_generation(now) is False
+    next_day = datetime(2026, 10, 27, 22, 0, tzinfo=timezone.utc)  # 01:00 Moscow
+    assert st.reserve_gigachat_generation(next_day) is True
 
 
 def test_cc_by_sa_is_preserved_with_share_alike_obligation():

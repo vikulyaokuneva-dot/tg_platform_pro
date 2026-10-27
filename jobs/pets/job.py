@@ -11,6 +11,25 @@ from case_pipeline.pets_approved_previews import queue_first_approved_post
 from case_pipeline.pets_storage import PetsStorage
 
 
+class _DailyLimitedGigaChatGenerator(GigaChatPetsGenerator):
+    """Reserve the durable daily paid-AI allowance immediately before a call."""
+
+    def __init__(self, provider, *, enabled, storage, checkpoint):
+        super().__init__(provider, enabled=enabled)
+        self._storage = storage
+        self._checkpoint = checkpoint
+
+    def generate(self, topic, facts):
+        if not self.enabled or not self.provider or not getattr(self.provider, "available", False):
+            return None
+        if not self._storage.reserve_gigachat_generation():
+            return None
+        # Persist the debit before reaching the paid provider.  If the next
+        # request has an ambiguous outcome, PETS fails closed for the day.
+        self._checkpoint("gigachat_daily_generation_reserved")
+        return super().generate(topic, facts)
+
+
 def _write_preview(st, path="runs/pets_preview.md", include_demo=False):
     """Owner-only Action artifact: ready drafts never go to CI logs."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -130,13 +149,16 @@ def run(ctx):
     if config.PETS_EXTERNAL_SOURCES:
         if config.PETS_GENERATOR_MODE == "gigachat":
             cap = config.PETS_MAX_GIGACHAT_GENERATIONS
-            if not (1 <= cap <= 10):
+            if cap != 1:
                 autonomous = {"enabled": False, "dry_run": True, "published": 0,
-                              "reason": "gigachat_generation_limit_must_be_1_to_10"}
+                              "reason": "gigachat_generation_limit_must_be_1"}
                 summary["autonomous"] = autonomous
                 cap = 0
             else:
-                generator = GigaChatPetsGenerator(ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED)
+                generator = _DailyLimitedGigaChatGenerator(
+                    ai.get_provider(), enabled=config.PETS_ALLOW_LIVE_AI and config.PETS_AI_ENABLED,
+                    storage=st, checkpoint=checkpoint,
+                )
                 candidate_limit = cap
                 adapters = candidate_adapters_for(config.PETS_CANDIDATE_SOURCES)
                 candidate_store = st if config.PETS_ALLOW_PRODUCTION_QUEUE else PetsStorage(config.PETS_CANDIDATES_DB_PATH)

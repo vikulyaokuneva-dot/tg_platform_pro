@@ -47,7 +47,7 @@ on:
         default: false
         type: boolean
       gigachat_generation_limit:
-        description: "Hard cap for paid GigaChat requests (1–10; 0 blocks the calls)"
+        description: "Hard cap for paid GigaChat requests (only 1 is permitted; 0 blocks calls)"
         required: true
         default: 0
         type: number
