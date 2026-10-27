@@ -5,7 +5,7 @@ from case_pipeline import pets, pets_sources
 from case_pipeline import config
 from case_pipeline.pets_facts import Fact
 from case_pipeline.pets_facts import license_terms, normalize_license
-from case_pipeline.pets_generator import MockPetsGenerator
+from case_pipeline.pets_generator import MockPetsGenerator, validate_editorial_post
 from case_pipeline.pets_planner import Topic, choose_topics
 from case_pipeline.pets_candidates import FdaCvmSafetyAdapter, FrontiersVeterinaryPmcAdapter, collect_source_candidates
 from case_pipeline.pets_sources import FdaCvmAdapter
@@ -86,6 +86,21 @@ def test_unsupported_ai_number_is_review(tmp_path):
     result = pets.process_fact_material(st, _topic(), [_fact()], "fda_cvm", generator=_RealFixtureGenerator(bad),
                                         image_resolver=lambda *_: _image())
     assert result["reason"] == "generated_text_has_unsupported_number"
+
+
+def test_editorial_gate_rejects_technical_and_repeated_reader_text():
+    title = "How to make a dog walk calmer"
+    repeated = "Try a calm route before the walk.\n\nTry a calm route before the walk."
+    assert validate_editorial_post(title, repeated) == (False, "editorial_semantic_repeat")
+    technical = "Try watching the dog's usual routine.\n\nLicensed under the Open Government Licence v3.0."
+    assert validate_editorial_post(title, technical) == (False, "editorial_technical_text_in_reader_body")
+
+
+def test_editorial_gate_accepts_short_practical_paragraphs():
+    body = ("Try a calm route before the walk and watch what distracts the dog.\n\n"
+            "Notice which conditions help the pet focus on you.\n\n"
+            "What makes your walk more comfortable?")
+    assert validate_editorial_post("A calmer walk begins at home", body) == (True, "")
 
 
 def test_mismatched_or_missing_photo_requires_review(tmp_path):

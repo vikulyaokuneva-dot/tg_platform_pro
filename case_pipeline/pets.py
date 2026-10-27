@@ -14,7 +14,7 @@ from . import ai as ai_mod
 from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor
 from . import pets_briefs, pets_images, pets_storage, telegram, utils
 from .pets_facts import validate_fact_set, validate_generated_text
-from .pets_generator import MockPetsGenerator
+from .pets_generator import MockPetsGenerator, validate_editorial_post
 from .pets_planner import Topic, choose_topics
 
 log = logging.getLogger("case.pets")
@@ -368,23 +368,32 @@ def process_fact_material(st, topic, facts, source_id, generator=None, image_res
                   classification="pets:mock:%s:%s" % (topic.category, topic.species),
                   reason="mock_generation_requires_real_ai_opt_in")
         return dict(out, reason="mock_generation_requires_real_ai_opt_in")
+    title = generated.get("title") or topic.title
     text = generated.get("text", "")
     if not 700 <= len(text) <= 1200:
         st.update(mid, status="review", reason="generated_text_length_invalid")
         return dict(out, reason="generated_text_length_invalid")
-    generated_ok, generated_reason = validate_generated_text(text, facts)
+    generated_ok, generated_reason = validate_generated_text(
+        title + "\n" + text, facts,
+        citation_text="\n".join(fact.source_url for fact in facts),
+        allowed_source_urls=tuple(fact.source_url for fact in facts),
+    )
     if not generated_ok:
         st.update(mid, status="review", reason=generated_reason)
         return dict(out, reason=generated_reason)
+    editorial_ok, editorial_reason = validate_editorial_post(title, text)
+    if not editorial_ok:
+        st.update(mid, status="review", reason=editorial_reason)
+        return dict(out, reason=editorial_reason)
     image_resolver = image_resolver or (pets_images.resolve_wikimedia_commons if config.PETS_IMAGE_PROVIDER == "wikimedia" else None)
-    image = _normalize_image(canonical_url, {"title": generated.get("title", topic.title), "text": text,
+    image = _normalize_image(canonical_url, {"title": title, "text": text,
                                               "visual_tags": topic.visual_tags}, image_resolver)
     if isinstance(image, dict):
         # The material defines the visual contract; a resolver may provide
         # evidence tags, but it must not choose its own weaker requirements.
         image = dict(image)
         image["required_tags"] = tuple(topic.visual_tags)
-    image_ok, image_reason = pets_images.validate_image(image, generated.get("title", topic.title))
+    image_ok, image_reason = pets_images.validate_image(image, title)
     if not image_ok:
         st.record_facts(mid, facts)
         st.update(mid, status="review", reason="image_review:" + image_reason)
@@ -395,7 +404,10 @@ def process_fact_material(st, topic, facts, source_id, generator=None, image_res
     st.plan_topic(topic)
     st.record_facts(mid, facts)
     st.record_image_rights(mid, image)
-    st.update(mid, status="post_ready", post_text=text, image_url=image["url"],
+    attribution = "\n\nИсточники: " + "; ".join(dict.fromkeys(fact.source_url for fact in facts))
+    attribution += "\nФото: %s — %s. %s" % (image["author"], image["license"], image["source_url"])
+    rendered = "%s\n\n%s%s" % (title, text, attribution)
+    st.update(mid, status="post_ready", post_text=rendered, image_url=image["url"],
               classification="pets:%s:%s" % (topic.category, topic.species),
               reason="pets_expert:external_facts")
     st.enqueue_verified_material(mid)
