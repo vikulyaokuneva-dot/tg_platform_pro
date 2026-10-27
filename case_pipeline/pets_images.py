@@ -8,7 +8,7 @@ import requests
 from .editorial_profiles import _breed_from
 
 
-_OPEN_LICENSES = {"CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "Public-Domain"}
+_OPEN_LICENSES = {"CC0-1.0", "CC-BY-2.0", "CC-BY-4.0", "CC-BY-SA-4.0", "Public-Domain"}
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 COMMONS_HEADERS = {"User-Agent": "TelegramPlatformPETS/1.0 (owner-managed educational drafts)"}
 IMAGE_MIN_BYTES = 15 * 1024
@@ -45,7 +45,7 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
     query = str((ext or {}).get("image_query") or topic_query(title, text)).strip()
     params = {"action": "query", "format": "json", "generator": "search",
               "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": limit,
-              "prop": "imageinfo|categories", "iiprop": "url|extmetadata", "iiurlwidth": 1600, "cllimit": 50}
+              "prop": "imageinfo|categories", "iiprop": "url|extmetadata|mime", "iiurlwidth": 1600, "cllimit": 50}
     try:
         response = session.get(COMMONS_API, params=params, headers=COMMONS_HEADERS, timeout=25)
         if response.status_code != 200:
@@ -71,11 +71,12 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
         "safe_shelter": ("shelter", "hide", "house", "bed", "box"),
         "outdoor": ("outdoor", "outside", "garden", "yard", "street", "nature"),
     }
+    acceptable = []
     for page in pages.values():
         info = (page.get("imageinfo") or [{}])[0]
         meta = info.get("extmetadata") or {}
         licence = _plain((meta.get("LicenseShortName") or {}).get("value"))
-        licence = {"CC0": "CC0-1.0", "CC BY 4.0": "CC-BY-4.0",
+        licence = {"CC0": "CC0-1.0", "CC BY 2.0": "CC-BY-2.0", "CC BY 4.0": "CC-BY-4.0",
                    "CC BY-SA 4.0": "CC-BY-SA-4.0",
                    "Public domain": "Public-Domain"}.get(licence, licence)
         author = _plain((meta.get("Artist") or {}).get("value"))
@@ -91,6 +92,13 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
         description = _plain((meta.get("ImageDescription") or {}).get("value"))
         categories = " ".join(str(item.get("title") or "") for item in page.get("categories", []))
         evidence = (page_title + " " + description + " " + categories).lower()
+        mime = str(info.get("mime") or "").lower()
+        # Commons search also returns signs, rules, PDFs and other documents.
+        # They may mention a dog but are never acceptable as a post photo.
+        if mime and not mime.startswith("image/"):
+            continue
+        if any(token in page_title for token in ("rules", "sign", "poster", "logo", "map", "diagram", ".pdf")):
+            continue
         if expected_breed and expected_breed.replace("_", " ") not in page_title:
             continue
         tags = {tag for tag in expected_tags if any(word in evidence for word in aliases.get(tag, (tag,)))}
@@ -106,8 +114,12 @@ def resolve_wikimedia_commons(candidate, ext, session=requests, limit=12):
             result["breed"] = expected_breed
         ok, _ = validate_image(result, title)
         if ok and licence_url:
-            return result
-    return None
+            # Prefer a result whose title/description explicitly proves the
+            # requested context over a broad category-only match.
+            explicit_hits = sum(word in (page_title + " " + description).lower()
+                                for tag in expected_tags for word in aliases.get(tag, (tag,)))
+            acceptable.append((explicit_hits, result))
+    return max(acceptable, key=lambda item: item[0])[1] if acceptable else None
 
 
 def validate_image(image, title=""):

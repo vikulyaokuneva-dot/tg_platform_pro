@@ -253,6 +253,24 @@ class PetsStorage(Storage):
              image.get("semantic_evidence", ""), now_iso()))
         self.db.commit()
 
+    def pets_published_today(self, now=None):
+        """Count PETS deliveries since the current Moscow calendar day began.
+
+        The durable publication ledger is the authority here, not the current
+        Actions run.  This blocks a second manual or scheduled execution on the
+        same Moscow day as well as multiple messages in one run.
+        """
+        moscow = timezone(timedelta(hours=3))
+        current = now or datetime.now(timezone.utc)
+        current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current
+        local = current.astimezone(moscow)
+        start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        cutoff = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return int(self.db.execute(
+            "SELECT COUNT(*) AS count FROM publications "
+            "WHERE content_type='pets' AND ok=1 AND published_at>=?", (cutoff,)
+        ).fetchone()["count"])
+
     def migrate_demo_materials(self, allowed_evergreen_urls=()):
         """Quarantine old curated drafts outside the explicit automatic allowlist.
 

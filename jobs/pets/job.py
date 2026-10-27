@@ -7,6 +7,7 @@ from pathlib import Path
 from case_pipeline import ai, config, httpclient, pets, pets_briefs, pets_durable_state, pets_sources, pets_state, telegram
 from case_pipeline.pets_candidates import candidate_adapters_for, collect_source_candidates
 from case_pipeline.pets_generator import GigaChatPetsGenerator, MockPetsGenerator
+from case_pipeline.pets_approved_previews import queue_first_approved_post
 from case_pipeline.pets_storage import PetsStorage
 
 
@@ -105,6 +106,11 @@ def run(ctx):
     if state_error:
         ctx.log("pets durable state unavailable; real publication blocked")
     st = PetsStorage(config.PETS_DB_PATH)
+    approved_preview = {"status": "not_requested"}
+    if config.PETS_IMPORT_APPROVED_PREVIEW:
+        approved_preview = queue_first_approved_post(st)
+        if approved_preview.get("status") == "post_ready" and backend and not state_error:
+            checkpoint("owner_approved_preview_queued")
     allowed_evergreen_urls = tuple("draft://pets/%s" % brief["id"]
                                    for brief in pets_briefs.EVERGREEN_BRIEFS)
     migrated_demos = st.migrate_demo_materials(allowed_evergreen_urls)
@@ -165,6 +171,7 @@ def run(ctx):
                       "source_report": {source: {"status": "disabled_pending_owner_opt_in"}
                                         for source in config.PETS_OFFICIAL_SOURCES}}
     summary["autonomous"] = autonomous
+    summary["approved_preview"] = approved_preview
     summary["migrated_unapproved_curated_materials"] = migrated_demos
     if backend and not state_error:
         try:

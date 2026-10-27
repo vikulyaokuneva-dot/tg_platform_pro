@@ -282,6 +282,13 @@ def test_pets_publication_ledger_omits_chat_id(st):
     assert row["content_type"] == "pets"
 
 
+def test_pets_daily_limit_uses_durable_ledger_and_moscow_day(st):
+    mid = st.add("draft://pets/daily-limit", "curated_original")
+    st.update(mid, content_hash="safe", status="post_ready")
+    st.mark_pets_published(mid, 43, "pets-daily-limit")
+    assert st.pets_published_today() == 1
+
+
 def test_pets_job_dry_run_creates_review_drafts_without_sending(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PETS_DB_PATH", str(tmp_path / "state.db"))
     monkeypatch.setattr(config, "PETS_SOURCES", [])

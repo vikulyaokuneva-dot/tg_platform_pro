@@ -147,7 +147,9 @@ PETS_CHAT_ID = env("PETS_CHAT_ID")
 PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db"))
 PETS_CANDIDATES_DB_PATH = env("PETS_CANDIDATES_DB_PATH", os.path.join(ROOT, "data", "pets_source_candidates.db"))
 PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
-PETS_PUBLISH_LIMIT = int(env("PETS_PUBLISH_LIMIT", "1"))
+# PETS is intentionally capped at one delivery per run.  The workflow has a
+# second cap, but this protects direct/local invocations as well.
+PETS_PUBLISH_LIMIT = min(1, max(0, int(env("PETS_PUBLISH_LIMIT", "1"))))
 PETS_MAX_PER_RUN = int(env("PETS_MAX_PER_RUN", "3"))
 PETS_SOURCE_DISABLED_VALUES = {"", "0", "false", "none", "null", "off"}
 
@@ -185,6 +187,7 @@ PETS_QUEUE_REPLENISH_BELOW = int(env("PETS_QUEUE_REPLENISH_BELOW", "5"))
 # A source-only run must not mutate durable production state.  Moving a
 # verified draft into the real publication queue needs separate owner opt-in.
 PETS_ALLOW_PRODUCTION_QUEUE = env("PETS_ALLOW_PRODUCTION_QUEUE", "0") == "1"
+PETS_IMPORT_APPROVED_PREVIEW = env("PETS_IMPORT_APPROVED_PREVIEW", "0") == "1"
 PETS_GENERATOR_MODE = env("PETS_GENERATOR_MODE", "mock").strip().lower()
 PETS_ALLOW_LIVE_AI = env("PETS_ALLOW_LIVE_AI", "0") == "1"
 PETS_MAX_GIGACHAT_GENERATIONS = int(env("PETS_MAX_GIGACHAT_GENERATIONS", "0"))

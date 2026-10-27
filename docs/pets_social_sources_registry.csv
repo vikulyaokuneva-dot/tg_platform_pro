@@ -1,0 +1,20 @@
+category,platform_or_source,url,http_status,posts_extracted,last_7_days,permitted_role,decision,notes
+ideas,Telegram:vetpetcare_vpc,https://t.me/s/vetpetcare_vpc,200,10,5,idea_discovery,review_only,Public preview parsed; veterinary/clinic claims require independent verification.
+ideas,Telegram:ne_idealnaya_sobaka,https://t.me/s/ne_idealnaya_sobaka,200,10,7,idea_discovery,retain_for_topic_search,Behaviour and training themes; do not reuse advice as a fact.
+ideas,Telegram:kanal_shukina_zooexpert,https://t.me/s/kanal_shukina_zooexpert,200,8,3,idea_discovery,review_only,Public preview parsed; limited recent volume in sampled page.
+ideas,Telegram:koshatnikam,https://t.me/s/koshatnikam,200,10,0,idea_discovery,exclude_as_stale,Latest sampled dates are in 2024.
+ideas,Telegram:prikotik,https://t.me/s/prikotik,200,10,10,idea_discovery,review_only,Active but sampled messages include short/promotional material.
+ideas,Telegram:s_pets,https://t.me/s/s_pets,200,10,7,idea_discovery,review_only,Commercial pet-goods context; ideas only.
+ideas,Telegram:PitomnikSobak,https://t.me/s/PitomnikSobak,200,7,7,idea_discovery,review_only,Community/news context; no fact reuse.
+ideas,Telegram:superpet_ru,https://t.me/s/superpet_ru,200,4,4,idea_discovery,review_only,Commercial nutrition context; ideas only.
+ideas,Telegram:bobig_ru,https://t.me/s/bobig_ru,200,10,2,idea_discovery,review_only,Low recent volume in sampled page.
+ideas,Telegram:textcats,https://t.me/s/textcats,200,10,9,idea_discovery,review_only,Medical and product-safety topics need enhanced review.
+ideas,VK public mobile search,https://m.vk.com/search?c%5Bq%5D=%D0%BA%D0%BE%D1%88%D0%BA%D0%B8&c%5Bsection%5D=communities,200,0,0,not_proven,do_not_integrate,Static response did not yield a validated post list in the research adapter.
+ideas,Yandex Zen public search,https://dzen.ru/search?query=%D0%BA%D0%BE%D1%88%D0%BA%D0%B8,200,0,0,not_proven,do_not_integrate,Redirected to Yandex SSO; no bypass attempted.
+ideas,Pinterest public board search,https://www.pinterest.com/search/boards/?q=cat%20care,200,0,0,not_proven,do_not_integrate,Static application shell was returned; no board/pin dataset was validated.
+household_fact_check,Purina Pro Plan,https://www.proplan.ru/articles,200,0,0,manual_fact_check,manual_only,Brand publisher; public catalogue is available but texts/rights are not an automatic-content licence.
+household_fact_check,Purina ONE,https://www.purinaone.ru/sitemap,200,0,0,manual_fact_check,manual_only,Brand publisher; sitemap is accessible and useful for locating a topic only.
+household_fact_check,Royal Canin,https://royalcanin.ru/dog-article,200,0,0,manual_fact_check,manual_only,Brand publisher; nutrition and medical claims need independent corroboration.
+household_fact_check,Petstory,https://petstory.ru/,200,0,0,manual_fact_check,manual_only,Commercial service that states veterinary review; still not an independent automatic source.
+science_or_medical,PMC/Frontiers,local PETS 4.3 adapters,not_tested_in_4_4,0,0,scientific_fact_check,existing_separate_pipeline,Medical claims remain subject to the PETS factual-brief and enhanced-review policy.
+pending,Seven previously provided dog URLs,not_available_in_current_workspace,not_tested,0,0,manual_fact_check,pending_owner_resend,URLs must be resent; no substitutions were made.

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Offline regression coverage for PETS 3.3 universal factual-brief previews."""
 import json
+import runpy
 import sqlite3
 
 from case_pipeline import pets_universal_preview as preview
@@ -53,6 +54,23 @@ def test_loader_accepts_only_real_editorial_briefs_and_never_fills_the_limit(tmp
     assert len(accepted) == 1 and accepted[0]["doi"] == "10.1000/pets.preview"
     assert rejected == [{"identity": "10.1000/bad", "reason": "candidate_not_editorially_ready"}]
     assert report["accepted"] == 1
+
+
+def test_loader_accepts_a_verified_non_doi_source_key(tmp_path):
+    candidate = _candidate()
+    candidate["doi"] = ""
+    candidate["source_key"] = "official-dog-welfare-guidance"
+    brief = preview.load_editorial_briefs(_artifact(tmp_path / "briefs.json", [candidate]))[0][0]
+    assert brief["doi"] == ""
+    assert brief["source_identity"] == "official-dog-welfare-guidance"
+
+
+def test_explicit_visual_contract_overrides_english_keyword_guessing(tmp_path):
+    candidate = _candidate()
+    candidate["image_query"] = "dog owner walking in city"
+    candidate["visual_tags"] = ["dog", "walk"]
+    brief = preview.load_editorial_briefs(_artifact(tmp_path / "briefs.json", [candidate]))[0][0]
+    assert preview.visual_contract(brief) == {"image_query": "dog owner walking in city", "visual_tags": ("dog", "walk")}
 
 
 def test_offline_preview_writes_review_artifacts_without_ai_or_telegram(tmp_path):
@@ -205,3 +223,61 @@ def test_generation_prompt_uses_the_selected_brief_species_not_a_cat_default(tmp
         fact["species"] = "dog"
     brief = preview.load_editorial_briefs(_artifact(tmp_path / "briefs.json", [dog]))[0][0]
     assert "владельцев собак" in factual_brief_prompt(brief)
+
+
+def test_ogl_v3_facts_are_accepted_with_their_own_attribution_terms():
+    candidate = _candidate("10.1000/ogl.preview")
+    for fact in candidate["facts"]:
+        fact["license"] = "OGL-3.0"
+        fact["license_source_url"] = "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"
+        fact["attribution_requirements"] = "acknowledge the information provider and source; link to OGL where possible"
+    facts = tuple(preview._fact_from_json(value) for value in candidate["facts"])
+    assert preview.validate_fact_set(facts) == (True, "")
+
+
+def test_ogl_version_is_attribution_not_an_unsupported_editorial_number():
+    candidate = _candidate("10.1000/ogl.generated")
+    for fact in candidate["facts"]:
+        fact["license"] = "OGL-3.0"
+        fact["adaptation_allowed"] = True
+    facts = tuple(preview._fact_from_json(value) for value in candidate["facts"])
+    text = "Practical owner checklist. Licensed under the Open Government Licence v3.0."
+    assert preview.validate_generated_text(text, facts, citation_text=candidate["source_url"]) == (True, "")
+    assert preview.validate_generated_text(text + " It needs 42 walks.", facts,
+                                           citation_text=candidate["source_url"]) == (
+                                               False, "generated_text_has_unsupported_number")
+
+
+def test_cached_prior_gigachat_result_is_revalidated_without_a_new_call(tmp_path):
+    candidate = _candidate("10.1000/cached.preview")
+    candidate["title"] = "Outdoor exploration of domestic cats"
+    artifact = _artifact(tmp_path / "briefs.json", [candidate])
+    history = _history_db(tmp_path / "history.db")
+    cached = {"10.1000/cached.preview": {
+        "title": "Checked title",
+        "body": "Observed behaviour differed between individual cats. " + candidate["source_url"],
+    }}
+    manifest = preview.build_previews(
+        artifact, tmp_path / "out", history_db_path=history, precomputed_texts=cached,
+        image_resolver=lambda *_: _image())
+    payload = json.loads((tmp_path / "out" / manifest["posts"][0]["directory"] / "pets_post_preview.json").read_text(encoding="utf-8"))
+    assert manifest["gigachat_calls"] == 0
+    assert payload["text_origin"] == "gigachat_cached"
+    assert payload["status"] == "ready_for_manual_approval"
+
+
+def test_cc_by_2_photo_is_allowed_when_context_and_attribution_are_verified():
+    image = dict(_image(), license="CC-BY-2.0", license_url="https://creativecommons.org/licenses/by/2.0/")
+    assert preview.pets_images.validate_image(image) == (True, "")
+
+
+def test_universal_preview_only_constructs_real_provider_after_all_live_gates(monkeypatch):
+    monkeypatch.setenv("PETS_33_USE_LIVE_GIGACHAT", "1")
+    monkeypatch.setenv("PETS_33_OWNER_APPROVED", "1")
+    monkeypatch.setenv("PETS_33_MAX_GIGACHAT_CALLS", "1")
+    monkeypatch.setenv("PETS_ALLOW_LIVE_AI", "0")
+    monkeypatch.setattr("case_pipeline.pets_universal_preview.build_previews", lambda *args, **kwargs: kwargs)
+    called = []
+    monkeypatch.setattr("case_pipeline.ai.get_provider", lambda: called.append(True))
+    runpy.run_module("jobs.pets.universal_preview", run_name="__main__")
+    assert called == []

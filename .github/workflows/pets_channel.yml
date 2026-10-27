@@ -26,6 +26,11 @@ on:
         required: true
         default: false
         type: boolean
+      publish_approved_first_post:
+        description: "Import only the owner-approved PETS first preview into durable queue before the controlled publish"
+        required: true
+        default: false
+        type: boolean
       use_external_sources:
         description: "Use official PETS source adapters (still dry-run; requires owner opt-in)"
         required: true
@@ -76,6 +81,9 @@ permissions:
 
 jobs:
   dry-run:
+    # The cron expression remains documented, but scheduled execution is inert
+    # until the owner explicitly enables this PETS-only repository variable.
+    if: ${{ github.event_name != 'schedule' || vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED == '1' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +107,7 @@ jobs:
         env:
           # This checkbox is only one of three gates: it also needs the
           # repository variable PETS_PUBLISH=1 and a durable state backend.
-          DRY_RUN: ${{ (github.event_name == 'schedule' || inputs.controlled_publish) && '0' || '1' }}
+          DRY_RUN: ${{ inputs.controlled_publish && '0' || '1' }}
           # A repository variable remains 0 until the owner has completed the
           # controlled-release checklist. DRY_RUN above is an independent gate.
           PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
@@ -108,7 +116,7 @@ jobs:
           AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
           PETS_CHAT_ID: ${{ secrets.PETS_CHAT_ID }}
           PETS_SOURCES: ${{ vars.PETS_SOURCES }}
-          PETS_PUBLISH_LIMIT: ${{ vars.PETS_PUBLISH_LIMIT }}
+          PETS_PUBLISH_LIMIT: '1'
           PETS_MAX_PER_RUN: ${{ vars.PETS_MAX_PER_RUN }}
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
@@ -116,14 +124,19 @@ jobs:
           PETS_EVERGREEN_QUEUE: ${{ github.event_name == 'schedule' && '1' || (inputs.prepare_evergreen_queue && '1' || '0') }}
           PETS_PREFLIGHT_ONLY: ${{ inputs.preflight_only && '1' || '0' }}
           PETS_TELEGRAM_PREFLIGHT: ${{ (github.event_name == 'schedule' || inputs.controlled_publish || inputs.preflight_only) && '1' || '0' }}
-          PETS_EXTERNAL_SOURCES: ${{ inputs.use_external_sources && '1' || '0' }}
-          PETS_GENERATOR_MODE: ${{ inputs.use_live_gigachat && 'gigachat' || 'mock' }}
-          PETS_ALLOW_LIVE_AI: ${{ inputs.use_live_gigachat && '1' || '0' }}
-          PETS_ALLOW_PRODUCTION_QUEUE: ${{ inputs.allow_production_queue && '1' || '0' }}
-          PETS_MAX_GIGACHAT_GENERATIONS: ${{ inputs.gigachat_generation_limit }}
+          # A scheduled factual replenishment is separately opt-in.  Until
+          # PETS_AUTONOMOUS_REPLENISH_ENABLED=1 it stays mock/source-off even
+          # when the owner later enables the daily publishing schedule.
+          PETS_EXTERNAL_SOURCES: ${{ (inputs.use_external_sources || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_GENERATOR_MODE: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && 'gigachat' || 'mock' }}
+          PETS_ALLOW_LIVE_AI: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_AI_ENABLED: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_ALLOW_PRODUCTION_QUEUE: ${{ (inputs.allow_production_queue || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_IMPORT_APPROVED_PREVIEW: ${{ inputs.publish_approved_first_post && '1' || '0' }}
+          PETS_MAX_GIGACHAT_GENERATIONS: ${{ github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_GIGACHAT_LIMIT || inputs.gigachat_generation_limit }}
           # The secret is only usable when the opt-in checkbox above is set;
           # the job never prints it or writes it to an artifact.
-          GIGACHAT_API_KEY: ${{ inputs.use_live_gigachat && secrets.GIGACHAT_API_KEY || '' }}
+          GIGACHAT_API_KEY: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && secrets.GIGACHAT_API_KEY || '' }}
           PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
           PETS_STATE_REPOSITORY: ${{ vars.PETS_STATE_REPOSITORY }}
           PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}

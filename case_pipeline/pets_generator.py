@@ -15,20 +15,21 @@ def factual_brief_prompt(brief):
     evidence = "\n".join("- %s" % _clean(claim_of(item)) for item in facts)
     audience = {"cat": "кошек", "dog": "собак", "both": "кошек и собак"}.get(
         str(brief.get("species") or "").lower(), "домашних питомцев")
+    source_reference = "DOI: %s\n" % brief["doi"] if brief.get("doi") else ""
     return (
         "Создай оригинальный русскоязычный Telegram-пост для владельцев %(audience)s. "
         "Не переводи и не копируй статью. Используй только перечисленные факты. "
         "Запрещены неподтверждённые цифры, причинные выводы, медицинские рекомендации, "
         "диагнозы, лечение и обещания результата. Обязательно явно укажи, что выводы "
         "относятся к конкретному исследованию и не являются универсальным правилом.\n\n"
-        "Тема: %(topic)s\nDOI: %(doi)s\nИсточник: %(source_url)s\n"
+        "Тема: %(topic)s\n%(source_reference)sИсточник: %(source_url)s\n"
         "Ограничения: %(limitations)s\n"
         "Разрешённые выводы: %(allowed)s\n"
         "Запрещённые выводы: %(forbidden)s\n"
         "Атрибуция: %(attribution)s\n\n"
         "Проверенные факты:\n%(facts)s\n\n"
-        "Верни заголовок, пустую строку и 2–4 коротких абзаца. В конце добавь DOI и ссылку на источник."
-        % {"audience": audience, "topic": brief.get("topic", ""), "doi": brief.get("doi", ""),
+        "Верни заголовок, пустую строку и 2–4 коротких абзаца. В конце добавь ссылку на источник; DOI указывай только если он передан выше."
+        % {"audience": audience, "topic": brief.get("topic", ""), "source_reference": source_reference,
            "source_url": brief.get("source_url", ""),
            "limitations": "; ".join(brief.get("limitations") or ()),
            "allowed": "; ".join(brief.get("allowed_conclusions") or ()),

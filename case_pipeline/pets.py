@@ -541,11 +541,14 @@ def run(dry_run=True, publish=False, sources=None, st=None, adapters=None,
     adapters = adapters or {}
     if image_resolver is None and config.PETS_IMAGE_PROVIDER == "wikimedia":
         image_resolver = pets_images.resolve_wikimedia_commons
-    allow_publish = publish and config.PETS_PUBLISH
+    published_today = st.pets_published_today()
+    allow_publish = publish and config.PETS_PUBLISH and published_today < 1
     summary = {"checked": 0, "post_ready": 0, "published": 0, "rejected": 0,
                "review": 0, "failed": 0, "skipped": 0,
                "dry_run": dry_run or not allow_publish, "sources": list(source_ids),
-               "reason_counts": {}, "ready_material_ids": [], "demo_ready": 0}
+               "reason_counts": {}, "ready_material_ids": [], "demo_ready": 0,
+               "published_today": published_today,
+               "daily_publish_blocked": bool(publish and config.PETS_PUBLISH and published_today >= 1)}
     published = 0
     for brief in evergreen_briefs or ():
         result = process_evergreen_brief(st, brief, publish=allow_publish and published < config.PETS_PUBLISH_LIMIT,

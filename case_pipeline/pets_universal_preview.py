@@ -49,8 +49,11 @@ def _candidate_to_brief(candidate):
     if candidate.get("editorial_status") != "editorially_ready":
         raise ValueError("candidate_not_editorially_ready")
     doi = str(candidate.get("doi") or "").strip()
-    if not _DOI_RE.fullmatch(doi):
+    source_key = str(candidate.get("source_key") or "").strip()
+    if doi and not _DOI_RE.fullmatch(doi):
         raise ValueError("candidate_doi_invalid")
+    if not doi and not source_key:
+        raise ValueError("candidate_identifier_missing")
     source_url = str(candidate.get("source_url") or "").strip()
     parsed = urlparse(source_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -72,6 +75,7 @@ def _candidate_to_brief(candidate):
     return {
         "topic": topic,
         "doi": doi.lower(),
+        "source_identity": doi.lower() or source_key.lower(),
         "source_url": source_url,
         "facts": facts,
         "limitations": limitations,
@@ -85,7 +89,9 @@ def _candidate_to_brief(candidate):
                                           facts[0].attribution_requirements or "credit author, source and licence"),
         "species": str(candidate.get("species") or facts[0].species),
         "category": str(candidate.get("category") or ""),
-        "source_key": str(candidate.get("source_key") or doi.lower()),
+        "source_key": source_key or doi.lower(),
+        "image_query": str(candidate.get("image_query") or "").strip(),
+        "visual_tags": _as_tuple(candidate.get("visual_tags")),
     }
 
 
@@ -107,9 +113,9 @@ def load_editorial_briefs(path, *, max_previews=3):
         identity = str((raw or {}).get("doi") or (raw or {}).get("source_key") or "unknown")
         try:
             brief = _candidate_to_brief(raw)
-            if brief["doi"] in seen:
-                raise ValueError("candidate_duplicate_doi")
-            seen.add(brief["doi"])
+            if brief["source_identity"] in seen:
+                raise ValueError("candidate_duplicate_source")
+            seen.add(brief["source_identity"])
             if len(accepted) < int(max_previews):
                 accepted.append(brief)
             else:
@@ -162,7 +168,7 @@ def _similarity(left, right):
 def duplicate_check(brief, text, history):
     if history.get("status") != "read_only":
         return False, "history_%s" % history.get("status", "unavailable")
-    if brief["doi"].lower() in {value.lower() for value in history.get("dois", ())}:
+    if brief.get("doi") and brief["doi"].lower() in {value.lower() for value in history.get("dois", ())}:
         return True, "published_doi"
     if brief["source_url"] in set(history.get("urls", ())):
         return True, "published_source_url"
@@ -172,6 +178,9 @@ def duplicate_check(brief, text, history):
 
 
 def visual_contract(brief):
+    explicit_tags = _as_tuple(brief.get("visual_tags"))
+    if explicit_tags:
+        return {"image_query": str(brief.get("image_query") or brief["topic"]), "visual_tags": explicit_tags}
     combined = (brief["topic"] + " " + " ".join(f.claim for f in brief["facts"])).lower()
     species = "cat" if brief.get("species") == "cat" else "dog" if brief.get("species") == "dog" else ""
     for words, tag in _TOPIC_VISUALS:
@@ -200,11 +209,15 @@ def _serializable_brief(brief):
     return value
 
 
+def _source_label(brief):
+    return "DOI %s" % brief["doi"] if brief.get("doi") else "Источник без DOI"
+
+
 def _layout(title, body, brief):
-    full = "%s\n\n%s\n\nИсточник: DOI %s — %s" % (title, body, brief["doi"], brief["source_url"])
+    full = "%s\n\n%s\n\nИсточник: %s — %s" % (title, body, _source_label(brief), brief["source_url"])
     if len(full) <= 1024:
         return {"mode": "photo_with_caption", "caption": full, "continuation": "", "caption_length": len(full)}
-    caption = ("%s\n\nИсточник: DOI %s" % (title, brief["doi"]))[:1024]
+    caption = ("%s\n\nИсточник: %s" % (title, _source_label(brief)))[:1024]
     return {"mode": "photo_then_text", "caption": caption, "continuation": full, "caption_length": len(caption)}
 
 
@@ -213,9 +226,9 @@ def _markdown(payload):
     lines = ["# PETS — предпросмотр для ручного утверждения", "",
              "**Статус:** `%s`" % payload["status"], "", "## Пост", "",
              "### %s" % payload["title"], "", payload["body"], "",
-             "Источник: DOI [%s](https://doi.org/%s) — [%s](%s)" %
-             (payload["factual_brief"]["doi"], payload["factual_brief"]["doi"],
-              payload["factual_brief"]["source_url"], payload["factual_brief"]["source_url"]), "",
+             "Источник: %s — [%s](%s)" %
+             (_source_label(payload["factual_brief"]), payload["factual_brief"]["source_url"],
+              payload["factual_brief"]["source_url"]), "",
              "## Фото", ""]
     if image:
         lines += ["![Проверенное изображение](%s)" % image["url"], "",
@@ -236,9 +249,19 @@ def _markdown(payload):
     return "\n".join(lines) + "\n"
 
 
+def _cached_text(precomputed_texts, brief):
+    value = (precomputed_texts or {}).get(brief["source_identity"])
+    if not isinstance(value, dict):
+        return None
+    title = str(value.get("title") or "").strip().lstrip("#").strip()
+    body = str(value.get("body") or "").strip()
+    return (title, body) if title and body else None
+
+
 def build_previews(candidates_path, output_dir, *, history_db_path=None, max_previews=3,
                    use_live_gigachat=False, owner_approved=False, max_gigachat_calls=1,
-                   generator=None, image_resolver=None, image_downloader=None, download_images=False):
+                   generator=None, image_resolver=None, image_downloader=None, download_images=False,
+                   precomputed_texts=None, image_overrides=None):
     """Create up to three isolated preview artifacts from real factual briefs."""
     if not 0 <= int(max_gigachat_calls) <= 3:
         raise ValueError("max_gigachat_calls must be in 0..3")
@@ -252,7 +275,11 @@ def build_previews(candidates_path, output_dir, *, history_db_path=None, max_pre
         facts_ok, facts_reason = validate_fact_set(brief["facts"])
         title, body, origin = _offline_outline(brief)
         generation_status = "offline_outline"
-        if use_live_gigachat and owner_approved and calls < int(max_gigachat_calls):
+        cached = _cached_text(precomputed_texts, brief)
+        if cached:
+            title, body = cached
+            origin, generation_status = "gigachat_cached", "reused_verified_prior_result"
+        elif use_live_gigachat and owner_approved and calls < int(max_gigachat_calls):
             result = (generator or GigaChatPetsGenerator(None, enabled=False)).generate_factual_brief(brief)
             calls += 1
             if result:
@@ -265,11 +292,17 @@ def build_previews(candidates_path, output_dir, *, history_db_path=None, max_pre
         elif use_live_gigachat:
             generation_status = "gigachat_call_limit_reached"
         contract = visual_contract(brief)
-        image = resolver("pets-3-3:%s" % brief["doi"], {"title": title, "text": body, **contract}) if contract["visual_tags"] else None
+        override = (image_overrides or {}).get(brief["source_identity"])
+        image = override if isinstance(override, dict) else (
+            resolver("pets-3-3:%s" % brief["source_identity"], {"title": title, "text": body, **contract})
+            if contract["visual_tags"] else None)
         image_ok, image_reason = pets_images.validate_image(image, title)
-        text_ok, text_reason = validate_generated_text("%s\n%s" % (title, body), brief["facts"]) if origin == "gigachat" else (False, "offline_outline_requires_editorial_text")
+        text_ok, text_reason = (
+            validate_generated_text("%s\n%s" % (title, body), brief["facts"], citation_text=brief["source_url"],
+                                    allowed_source_urls=(brief["source_url"],))
+            if origin in {"gigachat", "gigachat_cached"} else (False, "offline_outline_requires_editorial_text"))
         duplicate, duplicate_reason = duplicate_check(brief, "%s\n%s" % (title, body), history)
-        post_dir = out / ("%02d_%s" % (index, re.sub(r"[^a-z0-9]+", "-", brief["doi"].lower()).strip("-")))
+        post_dir = out / ("%02d_%s" % (index, re.sub(r"[^a-z0-9]+", "-", brief["source_identity"].lower()).strip("-")))
         post_dir.mkdir(parents=True, exist_ok=True)
         image_download = {"status": "not_requested"}
         if image_ok and download_images:
@@ -310,7 +343,7 @@ def build_previews(candidates_path, output_dir, *, history_db_path=None, max_pre
         (post_dir / "pets_post_preview.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         (post_dir / "pets_post_validation.json").write_text(json.dumps(validation, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         (post_dir / "pets_post_preview.md").write_text(_markdown(payload), encoding="utf-8")
-        generated.append({"doi": brief["doi"], "status": status, "directory": post_dir.name,
+        generated.append({"doi": brief.get("doi") or None, "source_key": brief["source_key"], "status": status, "directory": post_dir.name,
                           "review_reasons": review_reasons})
     manifest = {"mode": "universal_factual_brief_preview", "loading": loading, "history": {"status": history.get("status")},
                 "posts": generated, "rejected_briefs": rejected, "gigachat_calls": calls,

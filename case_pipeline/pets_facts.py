@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 
 
 KNOWN_LICENSES = {
-    "PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA", "CC_BY_NC", "CC_BY_NC_SA", "CC_BY_NC_ND", "COPYRIGHT", "UNKNOWN",
+    "PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA", "OGL_3_0", "CC_BY_NC", "CC_BY_NC_SA", "CC_BY_NC_ND", "COPYRIGHT", "UNKNOWN",
 }
-AUTOMATIC_FACT_LICENSES = {"PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA"}
+AUTOMATIC_FACT_LICENSES = {"PUBLIC_DOMAIN", "CC0", "CC_BY", "CC_BY_SA", "OGL_3_0"}
 SENSITIVE_TERMS = (
     "дозиров", "лекарств", "препарат", "лечение", "диагноз", "токсин",
     "отрав", "экстрен", "emergency", "dose", "medication", "treatment",
@@ -54,6 +54,7 @@ def normalize_license(value):
         "PUBLICDOMAIN": "PUBLIC_DOMAIN", "CC0_1_0": "CC0", "CC_BY_4_0": "CC_BY",
         "CC_BY_SA_4_0": "CC_BY_SA", "CC_BY_NC_4_0": "CC_BY_NC",
         "CC_BY_NC_SA_4_0": "CC_BY_NC_SA", "CC_BY_NC_ND_4_0": "CC_BY_NC_ND",
+        "OGL": "OGL_3_0", "OGL_3": "OGL_3_0", "OGL_V3_0": "OGL_3_0",
     }
     raw = aliases.get(raw, raw)
     return raw if raw in KNOWN_LICENSES else "UNKNOWN"
@@ -67,6 +68,7 @@ def license_terms(license_name):
         "CC0": (True, "attribution is courteous but not required by CC0"),
         "CC_BY": (True, "credit author, source and licence"),
         "CC_BY_SA": (True, "credit author, source and licence; share adaptations under the same licence"),
+        "OGL_3_0": (True, "acknowledge the information provider and source; link to the Open Government Licence where possible"),
         "CC_BY_NC": (False, "non-commercial licence; automatic commercial reuse is blocked"),
         "CC_BY_NC_SA": (False, "non-commercial/share-alike licence; automatic reuse is blocked"),
         "CC_BY_NC_ND": (False, "no-derivatives licence; automatic adaptation is blocked"),
@@ -121,7 +123,12 @@ def validate_fact_set(facts):
     return True, ""
 
 
-def validate_generated_text(text, facts):
+_LICENSE_VERSION_RE = re.compile(
+    r"\b(?:open\s+government\s+licen[cs]e|ogl|cc(?:[-\s]?(?:by|by[-\s]?sa))?)"
+    r"\s*(?:v(?:ersion)?\s*)?\d+(?:\.\d+)?\b", re.I)
+
+
+def validate_generated_text(text, facts, *, citation_text="", allowed_source_urls=()):
     """Reject a model output that introduces visible unsupported numbers/safety claims."""
     value = str(text or "")
     if not value.strip():
@@ -129,12 +136,22 @@ def validate_generated_text(text, facts):
     source_numbers = set()
     for fact in facts or ():
         source_numbers.update(re.findall(r"\b\d+(?:[.,]\d+)?\b", fact.claim))
-    generated_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", value))
+    # Licence versions (for example ``OGL v3.0``) are attribution metadata,
+    # not editorial numerical claims.  Strip only recognised licence markers;
+    # every other visible number still has to be supported by a source fact.
+    numeric_value = _LICENSE_VERSION_RE.sub("", value)
+    generated_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", numeric_value))
     if not generated_numbers.issubset(source_numbers):
         return False, "generated_text_has_unsupported_number"
     lower = value.lower()
     if any(term in lower for term in ("дозиров", "назначьте препарат", "вылечит", "гарантирован")):
         return False, "generated_text_has_unsafe_claim"
-    if not any(fact.source_url in value for fact in facts or ()):
+    # The Telegram layout may append a source link outside the AI body.  It is
+    # still part of the rendered post, so validate it without forcing the model
+    # to duplicate a long URL in its prose.
+    cited = value + "\n" + str(citation_text or "")
+    source_urls = {str(fact.source_url) for fact in facts or () if str(fact.source_url)}
+    source_urls.update(str(url) for url in (allowed_source_urls or ()) if str(url))
+    if not any(url in cited for url in source_urls):
         return False, "generated_text_source_links_missing"
     return True, ""
