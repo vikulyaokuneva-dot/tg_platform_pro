@@ -105,9 +105,16 @@ jobs:
       - name: Run PETS safely
         run: python -m jobs.pets.run
         env:
-          # This checkbox is only one of three gates: it also needs the
-          # repository variable PETS_PUBLISH=1 and a durable state backend.
-          DRY_RUN: ${{ inputs.controlled_publish && '0' || '1' }}
+          # Manual dispatch is safe by default. A scheduled run may leave
+          # dry-run only after the owner enables both PETS-only variables;
+          # jobs.pets.run still fail-closes on failed durable restore or
+          # Telegram preflight before it can send anything.
+          DRY_RUN: ${{ (inputs.controlled_publish || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED == '1' && vars.PETS_PUBLISH == '1')) && '0' || '1' }}
+          # Defense in depth: the Python launcher re-checks this marker and
+          # both explicit flags, so a future workflow edit cannot accidentally
+          # turn a scheduled run into a real publication.
+          PETS_SCHEDULED_RUN: ${{ github.event_name == 'schedule' && '1' || '0' }}
+          PETS_AUTONOMOUS_SCHEDULE_ENABLED: ${{ vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED }}
           # A repository variable remains 0 until the owner has completed the
           # controlled-release checklist. DRY_RUN above is an independent gate.
           PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
