@@ -3,8 +3,18 @@
 import re
 
 
+# A useful PETS post can be compact.  The lower bound only excludes a title
+# with one slogan; it must never force GigaChat to pad a practical answer.
+PETS_READER_POST_MIN_CHARS = 200
+PETS_READER_POST_MAX_CHARS = 2400
+
+
 def _clean(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def reader_post_length(title, body):
+    return len(_clean("%s\n%s" % (title or "", body or "")))
 
 
 _TECHNICAL_TEXT_RE = re.compile(
@@ -70,7 +80,7 @@ def factual_brief_prompt(brief):
         "Запрещённые выводы: %(forbidden)s\n"
         "Атрибуция: %(attribution)s\n\n"
         "Проверенные факты:\n%(facts)s\n\n"
-        "Формат ответа: привлекающий, но точный заголовок; пустая строка; затем 2–4 коротких абзаца. "
+        "Формат ответа: привлекающий, но точный заголовок; пустая строка; затем 2–4 коротких абзаца. Обычно 350–900 символов: не растягивай текст ради объёма. "
         "Дай владельцу конкретную пользу: действие, небольшой чек-лист, пример или понятный факт. Не повторяй одну мысль в разных абзацах. "
         "Можно использовать 0–2 уместных эмодзи и выделить одну важную мысль Markdown-форматированием. Вопрос в конце добавляй только если он естественно вовлекает читателя. "
         "Не выводи JSON, служебные инструкции, ссылки, DOI, лицензии, англоязычные формулы лицензий и сведения о фото: система добавит источники и атрибуцию отдельным блоком."
@@ -117,7 +127,7 @@ class GigaChatPetsGenerator:
             "Создай оригинальный русскоязычный Telegram-пост для владельцев питомцев по теме: %s. "
             "Используй только факты ниже; не копируй формулировки, не добавляй диагнозы, дозировки, "
             "лечение, числовые нормы или обещания.\n\n"
-            "Верни: точный привлекательный заголовок, пустую строку и 2–4 коротких абзаца. Дай конкретную пользу: "
+            "Верни: точный привлекательный заголовок, пустую строку и 2–4 коротких абзаца. Обычно 350–900 символов: не растягивай текст ради объёма. Дай конкретную пользу: "
             "действие, пример, чек-лист или интересный факт. Не повторяй смысл между абзацами. Допустимы 0–2 умеренных эмодзи, "
             "один Markdown-акцент и уместный вопрос в конце. Не пиши JSON, ссылки, DOI, лицензионные формулы, атрибуцию фото "
             "или служебные инструкции: они будут добавлены отдельно.\n\nФакты:\n%s"
@@ -128,7 +138,7 @@ class GigaChatPetsGenerator:
             return None
         title, separator, body = raw_text.partition("\n\n")
         title, body = _clean(title), body.strip()
-        if not separator or not title or not body or not 700 <= len(_clean(title + "\n" + body)) <= 1200:
+        if not separator or not title or not body or not PETS_READER_POST_MIN_CHARS <= reader_post_length(title, body) <= PETS_READER_POST_MAX_CHARS:
             return None
         return {"title": title, "text": body, "mode": self.mode}
 
@@ -141,7 +151,7 @@ class GigaChatPetsGenerator:
         except Exception:
             return None
         text = raw_text.replace("\r\n", "\n").replace("\r", "\n").strip()
-        if not 700 <= len(_clean(text)) <= 1600:
+        if not PETS_READER_POST_MIN_CHARS <= len(_clean(text)) <= PETS_READER_POST_MAX_CHARS:
             return None
         title, _, body = text.partition("\n")
         if not title.strip() or not body.strip():

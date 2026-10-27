@@ -11,10 +11,12 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from . import ai as ai_mod
-from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor
+from . import case_model, config, editorial_profiles, extraction, httpclient, pets_editor, postformat
 from . import pets_briefs, pets_images, pets_storage, telegram, utils
 from .pets_facts import validate_fact_set, validate_generated_text
-from .pets_generator import MockPetsGenerator, validate_editorial_post
+from .pets_generator import (MockPetsGenerator, PETS_READER_POST_MAX_CHARS,
+                             PETS_READER_POST_MIN_CHARS, reader_post_length,
+                             validate_editorial_post)
 from .pets_planner import Topic, choose_topics
 
 log = logging.getLogger("case.pets")
@@ -370,7 +372,7 @@ def process_fact_material(st, topic, facts, source_id, generator=None, image_res
         return dict(out, reason="mock_generation_requires_real_ai_opt_in")
     title = generated.get("title") or topic.title
     text = generated.get("text", "")
-    if not 700 <= len(text) <= 1200:
+    if not PETS_READER_POST_MIN_CHARS <= reader_post_length(title, text) <= PETS_READER_POST_MAX_CHARS:
         st.update(mid, status="review", reason="generated_text_length_invalid")
         return dict(out, reason="generated_text_length_invalid")
     generated_ok, generated_reason = validate_generated_text(
@@ -407,6 +409,18 @@ def process_fact_material(st, topic, facts, source_id, generator=None, image_res
     attribution = "\n\nИсточники: " + "; ".join(dict.fromkeys(fact.source_url for fact in facts))
     attribution += "\nФото: %s — %s. %s" % (image["author"], image["license"], image["source_url"])
     rendered = "%s\n\n%s%s" % (title, text, attribution)
+    formatted = postformat.format_post(rendered)
+    telegram_text = postformat.to_markdownv2(formatted)
+    if len(telegram_text) > telegram.CAPTION_LIMIT:
+        caption, continuation = postformat.split_for_photo(
+            formatted, caption_limit=telegram.CAPTION_LIMIT,
+            message_limit=telegram.MESSAGE_SAFE_LIMIT, render=postformat.to_markdownv2,
+        )
+        if caption is None or continuation is None:
+            st.record_facts(mid, facts)
+            st.record_image_rights(mid, image)
+            st.update(mid, status="review", reason="telegram_layout_invalid")
+            return dict(out, reason="telegram_layout_invalid")
     st.update(mid, status="post_ready", post_text=rendered, image_url=image["url"],
               classification="pets:%s:%s" % (topic.category, topic.species),
               reason="pets_expert:external_facts")

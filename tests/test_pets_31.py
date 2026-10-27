@@ -103,6 +103,51 @@ def test_editorial_gate_accepts_short_practical_paragraphs():
     assert validate_editorial_post("A calmer walk begins at home", body) == (True, "")
 
 
+class _CompactUsefulGenerator:
+    mode = "gigachat"
+
+    def __init__(self, body):
+        self.body = body
+
+    def generate(self, topic, facts):
+        return {"title": "How to make a walk calmer", "text": self.body, "mode": self.mode}
+
+
+def test_compact_practical_post_is_queued_without_padding(tmp_path):
+    st = _storage(tmp_path)
+    body = ("Try a calm route before the walk and notice which distractions matter most.\n\n"
+            "Watch when the dog returns attention to you; this can help you plan the next outing.\n\n"
+            "What makes your walk more comfortable?")
+    result = pets.process_fact_material(st, _topic(), [_fact()], "fda_cvm",
+                                        generator=_CompactUsefulGenerator(body), image_resolver=lambda *_: _image())
+    assert result["status"] == "post_ready"
+    assert len(st.get(result["material_id"])["post_text"]) < 700
+
+
+def test_overlong_post_is_reviewed_before_telegram_layout(tmp_path):
+    st = _storage(tmp_path)
+    body = ("Try a calm route before the walk and observe the dog. " * 60 +
+            "\n\nNotice which conditions help the pet focus. " * 60)
+    result = pets.process_fact_material(st, _topic(), [_fact()], "fda_cvm",
+                                        generator=_CompactUsefulGenerator(body), image_resolver=lambda *_: _image())
+    assert result["reason"] == "generated_text_length_invalid"
+
+
+def test_long_useful_post_is_split_safely_for_telegram(tmp_path):
+    st = _storage(tmp_path)
+    body = (
+        ("Try a quieter route, observe the dog's signals, and keep the pace predictable for the whole walk. " * 7) +
+        "\n\n" +
+        ("Notice which places make it easier for the pet to focus and plan the next outing around those conditions. " * 6) +
+        "\n\n" +
+        ("Watch the response after each small change and keep the routine comfortable rather than demanding. " * 6)
+    )
+    result = pets.process_fact_material(st, _topic(), [_fact()], "fda_cvm",
+                                        generator=_CompactUsefulGenerator(body), image_resolver=lambda *_: _image())
+    assert result["status"] == "post_ready"
+    assert len(st.get(result["material_id"])["post_text"]) > 1024
+
+
 def test_mismatched_or_missing_photo_requires_review(tmp_path):
     st = _storage(tmp_path)
     result = pets.process_fact_material(st, _topic(), [_fact()], "fda_cvm", generator=_RealFixtureGenerator(),
