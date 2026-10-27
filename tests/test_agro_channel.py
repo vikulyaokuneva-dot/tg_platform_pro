@@ -520,6 +520,7 @@ def test_publish_sends_photo_with_source_and_validated_bytes(st, monkeypatch):
 def test_vk_dm_runs_only_after_successful_agro_channel_publication(st, monkeypatch):
     _fake_network(monkeypatch, {ART_URL: _art_html()})
     monkeypatch.setattr(config, "AGRO_PUBLISH", True, raising=False)
+    monkeypatch.setattr(config, "AGRO_VK_DM_ENABLED", True, raising=False)
     monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "t", raising=False)
     monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
     photo = b"\xff\xd8" + b"z" * 20000
@@ -537,6 +538,26 @@ def test_vk_dm_runs_only_after_successful_agro_channel_publication(st, monkeypat
     assert result["vk_dm_status"] == "sent"
     assert len(delivered) == 1 and delivered[0][2] is photo
     assert delivered[0][1] == st.get(delivered[0][0])["post_text"]
+
+
+def test_successful_agro_publication_sends_no_owner_copy_when_vk_dm_disabled(st, monkeypatch):
+    """The regular channel post must not generate a personal Telegram duplicate."""
+    _fake_network(monkeypatch, {ART_URL: _art_html()})
+    monkeypatch.setattr(config, "AGRO_PUBLISH", True, raising=False)
+    monkeypatch.setattr(config, "AGRO_VK_DM_ENABLED", False, raising=False)
+    monkeypatch.setattr(config, "AGRO_BOT_TOKEN", "t", raising=False)
+    monkeypatch.setattr(config, "AGRO_CHAT_ID", "-100AGRO", raising=False)
+    monkeypatch.setattr(agro.httpclient, "fetch_bytes", lambda *a, **k: b"\xff\xd8" + b"z" * 20000)
+    monkeypatch.setattr(telegram, "send_photo",
+                        lambda *a, **k: telegram.PublishResult(True, message_id=708))
+    monkeypatch.setattr(agro_vk_dm, "deliver_after_agro_publication",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("owner DM must stay disabled")))
+
+    result = agro.process_url(st, ART_URL, "botanichka", publish=True, dry_run=False)
+
+    assert result["status"] == "published"
+    assert result["vk_dm_status"] == "disabled"
+    assert st.db.execute("SELECT COUNT(*) c FROM agro_vk_dm_deliveries").fetchone()["c"] == 0
 
 
 def test_vk_dm_does_not_run_when_agro_channel_publication_fails(st, monkeypatch):
