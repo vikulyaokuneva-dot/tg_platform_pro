@@ -1,8 +1,21 @@
-name: PETS channel (manual dry-run)
+name: PETS channel
 
 on:
+  schedule:
+    # 12:00 Moscow (UTC+3). GitHub evaluates schedules in UTC.
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
+      preflight_only:
+        description: "Verify PETS bot/channel rights and durable state without preparing or sending a post"
+        required: true
+        default: false
+        type: boolean
+      prepare_evergreen_queue:
+        description: "Prepare the approved evergreen queue; controlled publish sends at most one item"
+        required: true
+        default: false
+        type: boolean
       include_demo_briefs:
         description: "Prepare the three bundled demonstration drafts (never sends Telegram)"
         required: true
@@ -10,6 +23,46 @@ on:
         type: boolean
       controlled_publish:
         description: "One owner-approved PETS publication (requires durable state and PETS_PUBLISH=1)"
+        required: true
+        default: false
+        type: boolean
+      publish_approved_first_post:
+        description: "Import only the owner-approved PETS first preview into durable queue before the controlled publish"
+        required: true
+        default: false
+        type: boolean
+      use_external_sources:
+        description: "Use official PETS source adapters (still dry-run; requires owner opt-in)"
+        required: true
+        default: false
+        type: boolean
+      use_live_gigachat:
+        description: "Use paid GigaChat only after explicit owner approval (never publishes Telegram)"
+        required: true
+        default: false
+        type: boolean
+      allow_production_queue:
+        description: "Move fully verified AI drafts into durable PETS queue; requires separate owner approval and never sends Telegram"
+        required: true
+        default: false
+        type: boolean
+      gigachat_generation_limit:
+        description: "Hard cap for paid GigaChat requests (only 1 is permitted; 0 blocks calls)"
+        required: true
+        default: 0
+        type: number
+      collect_source_candidates:
+        description: "Collect up to 10 real source candidates; no AI, no Telegram"
+        required: true
+        default: false
+        type: boolean
+      create_post_preview:
+        description: "Create PETS 3.2 factual post preview with Commons image; never sends Telegram or calls GigaChat"
+        required: true
+        default: false
+        type: boolean
+      create_universal_preview:
+        description: "Create PETS 3.3 previews from current editorial factual briefs; never sends Telegram or calls GigaChat"
         required: true
         default: false
         type: boolean
@@ -28,6 +81,9 @@ permissions:
 
 jobs:
   dry-run:
+    # The cron expression remains documented, but scheduled execution is inert
+    # until the owner explicitly enables this PETS-only repository variable.
+    if: ${{ github.event_name != 'schedule' || vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED == '1' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,12 +102,19 @@ jobs:
           key: pets-state-${{ github.run_id }}
           restore-keys: pets-state-
       - run: pip install -r requirements.txt
-      - name: Run PETS in forced dry-run mode
+      - name: Run PETS safely
         run: python -m jobs.pets.run
         env:
-          # This checkbox is only one of three gates: it also needs the
-          # repository variable PETS_PUBLISH=1 and a durable state backend.
-          DRY_RUN: ${{ inputs.controlled_publish && '0' || '1' }}
+          # Manual dispatch is safe by default. A scheduled run may leave
+          # dry-run only after the owner enables both PETS-only variables;
+          # jobs.pets.run still fail-closes on failed durable restore or
+          # Telegram preflight before it can send anything.
+          DRY_RUN: ${{ (inputs.controlled_publish || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED == '1' && vars.PETS_PUBLISH == '1')) && '0' || '1' }}
+          # Defense in depth: the Python launcher re-checks this marker and
+          # both explicit flags, so a future workflow edit cannot accidentally
+          # turn a scheduled run into a real publication.
+          PETS_SCHEDULED_RUN: ${{ github.event_name == 'schedule' && '1' || '0' }}
+          PETS_AUTONOMOUS_SCHEDULE_ENABLED: ${{ vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED }}
           # A repository variable remains 0 until the owner has completed the
           # controlled-release checklist. DRY_RUN above is an independent gate.
           PETS_PUBLISH: ${{ vars.PETS_PUBLISH }}
@@ -60,16 +123,54 @@ jobs:
           AI_AUTOMATION_BOT_TOKEN: ${{ secrets.AI_AUTOMATION_BOT_TOKEN }}
           PETS_CHAT_ID: ${{ secrets.PETS_CHAT_ID }}
           PETS_SOURCES: ${{ vars.PETS_SOURCES }}
-          PETS_PUBLISH_LIMIT: ${{ vars.PETS_PUBLISH_LIMIT }}
+          PETS_PUBLISH_LIMIT: '1'
           PETS_MAX_PER_RUN: ${{ vars.PETS_MAX_PER_RUN }}
           PETS_EDITORIAL_PROFILE: pets_expert
           PETS_CONTENT_MODE: evergreen
           PETS_DEMO_BRIEFS: ${{ inputs.include_demo_briefs && '1' || '0' }}
+          PETS_EVERGREEN_QUEUE: ${{ github.event_name == 'schedule' && '1' || (inputs.prepare_evergreen_queue && '1' || '0') }}
+          PETS_PREFLIGHT_ONLY: ${{ inputs.preflight_only && '1' || '0' }}
+          PETS_TELEGRAM_PREFLIGHT: ${{ (github.event_name == 'schedule' || inputs.controlled_publish || inputs.preflight_only) && '1' || '0' }}
+          # A scheduled factual replenishment is separately opt-in.  Until
+          # PETS_AUTONOMOUS_REPLENISH_ENABLED=1 it stays mock/source-off even
+          # when the owner later enables the daily publishing schedule.
+          PETS_EXTERNAL_SOURCES: ${{ (inputs.use_external_sources || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_GENERATOR_MODE: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && 'gigachat' || 'mock' }}
+          PETS_ALLOW_LIVE_AI: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_AI_ENABLED: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_ALLOW_PRODUCTION_QUEUE: ${{ (inputs.allow_production_queue || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && '1' || '0' }}
+          PETS_IMPORT_APPROVED_PREVIEW: ${{ inputs.publish_approved_first_post && '1' || '0' }}
+          PETS_MAX_GIGACHAT_GENERATIONS: ${{ github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_GIGACHAT_LIMIT || inputs.gigachat_generation_limit }}
+          # The secret is only usable when the opt-in checkbox above is set;
+          # the job never prints it or writes it to an artifact.
+          GIGACHAT_API_KEY: ${{ (inputs.use_live_gigachat || (github.event_name == 'schedule' && vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1')) && secrets.GIGACHAT_API_KEY || '' }}
           PETS_STATE_BACKEND: ${{ vars.PETS_STATE_BACKEND }}
           PETS_STATE_REPOSITORY: ${{ vars.PETS_STATE_REPOSITORY }}
           PETS_STATE_BRANCH: ${{ vars.PETS_STATE_BRANCH }}
           PETS_STATE_PATH: ${{ vars.PETS_STATE_PATH }}
           PETS_STATE_GITHUB_TOKEN: ${{ github.token }}
+      - name: Collect PETS source candidates (no AI, no Telegram)
+        if: ${{ inputs.collect_source_candidates || inputs.create_universal_preview }}
+        run: python -m jobs.pets.source_candidates
+        env:
+          PETS_PUBLISH: '0'
+          PETS_SOURCE_CANDIDATE_LIMIT: '10'
+      - name: Create PETS 3.2 post preview (no AI, no Telegram)
+        if: ${{ inputs.create_post_preview }}
+        run: python -m jobs.pets.post_preview
+        env:
+          PETS_PUBLISH: '0'
+          PETS_32_USE_LIVE_GIGACHAT: '0'
+          PETS_32_OWNER_APPROVED: '0'
+      - name: Create PETS 3.3 universal previews (no AI, no Telegram)
+        if: ${{ inputs.create_universal_preview }}
+        run: python -m jobs.pets.universal_preview
+        env:
+          PETS_PUBLISH: '0'
+          PETS_FACTUAL_BRIEFS_PATH: runs/pets_source_candidates.json
+          PETS_33_USE_LIVE_GIGACHAT: '0'
+          PETS_33_OWNER_APPROVED: '0'
+          PETS_33_MAX_GIGACHAT_CALLS: '0'
       - name: Save PETS dry-run state
         if: always()
         uses: actions/cache/save@v4
@@ -86,5 +187,16 @@ jobs:
           path: |
             runs/pets_preview.md
             runs/pets_media
+            runs/pets_diagnostics.json
+            runs/pets_sources_report.json
+            runs/pets_license_report.json
+            runs/pets_source_candidates.json
+            runs/pets_source_candidates_diagnostics.json
+            runs/pets_post_preview/pets_post_preview.md
+            runs/pets_post_preview/pets_post_preview.json
+            runs/pets_post_preview/pets_post_validation.json
+            runs/pets_post_preview/pets_post_diagnostics.json
+            runs/pets_post_preview/pets_post_photo.jpg
+            runs/pets_universal_preview
             jobs/pets/storage.json
           retention-days: 14

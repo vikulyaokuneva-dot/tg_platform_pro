@@ -86,6 +86,57 @@ def test_pets_workflow_reuses_shared_bot_secret_and_own_chat_secret():
     assert "PETS_BOT_TOKEN" not in text
 
 
+def test_pets_scheduled_publish_requires_both_explicit_owner_flags():
+    """Cron stays dry-run unless schedule and PETS publication are both enabled."""
+    text = _read(PETS_YML)
+    assert "PETS_SCHEDULED_RUN: ${{ github.event_name == 'schedule' && '1' || '0' }}" in text
+    assert "vars.PETS_AUTONOMOUS_SCHEDULE_ENABLED == '1'" in text
+    assert "vars.PETS_PUBLISH == '1'" in text
+    assert "inputs.controlled_publish || (github.event_name == 'schedule'" in text
+
+
+def test_pets_launcher_keeps_scheduled_run_dry_without_either_flag():
+    from jobs.pets.run import resolve_dry_run
+
+    base = {"PETS_SCHEDULED_RUN": "1", "DRY_RUN": "0"}
+    assert resolve_dry_run({**base, "PETS_AUTONOMOUS_SCHEDULE_ENABLED": "0", "PETS_PUBLISH": "1"})
+    assert resolve_dry_run({**base, "PETS_AUTONOMOUS_SCHEDULE_ENABLED": "1", "PETS_PUBLISH": "0"})
+
+
+def test_pets_launcher_allows_scheduled_real_mode_only_with_both_flags():
+    from jobs.pets.run import resolve_dry_run
+
+    assert resolve_dry_run({
+        "PETS_SCHEDULED_RUN": "1",
+        "PETS_AUTONOMOUS_SCHEDULE_ENABLED": "1",
+        "PETS_PUBLISH": "1",
+        "DRY_RUN": "1",
+    }) is False
+
+
+def test_pets_launcher_manual_default_remains_dry_run():
+    from jobs.pets.run import resolve_dry_run
+
+    assert resolve_dry_run({"DRY_RUN": "1"}) is True
+    assert resolve_dry_run({"DRY_RUN": "0"}) is False
+
+
+def test_pets_scheduled_replenishment_chain_uses_explicit_gigachat_and_queue_gates():
+    """The scheduled source-to-queue path cannot silently use mock or paid AI."""
+    workflow = _read(PETS_YML)
+    job = _read(os.path.join(ROOT, "jobs", "pets", "job.py"))
+
+    assert "vars.PETS_AUTONOMOUS_REPLENISH_ENABLED == '1'" in workflow
+    assert "PETS_EXTERNAL_SOURCES:" in workflow
+    assert "PETS_GENERATOR_MODE:" in workflow
+    assert "PETS_ALLOW_LIVE_AI:" in workflow
+    assert "PETS_ALLOW_PRODUCTION_QUEUE:" in workflow
+    assert "PETS_MAX_GIGACHAT_GENERATIONS:" in workflow
+    assert "_DailyLimitedGigaChatGenerator" in job
+    assert "gigachat_generation_limit_must_be_1" in job
+    assert "replenish_verified_queue(" in job
+
+
 def test_workflows_do_not_hardcode_chat_id():
     """chat_id — только в Secrets/Variables: литерал в workflow = регресс."""
     for path in (DAILY_YML, CASE_YML):

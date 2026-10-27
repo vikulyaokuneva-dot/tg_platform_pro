@@ -1,0 +1,84 @@
+{
+  "candidates": [
+    {
+      "editorial_status": "editorially_ready",
+      "doi": "",
+      "source_key": "pets46-apartment-dog-government-guidance",
+      "source_url": "https://www.gov.uk/government/publications/code-of-practice-for-the-welfare-of-dogs",
+      "adaptation_allowed": true,
+      "title": "Собака для квартиры: важнее не метры, а ваш обычный день",
+      "species": "dog",
+      "category": "owner_lifestyle",
+      "image_query": "dog indoors home",
+      "visual_tags": ["dog", "home"],
+      "limitations": [
+        "Это общий чек-лист перед выбором собаки, а не рейтинг пород и не индивидуальная рекомендация.",
+        "Потребности конкретной собаки зависят от возраста, состояния и индивидуальных особенностей; их нельзя вывести только из размера жилья.",
+        "Материал не заменяет разговор с организацией, у которой вы берёте собаку, или с профильным специалистом."
+      ],
+      "allowed_conclusions": [
+        "предложить сопоставить привычный режим владельца с потребностями будущей собаки",
+        "напомнить о безопасном спокойном месте дома, времени на занятия и планировании отсутствий",
+        "отдельно указать, что размер квартиры сам по себе не является полным критерием выбора"
+      ],
+      "forbidden_conclusions": [
+        "называть конкретную породу идеальной для квартиры",
+        "гарантировать характер или уровень активности по породе",
+        "давать медицинские рекомендации, дозировки или числовые нормы прогулок"
+      ],
+      "attribution_requirements": "Contains public sector information from the Department for Environment, Food & Rural Affairs, licensed under the Open Government Licence v3.0.",
+      "facts": [
+        {
+          "topic": "Выбор собаки для квартиры",
+          "species": "dog",
+          "claim": "Перед выбором собаки стоит оценить, сколько времени хозяин обычно проводит вне дома и сможет ли он регулярно уделять ей время.",
+          "source_url": "https://www.nidirect.gov.uk/buying-a-puppy",
+          "source_name": "nidirect / Department of Agriculture, Environment and Rural Affairs",
+          "source_type": "government_guidance",
+          "author_or_body": "Northern Ireland Executive",
+          "published_at": null,
+          "license": "OGL-3.0",
+          "license_source_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+          "attribution_requirements": "Acknowledge the information provider and source; link to the Open Government Licence where possible.",
+          "adaptation_allowed": true,
+          "evidence_level": "government_guidance",
+          "source_section": "Lifestyle",
+          "fact_kind": "owner_planning"
+        },
+        {
+          "topic": "Выбор собаки для квартиры",
+          "species": "dog",
+          "claim": "Для собаки необходимо безопасное место, где она может спокойно отдыхать и чувствовать себя комфортно.",
+          "source_url": "https://www.nidirect.gov.uk/buying-a-puppy",
+          "source_name": "nidirect / Department of Agriculture, Environment and Rural Affairs",
+          "author_or_body": "Northern Ireland Executive",
+          "published_at": null,
+          "license": "OGL-3.0",
+          "license_source_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+          "attribution_requirements": "Acknowledge the information provider and source; link to the Open Government Licence where possible.",
+          "adaptation_allowed": true,
+          "evidence_level": "government_guidance",
+          "source_section": "Environment",
+          "fact_kind": "environment"
+        },
+        {
+          "topic": "Выбор собаки для квартиры",
+          "species": "dog",
+          "claim": "При оценке совместимости с домашним режимом нужно учитывать возможности для прогулок, занятий и игры, а не только площадь жилья.",
+          "source_url": "https://www.nidirect.gov.uk/buying-a-puppy",
+          "source_name": "nidirect / Department of Agriculture, Environment and Rural Affairs",
+          "source_type": "government_guidance",
+          "author_or_body": "Northern Ireland Executive",
+          "published_at": null,
+          "license": "OGL-3.0",
+          "license_source_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+          "attribution_requirements": "Acknowledge the information provider and source; link to the Open Government Licence where possible.",
+          "adaptation_allowed": true,
+          "evidence_level": "government_guidance",
+          "source_section": "Exercise, training, play",
+          "fact_kind": "owner_planning"
+        }
+      ]
+    }
+  ]
+}

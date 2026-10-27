@@ -145,8 +145,11 @@ AGRO_VK_DM_CHAT_ID = env("AGRO_VK_DM_CHAT_ID")
 # не появилось второго бота по ошибке.
 PETS_CHAT_ID = env("PETS_CHAT_ID")
 PETS_DB_PATH = env("PETS_DB_PATH", os.path.join(ROOT, "data", "pets_channel.db"))
+PETS_CANDIDATES_DB_PATH = env("PETS_CANDIDATES_DB_PATH", os.path.join(ROOT, "data", "pets_source_candidates.db"))
 PETS_PUBLISH = env("PETS_PUBLISH", "0") == "1"
-PETS_PUBLISH_LIMIT = int(env("PETS_PUBLISH_LIMIT", "1"))
+# PETS is intentionally capped at one delivery per run.  The workflow has a
+# second cap, but this protects direct/local invocations as well.
+PETS_PUBLISH_LIMIT = min(1, max(0, int(env("PETS_PUBLISH_LIMIT", "1"))))
 PETS_MAX_PER_RUN = int(env("PETS_MAX_PER_RUN", "3"))
 PETS_SOURCE_DISABLED_VALUES = {"", "0", "false", "none", "null", "off"}
 
@@ -167,6 +170,27 @@ PETS_REQUIRE_DURABLE_STATE = env("PETS_REQUIRE_DURABLE_STATE", "1") == "1"
 PETS_AI_ENABLED = env("PETS_AI_ENABLED", "0") == "1"
 PETS_IMAGE_PROVIDER = env("PETS_IMAGE_PROVIDER", "wikimedia").strip().lower()
 PETS_DEMO_BRIEFS = env("PETS_DEMO_BRIEFS", "0") == "1"
+# Curated original Russian evergreen queue.  It has no dependency on a paid
+# model and is the only PETS content path permitted to publish automatically.
+PETS_EVERGREEN_QUEUE = env("PETS_EVERGREEN_QUEUE", "0") == "1"
+PETS_PREFLIGHT_ONLY = env("PETS_PREFLIGHT_ONLY", "0") == "1"
+PETS_TELEGRAM_PREFLIGHT = env("PETS_TELEGRAM_PREFLIGHT", "0") == "1"
+# PETS 3.1 external sources and paid/editorial AI are independent, explicit
+# gates.  They are disabled in every default local and GitHub Actions run.
+PETS_EXTERNAL_SOURCES = env("PETS_EXTERNAL_SOURCES", "0") == "1"
+PETS_OFFICIAL_SOURCES = pets_source_ids(env("PETS_OFFICIAL_SOURCES", "fda_cvm,openfda,cdc_healthy_pets,frontiers_vet"))
+# Only these evidence-source identifiers may feed the factual candidate queue.
+# Their adapters retain their own licence/editorial gates; unknown ids fail closed.
+PETS_CANDIDATE_SOURCES = pets_source_ids(env("PETS_CANDIDATE_SOURCES", "pmc_oa,frontiers_vet,fda_cvm"))
+PETS_QUEUE_TARGET = int(env("PETS_QUEUE_TARGET", "7"))
+PETS_QUEUE_REPLENISH_BELOW = int(env("PETS_QUEUE_REPLENISH_BELOW", "5"))
+# A source-only run must not mutate durable production state.  Moving a
+# verified draft into the real publication queue needs separate owner opt-in.
+PETS_ALLOW_PRODUCTION_QUEUE = env("PETS_ALLOW_PRODUCTION_QUEUE", "0") == "1"
+PETS_IMPORT_APPROVED_PREVIEW = env("PETS_IMPORT_APPROVED_PREVIEW", "0") == "1"
+PETS_GENERATOR_MODE = env("PETS_GENERATOR_MODE", "mock").strip().lower()
+PETS_ALLOW_LIVE_AI = env("PETS_ALLOW_LIVE_AI", "0") == "1"
+PETS_MAX_GIGACHAT_GENERATIONS = int(env("PETS_MAX_GIGACHAT_GENERATIONS", "0"))
 # GitHub Contents API keeps PETS state on a dedicated branch. It is versioned
 # and uses an optimistic SHA precondition; the workflow concurrency group
 # serializes normal runs. Disabled until PETS_STATE_BACKEND=github.

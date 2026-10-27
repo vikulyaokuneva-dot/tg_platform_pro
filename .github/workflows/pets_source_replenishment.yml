@@ -1,0 +1,42 @@
+name: PETS factual source replenishment
+
+on:
+  schedule:
+    # Source-only preparation at 10:00 Moscow. The job is inert until the
+    # owner explicitly sets PETS_SOURCE_REPLENISH_ENABLED=1.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-only:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.PETS_SOURCE_REPLENISH_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Collect factual candidates only
+        run: python -m jobs.pets.source_candidates
+        env:
+          # This workflow intentionally has neither bot nor GigaChat secrets.
+          PETS_PUBLISH: '0'
+          PETS_ALLOW_LIVE_AI: '0'
+          PETS_ALLOW_PRODUCTION_QUEUE: '0'
+          PETS_SOURCE_CANDIDATE_LIMIT: '10'
+          PETS_SOURCE_CANDIDATE_SOURCES: 'pmc_oa,frontiers_vet'
+          PETS_CANDIDATES_DB_PATH: ${{ runner.temp }}/pets-source/candidates.db
+          CASE_RUNS_DIR: ${{ runner.temp }}/pets-source/runs
+      - name: Upload source-only artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pets-source-replenishment-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pets-source/runs/pets_source_candidates.json
+            ${{ runner.temp }}/pets-source/runs/pets_source_candidates_diagnostics.json
+          retention-days: 14

@@ -120,6 +120,56 @@ def test_pets_reuses_shared_bot_with_own_chat(monkeypatch):
     assert telegram.credentials("agro") == ("shared-token", "-100agro")
 
 
+def test_pets_preflight_requires_an_administrator_without_exposing_credentials(monkeypatch):
+    monkeypatch.setattr(config, "BOT_TOKEN", "shared-token")
+    monkeypatch.setattr(config, "PETS_CHAT_ID", "-100pets")
+
+    class Response:
+        content = b"{}"
+        status_code = 200
+        def __init__(self, payload):
+            self.payload = payload
+        def json(self):
+            return self.payload
+
+    responses = iter((
+        {"ok": True, "result": {"id": 77, "username": "manager_bot"}},
+        {"ok": True, "result": {"type": "channel"}},
+        {"ok": True, "result": {"status": "administrator"}},
+    ))
+    monkeypatch.setattr(telegram.requests, "get", lambda *args, **kwargs: Response(next(responses)))
+    result = telegram.pets_channel_preflight()
+    assert result == {"ok": True, "credentials_configured": True,
+                      "bot_username": "manager_bot", "chat_type": "channel",
+                      "membership": "administrator"}
+    assert "shared-token" not in repr(result)
+    assert "-100pets" not in repr(result)
+
+
+def test_evergreen_publish_records_one_delivery_and_never_retries_after_checkpoint_failure(st, monkeypatch):
+    brief = pets_briefs.EVERGREEN_BRIEFS[0]
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", True)
+    monkeypatch.setattr(config, "PETS_STATE_BACKEND", "github")
+    monkeypatch.setattr(config, "PETS_PUBLISH", True)
+    monkeypatch.setattr(pets.httpclient, "fetch_bytes", lambda _url: b"image")
+    sent = []
+    monkeypatch.setattr(telegram, "publish_post", lambda *args, **kwargs: sent.append(1) or telegram.PublishResult(True, message_id=501))
+    phases = []
+    def checkpoint(phase):
+        phases.append(phase)
+        if phase == "published":
+            raise RuntimeError("state unavailable after send")
+    first = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False, checkpoint=checkpoint)
+    assert first["status"] == "published"
+    assert first["telegram_message_id"] == 501
+    assert first["durable_state"] == "checkpoint_failed_after_send"
+    assert sent == [1]
+    assert st.seen_url("draft://pets/" + brief["id"])["status"] == "published"
+    second = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False, checkpoint=checkpoint)
+    assert second["status"] == "skipped"
+    assert sent == [1]
+
+
 def test_all_ten_sources_are_registry_candidates_not_default_enabled():
     assert len(pets_sources.SOURCE_CANDIDATES) == 10
     assert config.PETS_SOURCES == []
@@ -186,6 +236,36 @@ def test_original_briefs_never_send_even_when_publish_is_requested(st, monkeypat
     assert summary["published"] == 0
 
 
+def test_evergreen_queue_excludes_all_demo_briefs():
+    demo_ids = {brief["id"] for brief in pets_briefs.DEFAULT_BRIEFS}
+    evergreen_ids = {brief["id"] for brief in pets_briefs.EVERGREEN_BRIEFS}
+    assert evergreen_ids
+    assert demo_ids.isdisjoint(evergreen_ids)
+
+
+def test_existing_state_quarantines_only_curated_rows_outside_evergreen_allowlist(st):
+    demo_url = "draft://pets/" + pets_briefs.DEFAULT_BRIEFS[1]["id"]
+    allowed_url = "draft://pets/" + pets_briefs.EVERGREEN_BRIEFS[0]["id"]
+    published_url = "draft://pets/" + pets_briefs.DEFAULT_BRIEFS[0]["id"]
+    demo_id = st.add(demo_url, "curated_original")
+    allowed_id = st.add(allowed_url, "curated_original")
+    published_id = st.add(published_url, "curated_original")
+    st.update(demo_id, status="post_ready")
+    st.update(allowed_id, status="post_ready")
+    st.update(published_id, status="published")
+    assert st.migrate_demo_materials((allowed_url,)) == 1
+    assert st.get(demo_id)["status"] == "demo_ready"
+    assert st.get(allowed_id)["status"] == "post_ready"
+    assert st.get(published_id)["status"] == "published"
+
+
+def test_demo_brief_is_rejected_by_automatic_evergreen_path(st, monkeypatch):
+    monkeypatch.setattr(telegram, "publish_post", lambda *a, **kw: pytest.fail("demo must not send"))
+    result = pets.process_evergreen_brief(st, pets_briefs.DEFAULT_BRIEFS[0], publish=True, dry_run=False)
+    assert result == {"source": "curated_original", "status": "rejected",
+                      "reason": "evergreen_not_allowlisted"}
+
+
 def test_existing_demo_rows_are_migrated_out_of_automatic_ready(st):
     mid = st.add("draft://pets/old-demo", "curated_original")
     st.update(mid, status="post_ready")
@@ -200,6 +280,13 @@ def test_pets_publication_ledger_omits_chat_id(st):
     row = st.db.execute("SELECT chat_id, content_type FROM publications WHERE material_id=?", (mid,)).fetchone()
     assert row["chat_id"] is None
     assert row["content_type"] == "pets"
+
+
+def test_pets_daily_limit_uses_durable_ledger_and_moscow_day(st):
+    mid = st.add("draft://pets/daily-limit", "curated_original")
+    st.update(mid, content_hash="safe", status="post_ready")
+    st.mark_pets_published(mid, 43, "pets-daily-limit")
+    assert st.pets_published_today() == 1
 
 
 def test_pets_job_dry_run_creates_review_drafts_without_sending(tmp_path, monkeypatch):
