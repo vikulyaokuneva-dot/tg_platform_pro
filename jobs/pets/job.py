@@ -106,11 +106,6 @@ def run(ctx):
     if state_error:
         ctx.log("pets durable state unavailable; real publication blocked")
     st = PetsStorage(config.PETS_DB_PATH)
-    approved_preview = {"status": "not_requested"}
-    if config.PETS_IMPORT_APPROVED_PREVIEW:
-        approved_preview = queue_first_approved_post(st)
-        if approved_preview.get("status") == "post_ready" and backend and not state_error:
-            checkpoint("owner_approved_preview_queued")
     allowed_evergreen_urls = tuple("draft://pets/%s" % brief["id"]
                                    for brief in pets_briefs.EVERGREEN_BRIEFS)
     migrated_demos = st.migrate_demo_materials(allowed_evergreen_urls)
@@ -119,6 +114,12 @@ def run(ctx):
         if backend is None:
             return
         backend.checkpoint(config.PETS_DB_PATH, phase)
+
+    approved_preview = {"status": "not_requested"}
+    if config.PETS_IMPORT_APPROVED_PREVIEW:
+        approved_preview = queue_first_approved_post(st)
+        if approved_preview.get("status") == "post_ready" and backend and not state_error:
+            checkpoint("owner_approved_preview_queued")
 
     summary = pets.run(dry_run=dry,
                        publish=os.getenv("PETS_PUBLISH", "0") == "1" and not dry,
