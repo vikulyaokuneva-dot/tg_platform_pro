@@ -40,11 +40,12 @@ jobs:
       - name: Run source-only preview or explicitly approved paid A/B experiment
         env:
           EXPERIMENT_RUN_LIVE: ${{ inputs.run_live || (github.event_name == 'pull_request' && github.event.action == 'opened' && github.head_ref == 'experiment/gigachat-structured-editor') }}
+          EXPERIMENT_RUNS_PER_VARIANT: ${{ inputs.runs_per_variant || '3' }}
           GIGACHAT_API_KEY: ${{ (inputs.run_live || (github.event_name == 'pull_request' && github.event.action == 'opened' && github.head_ref == 'experiment/gigachat-structured-editor')) && secrets.GIGACHAT_API_KEY || '' }}
           GIGACHAT_MODEL: GigaChat-2
         run: |
           if [ "$EXPERIMENT_RUN_LIVE" = "true" ]; then
-            python -m experiments.structured_editor --channel all --live --allow-paid-gigachat --runs-per-variant "${{ inputs.runs_per_variant }}" --output-dir artifacts/structured_editor
+            python -m experiments.structured_editor --channel all --live --allow-paid-gigachat --runs-per-variant "$EXPERIMENT_RUNS_PER_VARIANT" --output-dir artifacts/structured_editor
           else
             python -m experiments.structured_editor --channel agro --dry-run --output-dir artifacts/structured_editor
           fi
