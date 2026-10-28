@@ -67,3 +67,13 @@ def test_current_editor_result_records_mechanical_fact_gate():
     assert result.status == "passed"
     assert result.native_structured_output is False
     assert result.usage["total_tokens"] == 55
+
+
+def test_unsupported_harvest_promise_is_sent_to_review():
+    brief = editor.resolve_brief("agro")
+    errors = editor.validate_reader_post(
+        "Осенний уход за плодовым садом",
+        "Проверьте почву и защитите молодой ствол. Деревья отблагодарят вас щедрым урожаем весной.",
+        brief,
+    )
+    assert "unsupported_promise_or_medical_claim" in errors

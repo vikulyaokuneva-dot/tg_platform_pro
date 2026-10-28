@@ -337,7 +337,12 @@ def split_post(raw: str) -> tuple[str, str]:
 
 
 _DISALLOWED_TECHNICAL = re.compile(r"(?:^\s*[\[{]|\"(?:title|body|source_ids)\"\s*:|\bjson\b|\bdoi\b|licensed under)", re.I)
-_MEDICAL_OR_PROMISE = re.compile(r"(?:лечит|диагноз|гарантиру|вылечит|всегда|никогда)", re.I)
+_MEDICAL_OR_PROMISE = re.compile(
+    r"(?:лечит|диагноз|гарантиру|вылечит|всегда|никогда|"
+    r"отблагодар\w*\s+вас\s+[^.!?\n]*урожа\w*|обеспеч\w*\s+\w*урожа\w*|"
+    r"точно\s+пережив\w*\s+зиму)",
+    re.I,
+)
 
 
 def validate_reader_post(title: str, body: str, brief: FactualBrief, source_ids: list[str] | None = None) -> list[str]:
@@ -351,7 +356,7 @@ def validate_reader_post(title: str, body: str, brief: FactualBrief, source_ids:
     if _DISALLOWED_TECHNICAL.search(full):
         errors.append("technical_metadata_in_reader_text")
     if _MEDICAL_OR_PROMISE.search(full):
-        errors.append("medical_or_absolute_claim")
+        errors.append("unsupported_promise_or_medical_claim")
     if source_ids is not None:
         unknown = sorted(set(source_ids) - brief.source_ids)
         if unknown:
