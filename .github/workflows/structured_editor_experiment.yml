@@ -1,0 +1,50 @@
+name: Experimental GigaChat Structured Editor
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Run paid A/B experiment (18 calls with the default settings); false is source-only dry-run"
+        required: true
+        default: false
+        type: boolean
+      runs_per_variant:
+        description: "Independent samples for each A/B editor and each of three topics"
+        required: true
+        default: "3"
+        type: choice
+        options: ["1", "2", "3"]
+
+permissions:
+  contents: read
+
+jobs:
+  structured-editor:
+    runs-on: ubuntu-latest
+    # This workflow is intentionally manual-only and exists on the
+    # experiment branch. It has no schedule, no Telegram/VK credentials and
+    # no access to PETS durable-state credentials.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated experiment dependencies
+        run: pip install -r requirements.txt -r experiments/requirements-structured-editor.txt
+      - name: Run source-only preview or explicitly approved paid A/B experiment
+        env:
+          GIGACHAT_API_KEY: ${{ inputs.run_live && secrets.GIGACHAT_API_KEY || '' }}
+          GIGACHAT_MODEL: GigaChat-2
+        run: |
+          if [ "${{ inputs.run_live }}" = "true" ]; then
+            python -m experiments.structured_editor --channel all --live --allow-paid-gigachat --runs-per-variant "${{ inputs.runs_per_variant }}" --output-dir artifacts/structured_editor
+          else
+            python -m experiments.structured_editor --channel agro --dry-run --output-dir artifacts/structured_editor
+          fi
+      - name: Upload isolated experiment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: structured-editor-${{ github.run_id }}
+          path: artifacts/structured_editor
+          retention-days: 14
