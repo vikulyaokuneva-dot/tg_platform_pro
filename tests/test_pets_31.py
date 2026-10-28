@@ -7,7 +7,8 @@ from case_pipeline.pets_facts import Fact
 from case_pipeline.pets_facts import license_terms, normalize_license
 from case_pipeline.pets_generator import MockPetsGenerator, validate_editorial_post
 from case_pipeline.pets_planner import Topic, choose_topics
-from case_pipeline.pets_candidates import FdaCvmSafetyAdapter, FrontiersVeterinaryPmcAdapter, collect_source_candidates
+from case_pipeline.pets_candidates import (FdaCvmSafetyAdapter, FrontiersVeterinaryPmcAdapter,
+                                           PmcOpenAccessAdapter, TOPIC_CATALOG, collect_source_candidates)
 from case_pipeline.pets_sources import FdaCvmAdapter
 from case_pipeline.pets_storage import PetsStorage
 from core.context import JobContext
@@ -228,8 +229,9 @@ def test_cc_by_sa_is_preserved_with_share_alike_obligation():
 
 
 class _Response:
-    def __init__(self, payload=None, content=b"", status=200):
+    def __init__(self, payload=None, content=b"", status=200, headers=None):
         self._payload, self.content, self.status_code = payload or {}, content, status
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -251,6 +253,26 @@ class _PmcSession:
         <sec><title>Discussion</title><p>The study findings are limited to the observed animals and should not become a universal recommendation.</p></sec>
         </body></article></pmc-articleset>'''
         return _Response(content=xml)
+
+
+def test_pmc_retries_a_rate_limited_request_before_failing_the_source():
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return _Response(status=429, headers={"Retry-After": "1"})
+            return _Response({"esearchresult": {"idlist": ["123"]}})
+
+    waits = []
+    session = Session()
+    adapter = PmcOpenAccessAdapter(session=session, retries=1, request_interval=0.5,
+                                   sleep=waits.append, clock=lambda: 0)
+    assert adapter.search_ids(TOPIC_CATALOG[0], limit=1) == ["123"]
+    assert session.calls == 2
+    assert waits == [1.0]
 
 
 def test_frontiers_pmc_connector_collects_traceable_article_level_candidate(tmp_path):

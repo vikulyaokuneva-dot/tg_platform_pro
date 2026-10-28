@@ -9,6 +9,7 @@ enough for a future owner-facing draft.
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
+import time
 import xml.etree.ElementTree as ET
 
 import requests
@@ -347,9 +348,19 @@ class PmcOpenAccessAdapter:
     source_type = "primary_research"
     journal_query = ""
 
-    def __init__(self, session=requests, email=None, tool="tg_platform_pets", max_topic_specs=8):
+    def __init__(self, session=requests, email=None, tool="tg_platform_pets", max_topic_specs=8,
+                 request_interval=None, retries=2, sleep=time.sleep, clock=time.monotonic):
         self.session, self.email, self.tool = session, email, tool
         self.max_topic_specs = max(1, min(int(max_topic_specs), len(TOPIC_CATALOG)))
+        # NCBI E-utilities permits only a small unauthenticated request rate.
+        # GitHub-hosted runners share an IP, so stay below that limit and retry
+        # transient overloads instead of losing the whole source collection.
+        if request_interval is None:
+            request_interval = 0.5 if session is requests else 0.0
+        self.request_interval = max(0.0, float(request_interval))
+        self.retries = max(0, int(retries))
+        self.sleep, self.clock = sleep, clock
+        self._next_request_at = 0.0
 
     def _get(self, endpoint, **params):
         # NCBI accepts a tool identifier without an invented contact address.
@@ -357,11 +368,27 @@ class PmcOpenAccessAdapter:
         params.update({"tool": self.tool})
         if self.email:
             params["email"] = self.email
-        response = self.session.get(NCBI_EUTILS + endpoint, params=params,
-                                    headers={"User-Agent": USER_AGENT}, timeout=30)
-        if response.status_code != 200:
+        for attempt in range(self.retries + 1):
+            remaining = self._next_request_at - self.clock()
+            if remaining > 0:
+                self.sleep(remaining)
+            response = self.session.get(NCBI_EUTILS + endpoint, params=params,
+                                        headers={"User-Agent": USER_AGENT}, timeout=30)
+            self._next_request_at = self.clock() + self.request_interval
+            if response.status_code == 200:
+                return response
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.retries:
+                headers = getattr(response, "headers", {}) or {}
+                try:
+                    retry_after = float(headers.get("Retry-After", 1))
+                except (TypeError, ValueError):
+                    retry_after = 1.0
+                self.sleep(max(self.request_interval, retry_after))
+                # The retry delay already satisfies the normal request gap.
+                self._next_request_at = 0.0
+                continue
             raise RuntimeError("pmc_http_%s" % response.status_code)
-        return response
+        raise RuntimeError("pmc_request_retries_exhausted")
 
     def search_ids(self, spec, limit=3):
         query = "%s AND %s" % (self.journal_query, spec.pmc_query) if self.journal_query else spec.pmc_query
