@@ -154,14 +154,38 @@ def test_commons_403_is_saved_as_non_secret_download_diagnostics():
     class Session:
         def get(self, url, **kwargs):
             return Response()
-    image = dict(_image(), url="https://thumb.wikimedia.org/photo.jpg?temporary=secret",
-                 original_url="https://upload.wikimedia.org/photo.jpg?temporary=secret")
-    data, diagnostic = preview.pets_images.download_preview_image(image, session=Session())
+    image = dict(_image(),
+                 url="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Photo.jpg/1200px-Photo.jpg?temporary=secret",
+                 original_url="https://upload.wikimedia.org/wikipedia/commons/a/a1/Photo.jpg?temporary=secret",
+                 source_url="https://commons.wikimedia.org/wiki/File:Photo.jpg")
+    data, diagnostic = preview.pets_images.download_preview_image(image, session=Session(), max_attempts=3)
     assert data is None and diagnostic["status"] == "image_download_failed"
-    assert [item["http_status"] for item in diagnostic["attempts"]] == [403, 403]
+    assert [item["http_status"] for item in diagnostic["attempts"]] == [403, 403, 403]
     assert all(item["bytes"] == 7 for item in diagnostic["attempts"])
     assert all("temporary" not in item["url"] for item in diagnostic["attempts"])
     assert "set-cookie" not in diagnostic["attempts"][0]["headers"]
+
+
+def test_unverified_original_url_is_not_used_as_a_fallback():
+    class Response:
+        status_code = 403
+        content = b"blocked"
+        headers = {"Content-Type": "text/html"}
+    class Session:
+        def __init__(self):
+            self.urls = []
+        def get(self, url, **kwargs):
+            self.urls.append(url)
+            return Response()
+    session = Session()
+    image = dict(_image(), url="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Photo.jpg/1200px-Photo.jpg",
+                 original_url="https://upload.wikimedia.org/wikipedia/commons/a/a1/A-different-file.jpg",
+                 source_url="https://commons.wikimedia.org/wiki/File:Photo.jpg")
+    data, diagnostic = preview.pets_images.download_preview_image(image, session=session, max_attempts=3)
+    assert data is None and len(diagnostic["attempts"]) == 2
+    assert image["original_url"] not in session.urls
+    assert session.urls[0] == image["url"]
+    assert session.urls[1].startswith("https://commons.wikimedia.org/wiki/Special:FilePath/Photo.jpg")
 
 
 def test_failed_image_download_keeps_verified_link_but_blocks_ready_status(tmp_path):
@@ -317,3 +341,23 @@ def test_image_retry_permanent_failure_stops_without_sleep():
         max_attempts=3, sleep=delays.append)
     assert data is None and len(diag['attempts']) == 1
     assert diag['attempts'][0]['reason'] == 'http_status_403' and not delays
+
+
+def test_image_retry_budget_is_global_across_verified_versions():
+    class Response:
+        status_code = 429
+        content = b"limited"
+        headers = {'Content-Type': 'text/html'}
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+    image = dict(_image(),
+                 url="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Photo.jpg/1200px-Photo.jpg",
+                 original_url="https://upload.wikimedia.org/wikipedia/commons/a/a1/Photo.jpg",
+                 source_url="https://commons.wikimedia.org/wiki/File:Photo.jpg")
+    delays = []
+    data, diag = preview.pets_images.download_preview_image(image, session=Session(), max_attempts=3,
+                                                              sleep=delays.append)
+    assert data is None and len(diag["attempts"]) == 3
+    assert [attempt["version"] for attempt in diag["attempts"]] == ["thumbnail"] * 3
+    assert delays == [1.5, 3]

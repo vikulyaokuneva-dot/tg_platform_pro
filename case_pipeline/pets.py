@@ -6,8 +6,8 @@ rights metadata, no machine translation/paid editor by default and no real send
 without a durable state backend.  It reuses the platform's HTTP, extraction,
 SQLite lifecycle and Telegram publisher without changing AGRO behaviour.
 """
-import logging
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -289,10 +289,25 @@ def process_evergreen_brief(st, brief, *, publish=False, dry_run=True, checkpoin
     if prepared.get("status") not in {"demo_ready", "skipped"}:
         return prepared
     row = st.seen_url(url) or {}
+    if row.get("id") is not None:
+        # ``seen_url`` intentionally returns only the fields needed for
+        # deduplication.  The retry policy below also needs the persisted
+        # reason and image URL, so load the full row before deciding.
+        row = st.get(row["id"]) or row
     if row.get("status") == "published":
         return dict(prepared, status="skipped", reason="already published")
     if row.get("status") == "demo_ready":
         st.update(row["id"], status="post_ready", reason="pets_evergreen:verified_original")
+        row = st.get(row["id"]) or row
+    elif row.get("status") == "review":
+        # A network failure happens after the text, facts, rights and duplicate
+        # gates have passed.  It is the only review reason this evergreen lane
+        # can safely retry.  Every editorial, rights or delivery review still
+        # needs an explicit human resolution.
+        if row.get("reason") != "image_download_failed":
+            return dict(prepared, status="review",
+                        reason="review_requires_manual_resolution:%s" % (row.get("reason") or "unknown"))
+        st.update(row["id"], status="post_ready", reason="pets_evergreen:image_retry_rearmed")
         row = st.get(row["id"]) or row
     if not (publish and not dry_run):
         return dict(prepared, status="post_ready", material_id=row.get("id"))

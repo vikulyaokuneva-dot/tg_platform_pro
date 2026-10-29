@@ -2,7 +2,7 @@
 """Fail-closed rights contract and Wikimedia Commons resolver for PETS."""
 import re
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import requests
 
@@ -162,6 +162,46 @@ def _safe_headers(headers):
     return {key: lowered[key] for key in _DIAGNOSTIC_HEADERS if key in lowered}
 
 
+def _commons_file_name(image):
+    """Extract the verified Commons filename from the saved file page."""
+    source = str((image or {}).get("source_url") or "").strip()
+    try:
+        source_parts = urlsplit(source)
+        marker = "/wiki/File:"
+        if source_parts.hostname != "commons.wikimedia.org" or marker not in source_parts.path:
+            return ""
+        return unquote(source_parts.path.split(marker, 1)[1]).replace("_", " ").strip()
+    except (TypeError, ValueError):
+        return ""
+
+
+def _verified_original_fallback(image):
+    """Return the original Commons file only when it matches its file page.
+
+    A thumbnail and an original are allowed to share rights metadata only when
+    the existing Commons ``File:`` page identifies the original filename.  A
+    caller cannot turn an arbitrary second URL into a licensed fallback.
+    """
+    original = str((image or {}).get("original_url") or "").strip()
+    try:
+        original_parts = urlsplit(original)
+        page_filename = _commons_file_name(image).lower()
+        if original_parts.hostname != "upload.wikimedia.org" or not page_filename:
+            return ""
+        original_filename = unquote(original_parts.path.rsplit("/", 1)[-1]).replace("_", " ").strip().lower()
+        return original if page_filename and page_filename == original_filename else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def _verified_commons_thumbnail_fallback(image):
+    """Build an alternate rendition from the same verified Commons file page."""
+    filename = _commons_file_name(image)
+    if not filename:
+        return ""
+    return "https://commons.wikimedia.org/wiki/Special:FilePath/%s?width=1600" % quote(filename.replace(" ", "_"), safe="")
+
+
 def download_preview_image(image, session=requests, timeout=25, max_attempts=1, sleep=time.sleep):
     """Download a verified Commons image with full non-secret diagnostics.
 
@@ -171,14 +211,23 @@ def download_preview_image(image, session=requests, timeout=25, max_attempts=1, 
     """
     if not isinstance(image, dict):
         return None, {"status": "image_download_failed", "reason": "image_metadata_missing", "attempts": []}
-    alternatives = (("thumbnail", image.get("url")), ("original", image.get("original_url")))
+    attempt_budget = max(1, min(max_attempts, 3))
+    alternatives = (
+        ("thumbnail", image.get("url")),
+        ("commons_thumbnail", _verified_commons_thumbnail_fallback(image)),
+        ("original", _verified_original_fallback(image)),
+    )
     attempts, seen = [], set()
     for version, raw_url in alternatives:
+        if len(attempts) >= attempt_budget:
+            break
         url = str(raw_url or "").strip()
         if not url or url in seen:
             continue
         seen.add(url)
-        for number in range(1, max(1, min(max_attempts, 3)) + 1):
+        for number in range(1, attempt_budget + 1):
+            if len(attempts) >= attempt_budget:
+                break
             attempt = {"version": version, "url": _safe_url(url), "attempt": number}
             retryable = False
             try:
@@ -207,7 +256,7 @@ def download_preview_image(image, session=requests, timeout=25, max_attempts=1, 
             except Exception as exc:
                 attempt.update({"request_error": type(exc).__name__, "reason": "request_failed"})
             attempts.append(attempt)
-            if not retryable or number >= max_attempts or number >= 3:
+            if not retryable or len(attempts) >= attempt_budget:
                 break
             sleep(min(number * 1.5, 3))
 

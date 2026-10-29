@@ -319,3 +319,49 @@ def test_evergreen_image_failure_logs_reason_and_blocks_telegram(st, monkeypatch
     assert result['image_download'] == diag and '429' in caplog.text
     assert st.seen_url('draft://pets/' + brief['id'])['status'] == 'review'
     assert not sent
+
+
+def test_evergreen_retries_only_a_previous_image_download_review(st, monkeypatch):
+    brief = pets_briefs.EVERGREEN_BRIEFS[0]
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", False)
+    first = pets.process_evergreen_brief(st, brief, publish=False, dry_run=True)
+    row = st.seen_url(first["url"])
+    st.update(row["id"], status="review", reason="image_download_failed")
+    monkeypatch.setattr(pets.pets_images, "download_preview_image",
+                        lambda *args, **kwargs: (b"image", {"status": "attached", "attempts": []}))
+    sent = []
+    monkeypatch.setattr(telegram, "publish_post",
+                        lambda *args, **kwargs: sent.append(1) or telegram.PublishResult(True, message_id=777))
+    result = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False)
+    assert result["status"] == "published" and sent == [1]
+    assert st.seen_url(first["url"])["status"] == "published"
+
+
+@pytest.mark.parametrize("brief", pets_briefs.EVERGREEN_BRIEFS,
+                         ids=lambda brief: brief["id"])
+def test_each_evergreen_image_review_rearms_without_sending(st, monkeypatch, brief):
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", False)
+    first = pets.process_evergreen_brief(st, brief, publish=False, dry_run=True)
+    row = st.seen_url(first["url"])
+    st.update(row["id"], status="review", reason="image_download_failed")
+    result = pets.process_evergreen_brief(st, brief, publish=False, dry_run=False)
+    restored = st.get(row["id"])
+    assert result["status"] == "post_ready"
+    assert restored["status"] == "post_ready"
+    assert restored["reason"] == "pets_evergreen:image_retry_rearmed"
+
+
+def test_evergreen_does_not_reopen_unrelated_review_or_send(st, monkeypatch):
+    brief = pets_briefs.EVERGREEN_BRIEFS[0]
+    monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", False)
+    first = pets.process_evergreen_brief(st, brief, publish=False, dry_run=True)
+    row = st.seen_url(first["url"])
+    st.update(row["id"], status="review", reason="editorial_safety")
+    monkeypatch.setattr(pets.pets_images, "download_preview_image",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not download")))
+    sent = []
+    monkeypatch.setattr(telegram, "publish_post", lambda *args, **kwargs: sent.append(1))
+    result = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False)
+    assert result["status"] == "review"
+    assert result["reason"] == "review_requires_manual_resolution:editorial_safety"
+    assert st.seen_url(first["url"])["status"] == "review" and not sent
