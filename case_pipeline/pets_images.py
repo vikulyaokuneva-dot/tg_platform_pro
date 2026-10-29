@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Fail-closed rights contract and Wikimedia Commons resolver for PETS."""
 import re
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -148,7 +149,10 @@ def _safe_url(url):
     """Keep origin/path for diagnostics, never query parameters or credentials."""
     try:
         parts = urlsplit(str(url or ""))
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        host = parts.hostname or ""
+        if parts.port:
+            host += ":%s" % parts.port
+        return urlunsplit((parts.scheme, host, parts.path, "", ""))
     except ValueError:
         return ""
 
@@ -158,7 +162,7 @@ def _safe_headers(headers):
     return {key: lowered[key] for key in _DIAGNOSTIC_HEADERS if key in lowered}
 
 
-def download_preview_image(image, session=requests, timeout=25):
+def download_preview_image(image, session=requests, timeout=25, max_attempts=1, sleep=time.sleep):
     """Download a verified Commons image with full non-secret diagnostics.
 
     A licence-valid URL is deliberately not treated as a local attachment.  The
@@ -174,27 +178,37 @@ def download_preview_image(image, session=requests, timeout=25):
         if not url or url in seen:
             continue
         seen.add(url)
-        attempt = {"version": version, "url": _safe_url(url)}
-        try:
-            response = session.get(url, headers=COMMONS_HEADERS, timeout=timeout, allow_redirects=True)
-            data = response.content or b""
-            content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-            attempt.update({"http_status": int(response.status_code), "headers": _safe_headers(response.headers),
-                            "mime_type": content_type, "bytes": len(data)})
-            if response.status_code != 200:
-                attempt["reason"] = "http_status_%s" % response.status_code
-            elif not content_type.startswith("image/"):
-                attempt["reason"] = "mime_not_image"
-            elif len(data) < IMAGE_MIN_BYTES:
-                attempt["reason"] = "file_too_small"
-            elif len(data) > IMAGE_MAX_BYTES:
-                attempt["reason"] = "file_too_large"
-            else:
-                attempt["reason"] = "accepted"
-                attempts.append(attempt)
-                return data, {"status": "attached", "version": version, "url": _safe_url(url),
-                              "mime_type": content_type, "bytes": len(data), "attempts": attempts}
-        except Exception as exc:
-            attempt.update({"request_error": type(exc).__name__, "reason": "request_failed"})
-        attempts.append(attempt)
+        for number in range(1, max(1, min(max_attempts, 3)) + 1):
+            attempt = {"version": version, "url": _safe_url(url), "attempt": number}
+            retryable = False
+            try:
+                response = session.get(url, headers=COMMONS_HEADERS, timeout=timeout, allow_redirects=True)
+                data = response.content or b""
+                content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                attempt.update({"http_status": int(response.status_code), "headers": _safe_headers(response.headers),
+                                "mime_type": content_type, "bytes": len(data)})
+                if response.status_code != 200:
+                    attempt["reason"] = "http_status_%s" % response.status_code
+                    retryable = response.status_code in (408, 429, 500, 502, 503, 504)
+                elif not content_type.startswith("image/"):
+                    attempt["reason"] = "mime_not_image"
+                elif len(data) < IMAGE_MIN_BYTES:
+                    attempt["reason"] = "file_too_small"
+                elif len(data) > IMAGE_MAX_BYTES:
+                    attempt["reason"] = "file_too_large"
+                else:
+                    attempt["reason"] = "accepted"
+                    attempts.append(attempt)
+                    return data, {"status": "attached", "version": version, "url": _safe_url(url),
+                                  "mime_type": content_type, "bytes": len(data), "attempts": attempts}
+            except requests.exceptions.RequestException as exc:
+                attempt.update({"request_error": type(exc).__name__, "reason": "request_failed"})
+                retryable = True
+            except Exception as exc:
+                attempt.update({"request_error": type(exc).__name__, "reason": "request_failed"})
+            attempts.append(attempt)
+            if not retryable or number >= max_attempts or number >= 3:
+                break
+            sleep(min(number * 1.5, 3))
+
     return None, {"status": "image_download_failed", "reason": "no_accessible_image_version", "attempts": attempts}

@@ -7,6 +7,7 @@ without a durable state backend.  It reuses the platform's HTTP, extraction,
 SQLite lifecycle and Telegram publisher without changing AGRO behaviour.
 """
 import logging
+import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -297,11 +298,16 @@ def process_evergreen_brief(st, brief, *, publish=False, dry_run=True, checkpoin
         return dict(prepared, status="post_ready", material_id=row.get("id"))
     if config.PETS_REQUIRE_DURABLE_STATE and config.PETS_STATE_BACKEND != "github":
         return dict(prepared, status="review", reason="durable_state_required")
-    try:
-        photo = httpclient.fetch_bytes(row.get("image_url") or "")
-    except Exception:
+    image = brief["image"]
+    if row.get("image_url") != image.get("url"):
+        st.update(row["id"], status="review", reason="image_metadata_mismatch")
+        return dict(prepared, status="review", reason="image_metadata_mismatch")
+    photo, diagnostic = pets_images.download_preview_image(image, max_attempts=3)
+    log.info("pets evergreen image material_id=%s diagnostic=%s", row["id"],
+             json.dumps(diagnostic, ensure_ascii=True, sort_keys=True))
+    if photo is None:
         st.update(row["id"], status="review", reason="image_download_failed")
-        return dict(prepared, status="review", reason="image_download_failed")
+        return dict(prepared, status="review", reason="image_download_failed", image_download=diagnostic)
     if not st.claim_for_publish(row["id"]):
         return dict(prepared, status="review", reason="publish_claim_lost")
     try:

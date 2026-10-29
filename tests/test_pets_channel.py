@@ -151,7 +151,7 @@ def test_evergreen_publish_records_one_delivery_and_never_retries_after_checkpoi
     monkeypatch.setattr(config, "PETS_REQUIRE_DURABLE_STATE", True)
     monkeypatch.setattr(config, "PETS_STATE_BACKEND", "github")
     monkeypatch.setattr(config, "PETS_PUBLISH", True)
-    monkeypatch.setattr(pets.httpclient, "fetch_bytes", lambda _url: b"image")
+    monkeypatch.setattr(pets.pets_images, "download_preview_image", lambda *args, **kwargs: (b"image", {"status": "attached", "attempts": []}))
     sent = []
     monkeypatch.setattr(telegram, "publish_post", lambda *args, **kwargs: sent.append(1) or telegram.PublishResult(True, message_id=501))
     phases = []
@@ -303,3 +303,19 @@ def test_pets_job_dry_run_creates_review_drafts_without_sending(tmp_path, monkey
     assert ctx.storage["last_run"]["demo_ready"] == 3
     assert ctx.storage["last_run"]["published"] == 0
     assert ctx.storage["last_run"]["dry_run"] is True
+
+
+def test_evergreen_image_failure_logs_reason_and_blocks_telegram(st, monkeypatch, caplog):
+    brief = pets_briefs.EVERGREEN_BRIEFS[0]
+    monkeypatch.setattr(config, 'PETS_REQUIRE_DURABLE_STATE', False)
+    diag = {'status': 'image_download_failed', 'attempts': [
+        {'http_status': 429, 'reason': 'http_status_429', 'attempt': 3}]}
+    monkeypatch.setattr(pets.pets_images, 'download_preview_image', lambda *a, **kw: (None, diag))
+    sent = []
+    monkeypatch.setattr(telegram, 'publish_post', lambda *a, **kw: sent.append(1))
+    with caplog.at_level('INFO', logger='case.pets'):
+        result = pets.process_evergreen_brief(st, brief, publish=True, dry_run=False)
+    assert result['reason'] == 'image_download_failed'
+    assert result['image_download'] == diag and '429' in caplog.text
+    assert st.seen_url('draft://pets/' + brief['id'])['status'] == 'review'
+    assert not sent

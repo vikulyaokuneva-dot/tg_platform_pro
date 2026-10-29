@@ -281,3 +281,39 @@ def test_universal_preview_only_constructs_real_provider_after_all_live_gates(mo
     monkeypatch.setattr("case_pipeline.ai.get_provider", lambda: called.append(True))
     runpy.run_module("jobs.pets.universal_preview", run_name="__main__")
     assert called == []
+
+
+def test_image_retry_transient_429_then_success_without_leaking_url():
+    class Response:
+        def __init__(self, status):
+            self.status_code = status
+            self.content = b'x' * 20000 if status == 200 else b'limit'
+            self.headers = {'Content-Type': 'image/jpeg' if status == 200 else 'text/plain'}
+    class Session:
+        def __init__(self):
+            self.statuses = iter([429, 200])
+        def get(self, *args, **kwargs):
+            return Response(next(self.statuses))
+    delays = []
+    data, diag = preview.pets_images.download_preview_image(
+        {'url': 'https://user:secret@upload.wikimedia.org/file.jpg?token=secret'},
+        session=Session(), max_attempts=3, sleep=delays.append)
+    assert data and [a['http_status'] for a in diag['attempts']] == [429, 200]
+    assert delays == [1.5]
+    assert 'secret' not in str(diag)
+
+
+def test_image_retry_permanent_failure_stops_without_sleep():
+    class Response:
+        status_code = 403
+        content = b'blocked'
+        headers = {'Content-Type': 'text/plain'}
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+    delays = []
+    data, diag = preview.pets_images.download_preview_image(
+        {'url': 'https://upload.wikimedia.org/file.jpg'}, session=Session(),
+        max_attempts=3, sleep=delays.append)
+    assert data is None and len(diag['attempts']) == 1
+    assert diag['attempts'][0]['reason'] == 'http_status_403' and not delays
