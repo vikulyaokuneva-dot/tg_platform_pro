@@ -1,0 +1,4 @@
+# Installed only by the isolated structured-editor experiment workflow.
+# The main platform keeps its current REST client and dependency set.
+gigachat>=0.2.4a1
+pydantic>=2,<3
